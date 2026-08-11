@@ -26,17 +26,21 @@ public record PipelineParamDto(
     bool AllowOverride,
     IReadOnlyList<string>? AllowedValues);
 
+/// <summary>A pipeline resource declared in a pipeline's YAML (an upstream artifact source).</summary>
+public record PipelineResourceDto(string Alias, string? Source, string? Project);
+
 public record PipelineDetailDto(
     PipelineDto Pipeline,
     IReadOnlyList<BranchDto> Branches,
     IReadOnlyList<PipelineParamDto> Parameters,
-    IReadOnlyList<string> ResourceAliases);
+    IReadOnlyList<PipelineResourceDto> Resources);
 
 // ----- runs -----
 public record RunRequest(
     string Branch,
     Dictionary<string, string>? TemplateParameters,
-    Dictionary<string, string>? Variables);
+    Dictionary<string, string>? Variables,
+    Dictionary<string, string>? PipelineResources);
 
 public record RunDto(
     int Id,
@@ -72,10 +76,11 @@ public class SequenceInputDto
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
-    public string Kind { get; set; } = "value";   // "branch" | "value"
+    public string Kind { get; set; } = "value";   // "branch" | "value" | "environment"
     public string? Default { get; set; }
-    public string? SourceProject { get; set; }     // branch inputs: pipeline to autofill branches from
+    public string? SourceProject { get; set; }     // branch/environment: pipeline to smart-fill from
     public int? SourcePipelineId { get; set; }
+    public string? SourceParameter { get; set; }   // environment: template parameter whose values to offer
 }
 
 public class SequenceStepDto
@@ -116,6 +121,11 @@ public record SequenceRunDto(
     List<SequenceRunStepDto> Steps,
     DateTime StartedAt,
     DateTime? FinishedAt);
+
+// ----- configurations (Azure App Configuration) -----
+public record ConfigRegistryDto(string Id, string Name, string Endpoint);
+public record UpsertConfigRegistryRequest(string Name, string Connection);
+public record ConfigSettingDto(string Key, string? Value, string? Label, string? ContentType, DateTimeOffset? LastModified);
 
 // ----- views -----
 public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf);

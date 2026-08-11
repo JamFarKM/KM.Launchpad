@@ -67,7 +67,7 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
                 onClick={() => { onChange(o.value); setOpen(false); }}
               >
                 <span className="combo-opt-label">{o.label}</span>
-                {o.hint && <span className="faint">{o.hint}</span>}
+                {o.hint && <span className="faint combo-opt-hint">{o.hint}</span>}
               </div>
             ))}
           </div>

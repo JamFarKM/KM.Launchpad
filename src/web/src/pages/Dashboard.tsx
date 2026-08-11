@@ -237,11 +237,14 @@ export function Dashboard() {
         <div className="main">
           <div className="tabs">
             <button
-              className="btn ghost small"
+              className="btn ghost small icon-btn"
               title={poolCollapsed ? "Show pipeline list" : "Hide pipeline list"}
               onClick={togglePool}
             >
-              {poolCollapsed ? "☰" : "⟨"}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <line x1="9" y1="4" x2="9" y2="20" />
+              </svg>
             </button>
             {views.map((v) => (
               <button

@@ -14,6 +14,7 @@
   --running: #d29922;
   --canceled: #8b949e;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  --hover: #232c3a;
   --radius: 10px;
   color-scheme: dark;
 }
@@ -34,6 +35,7 @@
   --running: #9a6700;
   --canceled: #6e7781;
   --shadow: 0 8px 30px rgba(140, 149, 159, 0.22);
+  --hover: #e7ecf2;
   color-scheme: light;
 }
 
@@ -132,7 +134,13 @@ a {
 }
 
 .btn:hover {
-  background: #232c3a;
+  background: var(--hover);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn.primary {
@@ -662,16 +670,17 @@ a {
 
 .combo-list {
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .combo-opt {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
   padding: 7px 9px;
   border-radius: 6px;
   cursor: pointer;
+  min-width: 0;
 }
 
 .combo-opt:hover {
@@ -684,9 +693,21 @@ a {
 }
 
 .combo-opt-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.combo-opt-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 .combo-empty {
@@ -719,6 +740,66 @@ a {
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;
+}
+
+/* ---------- configurations ---------- */
+.cfg-registry {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-2);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.cfg-registry-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cfg-registry-name {
+  font-weight: 600;
+}
+
+.cfg-table-wrap {
+  overflow-x: auto;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.cfg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cfg-table th {
+  text-align: left;
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+  color: var(--text-faint);
+  font-weight: 600;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cfg-table td {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.cfg-table .cfg-key {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.cfg-table .cfg-val {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  word-break: break-word;
 }
 
 /* ---------- collapsible sidebar ---------- */

@@ -29,6 +29,7 @@ builder.Services.AddHttpClient("ado", c => c.Timeout = TimeSpan.FromSeconds(60))
 builder.Services.AddScoped<AdoContext>();
 builder.Services.AddScoped<AdoService>();
 builder.Services.AddScoped<ConfigService>();
+builder.Services.AddSingleton<ConfigStoreService>();
 builder.Services.AddSingleton<SequenceRunner>();
 
 var app = builder.Build();
@@ -61,6 +62,15 @@ using (var scope = app.Services.CreateScope())
             "FinishedAt" TEXT NULL
         );
         CREATE INDEX IF NOT EXISTS "IX_SequenceRuns_SequenceId" ON "SequenceRuns" ("SequenceId");
+
+        CREATE TABLE IF NOT EXISTS "ConfigRegistries" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_ConfigRegistries" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Name" TEXT NOT NULL,
+            "Secret" TEXT NOT NULL,
+            "CreatedAt" TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_ConfigRegistries_UserId" ON "ConfigRegistries" ("UserId");
         """);
 }
 
@@ -69,6 +79,7 @@ app.UseMiddleware<SessionMiddleware>();
 app.MapApi();
 app.MapSequences();
 app.MapImportExport();
+app.MapConfigRegistries();
 
 // Serve the built React SPA and fall back to index.html for client routes.
 app.UseDefaultFiles();

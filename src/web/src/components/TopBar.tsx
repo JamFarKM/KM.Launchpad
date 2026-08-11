@@ -4,7 +4,7 @@ import { canInstall as pwaCanInstall, promptInstall } from "../pwa";
 import { SettingsModal } from "./SettingsModal";
 import type { User } from "../types";
 
-export type Page = "views" | "sequences";
+export type Page = "views" | "sequences" | "configurations";
 
 interface Props {
   user: User;
@@ -74,6 +74,7 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
       <nav className="nav">
         <button className={`nav-btn ${page === "views" ? "active" : ""}`} onClick={() => onNav("views")}>Views</button>
         <button className={`nav-btn ${page === "sequences" ? "active" : ""}`} onClick={() => onNav("sequences")}>Sequences</button>
+        <button className={`nav-btn ${page === "configurations" ? "active" : ""}`} onClick={() => onNav("configurations")}>Configurations</button>
       </nav>
 
       <div className="spacer" />
@@ -94,7 +95,7 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
         {busy ? <><span className="spin" /> Importing…</> : "Import"}
       </button>
       <button className="btn ghost small" onClick={onExport} title="Download your current views & sequences as a config">Export</button>
-      <button className="btn ghost small" title="Settings" onClick={() => setShowSettings(true)}>⚙</button>
+      <button className="btn ghost small" title="Settings" onClick={() => setShowSettings(true)}>⚙️</button>
 
       <span className="who">{user.displayName || user.uniqueName}</span>
       <button className="btn ghost small" onClick={onDisconnect}>Sign out</button>

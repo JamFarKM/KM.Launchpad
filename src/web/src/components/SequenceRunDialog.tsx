@@ -30,6 +30,8 @@ export function SequenceRunDialog({ sequence, busy, onClose, onRun }: {
               </label>
               {i.kind === "branch" ? (
                 <BranchInput input={i} value={values[i.id] ?? ""} onChange={(v) => setValues((s) => ({ ...s, [i.id]: v }))} />
+              ) : i.kind === "environment" ? (
+                <EnvInput input={i} value={values[i.id] ?? ""} onChange={(v) => setValues((s) => ({ ...s, [i.id]: v }))} />
               ) : (
                 <input className="input" value={values[i.id] ?? ""}
                   onChange={(e) => setValues((s) => ({ ...s, [i.id]: e.target.value }))} />
@@ -70,5 +72,26 @@ function BranchInput({ input, value, onChange }: {
       placeholder="— branch —"
       onChange={onChange}
     />
+  );
+}
+
+function EnvInput({ input, value, onChange }: {
+  input: SequenceInput;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const detailQ = useQuery<PipelineDetail>({
+    queryKey: ["detail", input.sourceProject, input.sourcePipelineId],
+    queryFn: () => api.pipelineDetail(input.sourceProject!, input.sourcePipelineId!),
+    enabled: !!input.sourceProject && !!input.sourcePipelineId,
+  });
+  const values = detailQ.data?.parameters.find((p) => p.name === input.sourceParameter)?.allowedValues ?? [];
+
+  if (values.length === 0) {
+    return <input className="input" placeholder="value" value={value} onChange={(e) => onChange(e.target.value)} />;
+  }
+  return (
+    <Combobox value={value} options={values.map((v) => ({ value: v, label: v }))}
+      loading={detailQ.isLoading} placeholder="— value —" onChange={onChange} />
   );
 }

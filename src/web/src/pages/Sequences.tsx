@@ -176,57 +176,93 @@ function InputEditor({ input, projects, onChange, onRemove }: {
   onChange: (patch: Partial<SequenceInput>) => void;
   onRemove: () => void;
 }) {
+  const sourced = input.kind === "branch" || input.kind === "environment";
   const pipelinesQ = useQuery<Pipeline[]>({
     queryKey: ["pipelines", input.sourceProject],
     queryFn: () => api.pipelines(input.sourceProject!),
-    enabled: input.kind === "branch" && !!input.sourceProject,
+    enabled: sourced && !!input.sourceProject,
   });
   const detailQ = useQuery<PipelineDetail>({
     queryKey: ["detail", input.sourceProject, input.sourcePipelineId],
     queryFn: () => api.pipelineDetail(input.sourceProject!, input.sourcePipelineId!),
-    enabled: input.kind === "branch" && !!input.sourceProject && !!input.sourcePipelineId,
+    enabled: sourced && !!input.sourceProject && !!input.sourcePipelineId,
   });
+
+  const selectedParam = (detailQ.data?.parameters ?? []).find((p) => p.name === input.sourceParameter);
+  const envValues = selectedParam?.allowedValues ?? [];
 
   return (
     <div className="seq-input-card">
       <div className="row" style={{ marginBottom: 8 }}>
         <input className="input" style={{ maxWidth: 220 }} placeholder="Input name (e.g. branch, environment_suffix)"
           value={input.name} onChange={(e) => onChange({ name: e.target.value })} />
-        <select className="select" style={{ maxWidth: 140 }} value={input.kind}
-          onChange={(e) => onChange({ kind: e.target.value as "branch" | "value" })}>
+        <select className="select" style={{ maxWidth: 150 }} value={input.kind}
+          onChange={(e) => onChange({ kind: e.target.value as SequenceInput["kind"] })}>
           <option value="value">value</option>
           <option value="branch">branch</option>
+          <option value="environment">environment</option>
         </select>
         <span style={{ flex: 1 }} />
         <button className="btn ghost small" onClick={onRemove}>✕</button>
       </div>
 
-      {input.kind === "branch" ? (
+      {input.kind === "branch" && (
         <div className="seq-step-grid">
           <div>
             <label className="label">Autofill from project</label>
-            <Combobox value={input.sourceProject ?? ""} options={projectOptions(projects)}
-              placeholder="— project —"
+            <Combobox value={input.sourceProject ?? ""} options={projectOptions(projects)} placeholder="— project —"
               onChange={(v) => onChange({ sourceProject: v, sourcePipelineId: null })} />
           </div>
           <div>
             <label className="label">Pipeline</label>
             <Combobox value={input.sourcePipelineId ? String(input.sourcePipelineId) : ""}
-              options={pipelineOptions(pipelinesQ.data ?? [])}
-              disabled={!input.sourceProject} loading={pipelinesQ.isLoading}
-              placeholder="— pipeline —"
-              onChange={(v) => onChange({ sourcePipelineId: Number(v) })} />
+              options={pipelineOptions(pipelinesQ.data ?? [])} disabled={!input.sourceProject} loading={pipelinesQ.isLoading}
+              placeholder="— pipeline —" onChange={(v) => onChange({ sourcePipelineId: Number(v) })} />
           </div>
           <div>
             <label className="label">Default branch</label>
             <Combobox value={input.default ?? ""}
               options={(detailQ.data?.branches ?? []).map((b) => ({ value: b.name, label: b.name, hint: b.isDefault ? "default" : undefined }))}
-              disabled={!input.sourcePipelineId} loading={detailQ.isLoading}
-              placeholder="— branch —"
+              disabled={!input.sourcePipelineId} loading={detailQ.isLoading} placeholder="— branch —"
               onChange={(v) => onChange({ default: v })} />
           </div>
         </div>
-      ) : (
+      )}
+
+      {input.kind === "environment" && (
+        <div className="seq-step-grid">
+          <div>
+            <label className="label">Values from project</label>
+            <Combobox value={input.sourceProject ?? ""} options={projectOptions(projects)} placeholder="— project —"
+              onChange={(v) => onChange({ sourceProject: v, sourcePipelineId: null, sourceParameter: "" })} />
+          </div>
+          <div>
+            <label className="label">Pipeline</label>
+            <Combobox value={input.sourcePipelineId ? String(input.sourcePipelineId) : ""}
+              options={pipelineOptions(pipelinesQ.data ?? [])} disabled={!input.sourceProject} loading={pipelinesQ.isLoading}
+              placeholder="— pipeline —" onChange={(v) => onChange({ sourcePipelineId: Number(v), sourceParameter: "" })} />
+          </div>
+          <div>
+            <label className="label">Parameter</label>
+            <Combobox value={input.sourceParameter ?? ""}
+              options={(detailQ.data?.parameters ?? []).map((p) => ({ value: p.name, label: p.name, hint: p.type === "enum" ? `${p.allowedValues?.length ?? 0} values` : p.type }))}
+              disabled={!input.sourcePipelineId} loading={detailQ.isLoading} placeholder="— parameter —"
+              onChange={(v) => onChange({ sourceParameter: v })} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label className="label">Default value</label>
+            {envValues.length > 0 ? (
+              <Combobox value={input.default ?? ""} options={envValues.map((v) => ({ value: v, label: v }))}
+                placeholder="— value —" onChange={(v) => onChange({ default: v })} />
+            ) : (
+              <input className="input" style={{ maxWidth: 260 }} placeholder="e.g. int"
+                value={input.default ?? ""} onChange={(e) => onChange({ default: e.target.value })} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {input.kind === "value" && (
         <div>
           <label className="label">Default value</label>
           <input className="input" style={{ maxWidth: 260 }} placeholder="e.g. int"
@@ -260,7 +296,7 @@ function StepEditor({ step, index, total, projects, inputs, onChange, onMove, on
   const detail = detailQ.data;
 
   const branchInputs = inputs.filter((i) => i.kind === "branch");
-  const valueInputs = inputs.filter((i) => i.kind === "value");
+  const valueInputs = inputs.filter((i) => i.kind !== "branch"); // value + environment are bindable
 
   // Branch selector merges: default + branch-inputs + the pipeline's branches.
   const branchValue = step.branchInputId ? `input:${step.branchInputId}` : step.branch ? `branch:${step.branch}` : "";
@@ -278,7 +314,9 @@ function StepEditor({ step, index, total, projects, inputs, onChange, onMove, on
   const bindings = step.bindings ?? [];
   const setBindings = (b: ParamBinding[]) => onChange({ bindings: b });
   const paramNames = (detail?.parameters ?? []).map((p) => p.name);
-  const linkKeySuggestions = step.link?.mode === "resource" ? (detail?.resourceAliases ?? []) : paramNames;
+  const linkKeySuggestions = step.link?.mode === "resource"
+    ? (detail?.resources ?? []).map((r) => r.alias)
+    : paramNames;
 
   return (
     <div className="seq-step-card">
@@ -338,7 +376,7 @@ function StepEditor({ step, index, total, projects, inputs, onChange, onMove, on
               </>
             )}
           </div>
-          {step.link?.mode === "resource" && (detail?.resourceAliases?.length ?? 0) === 0 && (
+          {step.link?.mode === "resource" && (detail?.resources?.length ?? 0) === 0 && (
             <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>No pipeline resources declared in this pipeline’s YAML — type the alias if you know it.</div>
           )}
         </div>

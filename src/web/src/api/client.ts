@@ -1,5 +1,7 @@
 import type {
   Branch,
+  ConfigRegistry,
+  ConfigSetting,
   LogContent,
   LogEntry,
   Pipeline,
@@ -92,6 +94,10 @@ export const api = {
     req<Run[]>(
       `/api/projects/${encodeURIComponent(project)}/pipelines/${id}/runs?top=${top}`,
     ),
+  resourceRuns: (project: string, name: string, top = 15) =>
+    req<Run[]>(
+      `/api/projects/${encodeURIComponent(project)}/resource-runs?name=${encodeURIComponent(name)}&top=${top}`,
+    ),
   runDetail: (project: string, buildId: number) =>
     req<Run>(`/api/projects/${encodeURIComponent(project)}/runs/${buildId}`),
   runLogs: (project: string, buildId: number) =>
@@ -153,4 +159,16 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, res.statusText);
     return res.text();
   },
+
+  // Azure App Configuration registries
+  configRegistries: () => req<ConfigRegistry[]>("/api/config-registries"),
+  addConfigRegistry: (name: string, connection: string) =>
+    req<ConfigRegistry>("/api/config-registries", {
+      method: "POST",
+      body: JSON.stringify({ name, connection }),
+    }),
+  deleteConfigRegistry: (id: string) =>
+    req<void>(`/api/config-registries/${id}`, { method: "DELETE" }),
+  configSettings: (id: string) =>
+    req<ConfigSetting[]>(`/api/config-registries/${id}/settings`),
 };

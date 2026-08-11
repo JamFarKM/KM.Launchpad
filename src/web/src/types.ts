@@ -39,11 +39,17 @@ export interface PipelineParam {
   allowedValues?: string[] | null;
 }
 
+export interface PipelineResource {
+  alias: string;
+  source?: string | null;
+  project?: string | null;
+}
+
 export interface PipelineDetail {
   pipeline: Pipeline;
   branches: Branch[];
   parameters: PipelineParam[];
-  resourceAliases: string[];
+  resources: PipelineResource[];
 }
 
 export type RunState = "notStarted" | "inProgress" | "completed" | string;
@@ -108,10 +114,11 @@ export interface ParamBinding {
 export interface SequenceInput {
   id: string;
   name: string;
-  kind: "branch" | "value";
+  kind: "branch" | "value" | "environment";
   default?: string | null;
   sourceProject?: string | null;
   sourcePipelineId?: number | null;
+  sourceParameter?: string | null;
 }
 
 export interface SequenceStep {
@@ -169,4 +176,20 @@ export interface RunRequest {
   branch: string;
   templateParameters?: Record<string, string>;
   variables?: Record<string, string>;
+  pipelineResources?: Record<string, string>;
+}
+
+// ----- configurations (Azure App Configuration) -----
+export interface ConfigRegistry {
+  id: string;
+  name: string;
+  endpoint: string;
+}
+
+export interface ConfigSetting {
+  key: string;
+  value?: string | null;
+  label?: string | null;
+  contentType?: string | null;
+  lastModified?: string | null;
 }

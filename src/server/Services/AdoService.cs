@@ -118,9 +118,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             !string.Equals(queueStatus, "disabled", StringComparison.OrdinalIgnoreCase));
 
         var parameters = new List<PipelineParamDto>();
-        var resourceAliases = new List<string>();
+        var resources = new List<PipelineResourceDto>();
 
-        // 1) YAML template parameters + pipeline resource aliases (scraped from the repo).
+        // 1) YAML template parameters + pipeline resources (scraped from the repo).
         string? yamlFile = null;
         if (root.TryGetProperty("process", out var process))
             yamlFile = process.TryGetProperty("yamlFilename", out var yf) ? yf.GetString() : null;
@@ -129,9 +129,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         {
             try
             {
-                var (scraped, aliases) = await ScrapeYamlAsync(project, repoId, defaultBranch, yamlFile, ct);
+                var (scraped, scrapedResources) = await ScrapeYamlAsync(project, repoId, defaultBranch, yamlFile, ct);
                 parameters.AddRange(scraped);
-                resourceAliases = aliases;
+                resources = scrapedResources;
             }
             catch { /* best-effort — fall back to variables + free-form */ }
         }
@@ -153,7 +153,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             ? await GetBranchesAsync(project, repoId, defaultBranch, ct)
             : new List<BranchDto>();
 
-        return new PipelineDetailDto(pipeline, branches, parameters, resourceAliases);
+        return new PipelineDetailDto(pipeline, branches, parameters, resources);
     }
 
     public async Task<List<BranchDto>> GetBranchesAsync(string project, string repoId, string? defaultBranch, CancellationToken ct)
@@ -236,7 +236,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     /// <c>parameters:</c>. Follows one level of <c>extends: template:</c> to a
     /// same-repo template if the entry file has no parameters of its own.
     /// </summary>
-    private async Task<(List<PipelineParamDto> Parameters, List<string> ResourceAliases)> ScrapeYamlAsync(
+    private async Task<(List<PipelineParamDto> Parameters, List<PipelineResourceDto> Resources)> ScrapeYamlAsync(
         string project, string repoId, string? defaultBranch, string yamlPath, CancellationToken ct)
     {
         var branch = (defaultBranch ?? "refs/heads/main").Replace("refs/heads/", "");
@@ -246,7 +246,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         var root = ParseYamlRoot(text);
         if (root is null) return (new(), new());
 
-        var aliases = ExtractResourceAliases(root);
+        var resources = ExtractResources(root);
         var parameters = new List<PipelineParamDto>();
 
         // Direct parameters on the entry file.
@@ -272,7 +272,8 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
                 var troot = ttext is null ? null : ParseYamlRoot(ttext);
                 if (troot is not null)
                 {
-                    aliases = aliases.Concat(ExtractResourceAliases(troot)).Distinct().ToList();
+                    var extra = ExtractResources(troot).Where(r => resources.All(x => x.Alias != r.Alias));
+                    resources = resources.Concat(extra).ToList();
                     if (troot.Children.TryGetValue(new YamlScalarNode("parameters"), out var tp)
                         && tp is YamlSequenceNode tseq)
                         parameters = ParseParamSequence(tseq);
@@ -280,13 +281,13 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             }
         }
 
-        return (parameters, aliases);
+        return (parameters, resources);
     }
 
-    /// <summary>Extracts pipeline resource aliases: resources: pipelines: - pipeline: &lt;alias&gt;.</summary>
-    private static List<string> ExtractResourceAliases(YamlMappingNode root)
+    /// <summary>Extracts pipeline resources: resources: pipelines: - pipeline: &lt;alias&gt; source: &lt;name&gt; project: &lt;proj&gt;.</summary>
+    private static List<PipelineResourceDto> ExtractResources(YamlMappingNode root)
     {
-        var aliases = new List<string>();
+        var list = new List<PipelineResourceDto>();
         if (root.Children.TryGetValue(new YamlScalarNode("resources"), out var res)
             && res is YamlMappingNode resMap
             && resMap.Children.TryGetValue(new YamlScalarNode("pipelines"), out var pl)
@@ -295,10 +296,11 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             foreach (var node in plSeq.Children.OfType<YamlMappingNode>())
             {
                 var alias = Scalar(node, "pipeline");
-                if (!string.IsNullOrWhiteSpace(alias)) aliases.Add(alias!);
+                if (string.IsNullOrWhiteSpace(alias)) continue;
+                list.Add(new PipelineResourceDto(alias!, Scalar(node, "source"), Scalar(node, "project")));
             }
         }
-        return aliases;
+        return list;
     }
 
     private async Task<string?> GetRepoFileTextAsync(
@@ -377,7 +379,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     // --------------------------------------------------------------- runs
 
     public Task<RunDto> RunPipelineAsync(string project, int pipelineId, RunRequest req, CancellationToken ct) =>
-        RunPipelineAsync(project, pipelineId, req.Branch, req.TemplateParameters, req.Variables, null, ct);
+        RunPipelineAsync(project, pipelineId, req.Branch, req.TemplateParameters, req.Variables, req.PipelineResources, ct);
 
     /// <summary>
     /// Triggers a pipeline run. <paramref name="pipelineResources"/> maps a pipeline
@@ -455,6 +457,21 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         foreach (var b in doc.RootElement.GetProperty("value").EnumerateArray())
             list.Add(MapBuild(b, project));
         return list;
+    }
+
+    /// <summary>Resolves a pipeline by name (as declared in a resource's `source`) and lists its recent runs.</summary>
+    public async Task<List<RunDto>> GetRunsByPipelineNameAsync(string project, string name, int top, CancellationToken ct)
+    {
+        using var defs = await SendJsonAsync(
+            HttpMethod.Get,
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions" +
+            $"?name={Uri.EscapeDataString(name)}&api-version={ApiVersion}",
+            null, null, null, ct);
+
+        var value = defs.RootElement.GetProperty("value");
+        if (value.GetArrayLength() == 0) return new();
+        var id = value[0].GetProperty("id").GetInt32();
+        return await GetRunsAsync(project, id, top, ct);
     }
 
     public async Task<RunDto> GetRunAsync(string project, int buildId, CancellationToken ct)

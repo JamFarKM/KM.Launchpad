@@ -4,6 +4,7 @@ import { api, ApiError } from "./api/client";
 import { ConnectPage } from "./pages/ConnectPage";
 import { Dashboard } from "./pages/Dashboard";
 import { SequencesPage } from "./pages/Sequences";
+import { ConfigurationsPage } from "./pages/Configurations";
 import { TopBar, type Page } from "./components/TopBar";
 import type { User } from "./types";
 
@@ -68,7 +69,9 @@ function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void
           setPage("views");
         }}
       />
-      {page === "views" ? <Dashboard /> : <SequencesPage />}
+      {page === "views" && <Dashboard />}
+      {page === "sequences" && <SequencesPage />}
+      {page === "configurations" && <ConfigurationsPage />}
     </div>
   );
 }

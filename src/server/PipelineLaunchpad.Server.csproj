@@ -14,6 +14,9 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
     <!-- Parse pipeline YAML to surface declared template parameters. -->
     <PackageReference Include="YamlDotNet" Version="16.2.0" />
+    <!-- Read Azure App Configuration stores (connection string or AAD via DefaultAzureCredential). -->
+    <PackageReference Include="Azure.Data.AppConfiguration" Version="1.5.0" />
+    <PackageReference Include="Azure.Identity" Version="1.13.2" />
   </ItemGroup>
 
 </Project>

@@ -110,6 +110,11 @@ public static class ApiEndpoints
             string project, int buildId, AdoContext ctx, AdoService ado, CancellationToken ct) =>
             Guarded(ctx, () => ado.GetRunAsync(project, buildId, ct)));
 
+        // Recent runs of an upstream pipeline (resolved by name) — for picking a resource artifact.
+        api.MapGet("/projects/{project}/resource-runs", (
+            string project, string name, int? top, AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetRunsByPipelineNameAsync(project, name, Math.Clamp(top ?? 15, 1, 50), ct)));
+
         api.MapGet("/projects/{project}/runs/{buildId:int}/logs", (
             string project, int buildId, AdoContext ctx, AdoService ado, CancellationToken ct) =>
             Guarded(ctx, () => ado.GetRunLogsAsync(project, buildId, ct)));

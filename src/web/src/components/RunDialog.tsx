@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import type { PipelineDetail, PipelineParam, RunRequest, ViewItem } from "../types";
+import type { PipelineDetail, PipelineParam, PipelineResource, Run, RunRequest, ViewItem } from "../types";
+import { Combobox } from "./Combobox";
+import { timeAgo } from "../lib/format";
 
 interface Props {
   item: ViewItem;
@@ -24,6 +26,7 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
 
   const [branch, setBranch] = useState<string>("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [resourceVersions, setResourceVersions] = useState<Record<string, string>>({});
   const [extra, setExtra] = useState<Kv[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +84,10 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
       if (k in values && values[k] !== "") vars[p.name] = values[k];
     }
     if (Object.keys(vars).length) body.variables = vars;
+
+    const resources: Record<string, string> = {};
+    for (const [alias, ver] of Object.entries(resourceVersions)) if (ver) resources[alias] = ver;
+    if (Object.keys(resources).length) body.pipelineResources = resources;
 
     try {
       const run = await api.run(item.project, item.pipelineId, body);
@@ -150,6 +157,23 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
                 </div>
               )}
 
+              {detail.resources.length > 0 && (
+                <div className="field">
+                  <label className="label">
+                    Pipeline resources <span className="faint">(which upstream artifact to use)</span>
+                  </label>
+                  {detail.resources.map((r) => (
+                    <ResourcePicker
+                      key={r.alias}
+                      resource={r}
+                      fallbackProject={item.project}
+                      value={resourceVersions[r.alias] ?? ""}
+                      onChange={(v) => setResourceVersions((s) => ({ ...s, [r.alias]: v }))}
+                    />
+                  ))}
+                </div>
+              )}
+
               <details className="field">
                 <summary className="label" style={{ cursor: "pointer" }}>
                   Advanced — extra template parameters
@@ -180,6 +204,43 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ResourcePicker({ resource, fallbackProject, value, onChange }: {
+  resource: PipelineResource;
+  fallbackProject: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const source = resource.source ?? "";
+  const project = resource.project || fallbackProject;
+  const runsQ = useQuery<Run[]>({
+    queryKey: ["resourceRuns", project, source],
+    queryFn: () => api.resourceRuns(project, source, 15),
+    enabled: !!source,
+  });
+
+  const options = [
+    { value: "", label: "latest (default)" },
+    ...(runsQ.data ?? []).map((r) => ({
+      value: r.buildNumber ?? String(r.id),
+      label: r.buildNumber ?? String(r.id),
+      hint: `${r.branch ?? ""} · ${r.result ?? r.state} · ${timeAgo(r.finishTime ?? r.startTime ?? r.queueTime)}`,
+    })),
+  ];
+
+  return (
+    <div className="field" style={{ marginBottom: 10 }}>
+      <label className="label" style={{ color: "var(--text)" }}>
+        {resource.alias} {source && <span className="faint">· {source}</span>}
+      </label>
+      {source ? (
+        <Combobox value={value} options={options} loading={runsQ.isLoading} onChange={onChange} />
+      ) : (
+        <div className="faint" style={{ fontSize: 12 }}>No source pipeline declared in YAML — ADO will use its default.</div>
+      )}
     </div>
   );
 }
