@@ -4,6 +4,9 @@ import { api } from "../api/client";
 import type { PipelineDetail, Sequence, SequenceInput } from "../types";
 import { Combobox } from "./Combobox";
 
+// Must match AdoService.SmartBranch on the server.
+const SMART_BRANCH = "__smart__";
+
 export function SequenceRunDialog({ sequence, busy, onClose, onRun }: {
   sequence: Sequence;
   busy: boolean;
@@ -67,7 +70,10 @@ function BranchInput({ input, value, onChange }: {
   return (
     <Combobox
       value={value}
-      options={(detailQ.data?.branches ?? []).map((b) => ({ value: b.name, label: b.name, hint: b.isDefault ? "default" : undefined }))}
+      options={[
+        { value: SMART_BRANCH, label: "🔍 smart-detect — your last branch", hint: "auto" },
+        ...(detailQ.data?.branches ?? []).map((b) => ({ value: b.name, label: b.name, hint: b.isDefault ? "default" : undefined })),
+      ]}
       loading={detailQ.isLoading}
       placeholder="— branch —"
       onChange={onChange}

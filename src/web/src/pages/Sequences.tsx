@@ -225,7 +225,10 @@ function InputEditor({ input, projects, onChange, onRemove }: {
           <div>
             <label className="label">Default branch</label>
             <Combobox value={input.default ?? ""}
-              options={(detailQ.data?.branches ?? []).map((b) => ({ value: b.name, label: b.name, hint: b.isDefault ? "default" : undefined }))}
+              options={[
+                { value: SMART_BRANCH, label: "🔍 smart-detect — your last branch", hint: "auto" },
+                ...(detailQ.data?.branches ?? []).map((b) => ({ value: b.name, label: b.name, hint: b.isDefault ? "default" : undefined })),
+              ]}
               disabled={!input.sourcePipelineId} loading={detailQ.isLoading} placeholder="— branch —"
               onChange={(v) => onChange({ default: v })} />
           </div>

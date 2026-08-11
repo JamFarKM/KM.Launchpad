@@ -67,6 +67,16 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
             foreach (var input in parsed.Inputs)
                 resolvedInputs[input.Id] = inputOverrides.TryGetValue(input.Id, out var ov) ? ov : (input.Default ?? "");
 
+            // A branch input set to "smart" resolves to the user's most recent branch on its source pipeline's repo.
+            foreach (var input in parsed.Inputs)
+            {
+                if (!resolvedInputs.TryGetValue(input.Id, out var v) || v != AdoService.SmartBranch) continue;
+                resolvedInputs[input.Id] =
+                    (input.SourcePipelineId is int pid && !string.IsNullOrEmpty(input.SourceProject)
+                        ? await ado.GetMyRecentBranchAsync(input.SourceProject, pid, ct)
+                        : null) ?? "";
+            }
+
             RunDto? previous = null;
 
             for (var i = 0; i < steps.Count && i < def.Count; i++)
