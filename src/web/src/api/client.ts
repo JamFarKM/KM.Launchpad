@@ -8,6 +8,9 @@ import type {
   Run,
   RunRequest,
   SavedView,
+  Sequence,
+  SequenceRun,
+  SequenceStep,
   User,
   ViewItem,
 } from "../types";
@@ -113,4 +116,40 @@ export const api = {
     }),
   deleteView: (id: string) =>
     req<void>(`/api/views/${id}`, { method: "DELETE" }),
+
+  // sequences
+  sequences: () => req<Sequence[]>("/api/sequences"),
+  createSequence: (name: string, steps: SequenceStep[]) =>
+    req<Sequence>("/api/sequences", { method: "POST", body: JSON.stringify({ name, steps }) }),
+  updateSequence: (id: string, name: string, steps: SequenceStep[]) =>
+    req<Sequence>(`/api/sequences/${id}`, { method: "PUT", body: JSON.stringify({ name, steps }) }),
+  deleteSequence: (id: string) =>
+    req<void>(`/api/sequences/${id}`, { method: "DELETE" }),
+  runSequence: (id: string) =>
+    req<SequenceRun>(`/api/sequences/${id}/run`, { method: "POST" }),
+  sequenceRuns: (id: string, top = 1) =>
+    req<SequenceRun[]>(`/api/sequences/${id}/runs?top=${top}`),
+  sequenceRun: (runId: string) =>
+    req<SequenceRun>(`/api/sequence-runs/${runId}`),
+  cancelSequenceRun: (runId: string) =>
+    req<void>(`/api/sequence-runs/${runId}/cancel`, { method: "POST" }),
+
+  // config import / export
+  importConfig: async (text: string, format: string) => {
+    const res = await fetch(`/api/import?format=${encodeURIComponent(format)}`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      credentials: "same-origin",
+      body: text,
+    });
+    const raw = await res.text();
+    const body = raw ? JSON.parse(raw) : undefined;
+    if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
+    return body as { sequences: number; views: number };
+  },
+  exportConfig: async () => {
+    const res = await fetch("/api/export", { credentials: "same-origin" });
+    if (!res.ok) throw new ApiError(res.status, res.statusText);
+    return res.text();
+  },
 };

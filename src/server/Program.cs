@@ -28,16 +28,47 @@ builder.Services.AddSingleton<PatProtector>();
 builder.Services.AddHttpClient("ado", c => c.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddScoped<AdoContext>();
 builder.Services.AddScoped<AdoService>();
+builder.Services.AddScoped<ConfigService>();
+builder.Services.AddSingleton<SequenceRunner>();
 
 var app = builder.Build();
 
-// Create schema on first boot (no migrations needed for v1).
+// Create schema on first boot, then additively create any tables added after the
+// database already existed (EnsureCreated is a no-op on an existing DB, so new
+// entities' tables must be created explicitly — this preserves existing data).
 using (var scope = app.Services.CreateScope())
-    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.EnsureCreated();
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.EnsureCreated();
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "Sequences" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_Sequences" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Name" TEXT NOT NULL,
+            "StepsJson" TEXT NOT NULL,
+            "CreatedAt" TEXT NOT NULL,
+            "UpdatedAt" TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_Sequences_UserId" ON "Sequences" ("UserId");
+
+        CREATE TABLE IF NOT EXISTS "SequenceRuns" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_SequenceRuns" PRIMARY KEY,
+            "SequenceId" TEXT NOT NULL,
+            "UserId" TEXT NOT NULL,
+            "Status" TEXT NOT NULL,
+            "StepsJson" TEXT NOT NULL,
+            "StartedAt" TEXT NOT NULL,
+            "FinishedAt" TEXT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_SequenceRuns_SequenceId" ON "SequenceRuns" ("SequenceId");
+        """);
+}
 
 app.UseMiddleware<SessionMiddleware>();
 
 app.MapApi();
+app.MapSequences();
+app.MapImportExport();
 
 // Serve the built React SPA and fall back to index.html for client routes.
 app.UseDefaultFiles();

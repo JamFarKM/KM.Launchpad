@@ -82,10 +82,59 @@ export interface LogContent {
 }
 
 export interface ViewItem {
+  kind?: "pipeline" | "sequence"; // default "pipeline" (legacy items)
+  project: string; // pipeline only
+  pipelineId: number; // pipeline only
+  sequenceId?: string | null; // sequence only
+  name: string;
+  shelf?: string | null;
+}
+
+// ----- sequences -----
+export type LinkMode = "none" | "resource" | "parameter" | "variable";
+
+export interface StepLink {
+  mode: LinkMode;
+  key?: string | null;
+}
+
+export interface SequenceStep {
   project: string;
   pipelineId: number;
   name: string;
-  shelf?: string | null;
+  branch?: string | null;
+  templateParameters?: Record<string, string> | null;
+  variables?: Record<string, string> | null;
+  link?: StepLink | null;
+}
+
+export interface Sequence {
+  id: string;
+  name: string;
+  steps: SequenceStep[];
+}
+
+export interface SequenceRunStep {
+  index: number;
+  project: string;
+  pipelineId: number;
+  name: string;
+  buildId?: number | null;
+  state: "pending" | "running" | "completed" | "skipped" | string;
+  result?: string | null;
+  webUrl?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  message?: string | null;
+}
+
+export interface SequenceRun {
+  id: string;
+  sequenceId: string;
+  status: "running" | "succeeded" | "failed" | "canceled" | string;
+  steps: SequenceRunStep[];
+  startedAt: string;
+  finishedAt?: string | null;
 }
 
 export interface SavedView {

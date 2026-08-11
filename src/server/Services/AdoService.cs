@@ -13,6 +13,10 @@ namespace PipelineLaunchpad.Server.Services;
 public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
 {
     private const string ApiVersion = "7.1";
+
+    /// <summary>Tag applied to every run this app triggers, so they're easy to spot in Azure DevOps.</summary>
+    public const string LaunchpadTag = "🚀 launchpad";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public sealed class AdoException(int status, string message) : Exception(message)
@@ -346,16 +350,34 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
 
     // --------------------------------------------------------------- runs
 
-    public async Task<RunDto> RunPipelineAsync(string project, int pipelineId, RunRequest req, CancellationToken ct)
+    public Task<RunDto> RunPipelineAsync(string project, int pipelineId, RunRequest req, CancellationToken ct) =>
+        RunPipelineAsync(project, pipelineId, req.Branch, req.TemplateParameters, req.Variables, null, ct);
+
+    /// <summary>
+    /// Triggers a pipeline run. <paramref name="pipelineResources"/> maps a pipeline
+    /// resource alias to a version (typically a prior run's build number), used to
+    /// link a build's artifact into a downstream deploy.
+    /// </summary>
+    public async Task<RunDto> RunPipelineAsync(
+        string project, int pipelineId, string branch,
+        IReadOnlyDictionary<string, string>? templateParameters,
+        IReadOnlyDictionary<string, string>? variables,
+        IReadOnlyDictionary<string, string>? pipelineResources,
+        CancellationToken ct)
     {
-        var body = new Dictionary<string, object?>
+        var resources = new Dictionary<string, object?>
         {
-            ["resources"] = new { repositories = new { self = new { refName = ToRef(req.Branch) } } },
+            ["repositories"] = new Dictionary<string, object?> { ["self"] = new { refName = ToRef(branch) } },
         };
-        if (req.TemplateParameters is { Count: > 0 })
-            body["templateParameters"] = req.TemplateParameters;
-        if (req.Variables is { Count: > 0 })
-            body["variables"] = req.Variables.ToDictionary(
+        if (pipelineResources is { Count: > 0 })
+            resources["pipelines"] = pipelineResources.ToDictionary(
+                kv => kv.Key, kv => (object)new { version = kv.Value });
+
+        var body = new Dictionary<string, object?> { ["resources"] = resources };
+        if (templateParameters is { Count: > 0 })
+            body["templateParameters"] = templateParameters;
+        if (variables is { Count: > 0 })
+            body["variables"] = variables.ToDictionary(
                 kv => kv.Key, kv => (object)new { value = kv.Value, isSecret = false });
 
         using var doc = await SendJsonAsync(
@@ -364,8 +386,35 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             null, null, body, ct);
 
         var runId = doc.RootElement.GetProperty("id").GetInt32();
+        await TryTagRunAsync(project, runId, ct);
         // pipelines run id == build id; fetch the richer build view
         return await GetRunAsync(project, runId, ct);
+    }
+
+    /// <summary>Best-effort: tag a run so launchpad-triggered runs are identifiable. Never fatal.</summary>
+    private async Task TryTagRunAsync(string project, int buildId, CancellationToken ct)
+    {
+        try
+        {
+            using var _ = await SendJsonAsync(
+                HttpMethod.Post,
+                $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds/{buildId}/tags?api-version={ApiVersion}",
+                null, null, new[] { LaunchpadTag }, ct);
+        }
+        catch { /* tagging is a nicety, not a requirement */ }
+    }
+
+    /// <summary>Cheap lookup of a pipeline's default branch (no YAML scrape).</summary>
+    public async Task<string?> GetDefaultBranchAsync(string project, int pipelineId, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(
+            HttpMethod.Get,
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions/{pipelineId}?api-version={ApiVersion}",
+            null, null, null, ct);
+        if (doc.RootElement.TryGetProperty("repository", out var repo)
+            && repo.TryGetProperty("defaultBranch", out var db))
+            return db.GetString()?.Replace("refs/heads/", "");
+        return null;
     }
 
     public async Task<List<RunDto>> GetRunsAsync(string project, int pipelineId, int top, CancellationToken ct)

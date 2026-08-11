@@ -8,18 +8,13 @@ import { notify } from "../lib/notify";
 
 interface Props {
   item: ViewItem;
-  shelves: string[];
-  currentShelf: string;
   onRun: (item: ViewItem) => void;
   onOpenRun: (project: string, buildId: number) => void;
   onRemove: (item: ViewItem) => void;
-  onMoveShelf: (item: ViewItem, shelf: string) => void;
   onDragCard: (item: ViewItem) => void;
 }
 
-export function PipelineCard({
-  item, shelves, currentShelf, onRun, onOpenRun, onRemove, onMoveShelf, onDragCard,
-}: Props) {
+export function PipelineCard({ item, onRun, onOpenRun, onRemove, onDragCard }: Props) {
   const runsQ = useQuery<Run[]>({
     queryKey: ["runs", item.project, item.pipelineId],
     queryFn: () => api.runs(item.project, item.pipelineId, 4),
@@ -97,18 +92,6 @@ export function PipelineCard({
           <button className="btn small" onClick={() => onOpenRun(item.project, latest.id)}>Logs</button>
         )}
         <span style={{ flex: 1 }} />
-        {shelves.length > 1 && (
-          <select
-            className="select shelf-select"
-            value={currentShelf}
-            title="Move to shelf"
-            onChange={(e) => onMoveShelf(item, e.target.value)}
-          >
-            {shelves.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        )}
         <button className="btn ghost small" title="Remove from view" onClick={() => onRemove(item)}>✕</button>
       </div>
     </div>

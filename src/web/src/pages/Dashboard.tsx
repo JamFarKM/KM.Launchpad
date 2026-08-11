@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { Pipeline, Project, SavedView, User, ViewItem } from "../types";
+import type { Pipeline, Project, SavedView, Sequence, ViewItem } from "../types";
 import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
+import { SequenceCard } from "../components/SequenceCard";
 import { RunDialog } from "../components/RunDialog";
 import { RunDetailModal } from "../components/RunDetailModal";
 import { ensureNotifyPermission } from "../lib/notify";
@@ -15,14 +16,17 @@ const shelfOfItem = (v: SavedView, i: ViewItem): string => {
   const ss = shelvesOf(v);
   return i.shelf && ss.includes(i.shelf) ? i.shelf : ss[0];
 };
-const sameItem = (a: ViewItem, b: ViewItem) => a.project === b.project && a.pipelineId === b.pipelineId;
+const itemKey = (i: ViewItem): string =>
+  i.kind === "sequence" ? `seq:${i.sequenceId}` : `pipe:${i.project}:${i.pipelineId}`;
+const sameItem = (a: ViewItem, b: ViewItem) => itemKey(a) === itemKey(b);
 
-export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: () => void }) {
+export function Dashboard() {
   const qc = useQueryClient();
 
   useEffect(() => { ensureNotifyPermission(); }, []);
 
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
+  const sequencesQ = useQuery<Sequence[]>({ queryKey: ["sequences"], queryFn: api.sequences });
   const [activeProject, setActiveProject] = useState("");
   const [search, setSearch] = useState("");
 
@@ -40,6 +44,7 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
 
   const viewsQ = useQuery<SavedView[]>({ queryKey: ["views"], queryFn: api.views });
   const views = viewsQ.data ?? [];
+  const sequences = sequencesQ.data ?? [];
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,42 +66,29 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
   // --- mutations ---
   const createView = useMutation({
     mutationFn: (name: string) => api.createView(name, views.length, [DEFAULT_SHELF], []),
-    onSuccess: (v) => {
-      qc.invalidateQueries({ queryKey: ["views"] });
-      setActiveViewId(v.id);
-    },
+    onSuccess: (v) => { qc.invalidateQueries({ queryKey: ["views"] }); setActiveViewId(v.id); },
   });
-
   const saveLayout = useMutation({
     mutationFn: (a: { view: SavedView; shelves: string[]; items: ViewItem[] }) =>
       api.updateView(a.view.id, a.view.name, a.view.sortOrder, a.shelves, a.items),
-    // Cache is updated optimistically & synchronously below; only refetch on failure
-    // to roll back (a success refetch could stomp a newer in-flight optimistic edit).
     onError: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
-
   const renameView = useMutation({
     mutationFn: (a: { view: SavedView; name: string }) =>
       api.updateView(a.view.id, a.name, a.view.sortOrder, a.view.shelves, a.view.items),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
-
   const deleteView = useMutation({
     mutationFn: (id: string) => api.deleteView(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["views"] });
-      setActiveViewId(null);
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["views"] }); setActiveViewId(null); },
   });
 
-  // --- layout helpers (read freshest cache, optimistic write, persist) ---
   const freshest = (id: string): SavedView | undefined =>
     (qc.getQueryData<SavedView[]>(["views"]) ?? []).find((v) => v.id === id);
 
   function commit(view: SavedView, shelves: string[], items: ViewItem[]) {
     qc.setQueryData<SavedView[]>(["views"], (prev) =>
-      (prev ?? []).map((v) => (v.id === view.id ? { ...v, shelves, items } : v)),
-    );
+      (prev ?? []).map((v) => (v.id === view.id ? { ...v, shelves, items } : v)));
     saveLayout.mutate({ view, shelves, items });
   }
 
@@ -108,14 +100,28 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
     return created;
   }
 
+  function targetShelf(view: SavedView, shelf?: string): string {
+    if (shelf) return shelf;
+    return shelvesOf(view).includes(activeShelf) ? activeShelf : shelvesOf(view)[0];
+  }
+
   async function addPipeline(p: Pipeline, shelf?: string) {
     const base = await ensureView();
     const view = freshest(base.id) ?? base;
-    if (view.items.some((i) => i.project === p.project && i.pipelineId === p.id)) return;
-    const targetShelf = shelf ?? (shelvesOf(view).includes(activeShelf) ? activeShelf : shelvesOf(view)[0]);
+    if (view.items.some((i) => i.kind !== "sequence" && i.project === p.project && i.pipelineId === p.id)) return;
     commit(view, shelvesOf(view), [
       ...view.items,
-      { project: p.project, pipelineId: p.id, name: p.name, shelf: targetShelf },
+      { kind: "pipeline", project: p.project, pipelineId: p.id, name: p.name, shelf: targetShelf(view, shelf) },
+    ]);
+  }
+
+  async function addSequence(s: Sequence, shelf?: string) {
+    const base = await ensureView();
+    const view = freshest(base.id) ?? base;
+    if (view.items.some((i) => i.kind === "sequence" && i.sequenceId === s.id)) return;
+    commit(view, shelvesOf(view), [
+      ...view.items,
+      { kind: "sequence", project: "", pipelineId: 0, sequenceId: s.id, name: s.name, shelf: targetShelf(view, shelf) },
     ]);
   }
 
@@ -147,11 +153,9 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
     const name = window.prompt("Rename shelf", oldName);
     if (!name || !name.trim() || name.trim() === oldName) return;
     const view = freshest(activeView.id) ?? activeView;
-    commit(
-      view,
+    commit(view,
       shelvesOf(view).map((s) => (s === oldName ? name.trim() : s)),
-      view.items.map((i) => (shelfOfItem(view, i) === oldName ? { ...i, shelf: name.trim() } : i)),
-    );
+      view.items.map((i) => (shelfOfItem(view, i) === oldName ? { ...i, shelf: name.trim() } : i)));
   }
 
   function deleteShelf(name: string) {
@@ -160,53 +164,41 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
     const shelves = shelvesOf(view);
     if (shelves.length <= 1) return;
     const remaining = shelves.filter((s) => s !== name);
-    const fallback = remaining[0];
-    commit(
-      view,
-      remaining,
-      view.items.map((i) => (shelfOfItem(view, i) === name ? { ...i, shelf: fallback } : i)),
-    );
+    commit(view, remaining,
+      view.items.map((i) => (shelfOfItem(view, i) === name ? { ...i, shelf: remaining[0] } : i)));
   }
 
-  // --- drag & drop (pool pipeline OR existing card) ---
+  // --- drag & drop ---
   const poolDrag = useRef<Pipeline | null>(null);
+  const seqDrag = useRef<Sequence | null>(null);
   const cardDrag = useRef<ViewItem | null>(null);
   const [hintShelf, setHintShelf] = useState<string | null>(null);
 
   function handleShelfDrop(shelf: string) {
     setHintShelf(null);
-    if (poolDrag.current) {
-      addPipeline(poolDrag.current, shelf);
-      poolDrag.current = null;
-    } else if (cardDrag.current) {
-      moveItemToShelf(cardDrag.current, shelf);
-      cardDrag.current = null;
-    }
+    if (poolDrag.current) { addPipeline(poolDrag.current, shelf); poolDrag.current = null; }
+    else if (seqDrag.current) { addSequence(seqDrag.current, shelf); seqDrag.current = null; }
+    else if (cardDrag.current) { moveItemToShelf(cardDrag.current, shelf); cardDrag.current = null; }
   }
 
   const pinnedIds = useMemo(() => {
     const ids = new Set<number>();
-    activeView?.items.forEach((i) => {
-      if (i.project === activeProject) ids.add(i.pipelineId);
-    });
+    activeView?.items.forEach((i) => { if (i.kind !== "sequence" && i.project === activeProject) ids.add(i.pipelineId); });
     return ids;
   }, [activeView, activeProject]);
+
+  const pinnedSequenceIds = useMemo(() => {
+    const ids = new Set<string>();
+    activeView?.items.forEach((i) => { if (i.kind === "sequence" && i.sequenceId) ids.add(i.sequenceId); });
+    return ids;
+  }, [activeView]);
 
   // --- modals ---
   const [runItem, setRunItem] = useState<ViewItem | null>(null);
   const [runDetail, setRunDetail] = useState<{ project: string; buildId: number } | null>(null);
 
   return (
-    <div className="app">
-      <div className="topbar">
-        <div className="brand">Pipeline <span>Launchpad</span></div>
-        <span className="faint">·</span>
-        <span className="muted">{user.org}</span>
-        <div className="spacer" />
-        <span className="who">{user.displayName || user.uniqueName}</span>
-        <button className="btn ghost small" onClick={onDisconnect}>Sign out</button>
-      </div>
-
+    <>
       <div className="body">
         <PipelinePool
           projects={projectsQ.data ?? []}
@@ -218,7 +210,11 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
           onSearch={setSearch}
           pinnedIds={pinnedIds}
           onAdd={(p) => addPipeline(p)}
-          onDragStart={(p) => { poolDrag.current = p; cardDrag.current = null; }}
+          onDragStart={(p) => { poolDrag.current = p; seqDrag.current = null; cardDrag.current = null; }}
+          sequences={sequences}
+          pinnedSequenceIds={pinnedSequenceIds}
+          onAddSequence={(s) => addSequence(s)}
+          onDragStartSequence={(s) => { seqDrag.current = s; poolDrag.current = null; cardDrag.current = null; }}
         />
 
         <div className="main">
@@ -240,15 +236,11 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
             <button className="btn ghost small" onClick={() => {
               const name = window.prompt("New view name", "My pipelines");
               if (name && name.trim()) createView.mutate(name.trim());
-            }}>
-              + New view
-            </button>
+            }}>+ New view</button>
             {activeView && (
               <button className="btn ghost small" title="Delete this view" onClick={() => {
                 if (window.confirm(`Delete view "${activeView.name}"?`)) deleteView.mutate(activeView.id);
-              }}>
-                🗑
-              </button>
+              }}>🗑</button>
             )}
           </div>
 
@@ -258,10 +250,8 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
             {!viewsQ.isLoading && views.length === 0 && (
               <div className="empty">
                 <h3>No views yet</h3>
-                <p>Create a view, then drag pipelines in from the left (or hit the <b>+</b> next to each). Views are saved to your account.</p>
-                <button className="btn primary" onClick={() => createView.mutate("My pipelines")}>
-                  Create your first view
-                </button>
+                <p>Create a view, then drag pipelines (or sequences) in from the left. Views are saved to your account.</p>
+                <button className="btn primary" onClick={() => createView.mutate("My pipelines")}>Create your first view</button>
               </div>
             )}
 
@@ -281,43 +271,46 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
                     <span className="shelf-count">{items.length}</span>
                     <button
                       className={`btn ghost small ${activeShelf === shelf ? "primary" : ""}`}
-                      title="Add pipelines from the left to this shelf"
+                      title="Add pipelines/sequences from the left to this shelf"
                       onClick={() => setActiveShelf(shelf)}
                     >
                       {activeShelf === shelf ? "◎ adding here" : "add here"}
                     </button>
                     <span style={{ flex: 1 }} />
                     <button className="btn ghost small" onClick={() => renameShelf(shelf)}>rename</button>
-                    {canDelete && (
-                      <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>
-                    )}
+                    {canDelete && <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>}
                   </div>
 
                   <div className={`shelf-cards ${hintShelf === shelf ? "drop-hint" : ""}`}>
                     {items.length === 0 && (
-                      <div className="shelf-empty">Drop pipelines here, or click “add here” then + in the list.</div>
+                      <div className="shelf-empty">Drop pipelines or sequences here, or click “add here” then + in the list.</div>
                     )}
-                    {items.map((item) => (
-                      <PipelineCard
-                        key={`${item.project}:${item.pipelineId}`}
-                        item={item}
-                        shelves={shelvesOf(activeView)}
-                        currentShelf={shelf}
-                        onRun={setRunItem}
-                        onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
-                        onRemove={removeItem}
-                        onMoveShelf={moveItemToShelf}
-                        onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; }}
-                      />
-                    ))}
+                    {items.map((item) =>
+                      item.kind === "sequence" ? (
+                        <SequenceCard
+                          key={itemKey(item)}
+                          item={item}
+                          sequence={sequences.find((s) => s.id === item.sequenceId)}
+                          onRemove={removeItem}
+                          onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
+                        />
+                      ) : (
+                        <PipelineCard
+                          key={itemKey(item)}
+                          item={item}
+                          onRun={setRunItem}
+                          onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
+                          onRemove={removeItem}
+                          onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
+                        />
+                      ),
+                    )}
                   </div>
                 </section>
               );
             })}
 
-            {activeView && (
-              <button className="btn small add-shelf" onClick={addShelf}>+ Add shelf</button>
-            )}
+            {activeView && <button className="btn small add-shelf" onClick={addShelf}>+ Add shelf</button>}
           </div>
         </div>
       </div>
@@ -341,6 +334,6 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
           onClose={() => setRunDetail(null)}
         />
       )}
-    </div>
+    </>
   );
 }

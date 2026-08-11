@@ -53,7 +53,47 @@ public record RunDto(
 public record LogEntryDto(int Id, string Name, string State, string? Result, int? LineCount);
 public record LogContentDto(int Id, string Name, string Content);
 
+// ----- sequences -----
+
+/// <summary>How a step injects the previous step's run into its own trigger.</summary>
+public record StepLinkDto(
+    string Mode,   // "none" | "resource" | "parameter" | "variable"
+    string? Key);  // resource alias, or template-parameter / variable name
+
+public record SequenceStepDto(
+    string Project,
+    int PipelineId,
+    string Name,
+    string? Branch,
+    Dictionary<string, string>? TemplateParameters,
+    Dictionary<string, string>? Variables,
+    StepLinkDto? Link);
+
+public record SequenceDto(string Id, string Name, List<SequenceStepDto> Steps);
+public record UpsertSequenceRequest(string Name, List<SequenceStepDto> Steps);
+
+public record SequenceRunStepDto(
+    int Index,
+    string Project,
+    int PipelineId,
+    string Name,
+    int? BuildId,
+    string State,          // pending | running | completed | skipped
+    string? Result,        // succeeded | failed | canceled | null
+    string? WebUrl,
+    DateTime? StartedAt,
+    DateTime? FinishedAt,
+    string? Message);
+
+public record SequenceRunDto(
+    string Id,
+    string SequenceId,
+    string Status,         // running | succeeded | failed | canceled
+    List<SequenceRunStepDto> Steps,
+    DateTime StartedAt,
+    DateTime? FinishedAt);
+
 // ----- views -----
-public record ViewItemDto(string Project, int PipelineId, string Name, string? Shelf);
+public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf);
 public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, List<ViewItemDto> Items);
 public record UpsertViewRequest(string Name, int SortOrder, List<string> Shelves, List<ViewItemDto> Items);
