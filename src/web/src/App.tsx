@@ -74,6 +74,9 @@ function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void
       {page === "sequences" && <SequencesPage />}
       {page === "configurations" && <ConfigurationsPage />}
       {page === "keyvault" && <KeyVaultPage />}
+      <footer className="app-footer">
+        Pipeline Launchpad · by James Farrugia
+      </footer>
     </div>
   );
 }

@@ -102,4 +102,5 @@ so the whole thing is one container on one port.
 
 ## License
 
-Internal tooling — add a license before making the repository public.
+[MIT](LICENSE) © 2026 James Farrugia. Free to use, modify, and redistribute;
+just keep the copyright notice and license text.
