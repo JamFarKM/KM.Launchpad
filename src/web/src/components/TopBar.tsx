@@ -1,5 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
+import { canInstall as pwaCanInstall, promptInstall } from "../pwa";
+import { SettingsModal } from "./SettingsModal";
 import type { User } from "../types";
 
 export type Page = "views" | "sequences";
@@ -15,13 +17,25 @@ interface Props {
 export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [canInstall, setCanInstall] = useState(pwaCanInstall());
+
+  useEffect(() => {
+    const on = () => setCanInstall(true);
+    const off = () => setCanInstall(false);
+    window.addEventListener("pl-can-install", on);
+    window.addEventListener("pl-installed", off);
+    return () => {
+      window.removeEventListener("pl-can-install", on);
+      window.removeEventListener("pl-installed", off);
+    };
+  }, []);
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-importing the same file later
+    e.target.value = "";
     if (!file) return;
     if (!window.confirm("Importing will REPLACE all your current views and sequences. Continue?")) return;
-
     setBusy(true);
     try {
       const text = await file.text();
@@ -71,13 +85,21 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
         style={{ display: "none" }}
         onChange={onFile}
       />
+      {canInstall && (
+        <button className="btn ghost small" title="Install as an app" onClick={async () => { await promptInstall(); setCanInstall(pwaCanInstall()); }}>
+          ⇩ Install
+        </button>
+      )}
       <button className="btn ghost small" onClick={() => fileRef.current?.click()} disabled={busy} title="Replace your views & sequences from a config file">
         {busy ? <><span className="spin" /> Importing…</> : "Import"}
       </button>
       <button className="btn ghost small" onClick={onExport} title="Download your current views & sequences as a config">Export</button>
+      <button className="btn ghost small" title="Settings" onClick={() => setShowSettings(true)}>⚙</button>
 
       <span className="who">{user.displayName || user.uniqueName}</span>
       <button className="btn ghost small" onClick={onDisconnect}>Sign out</button>
+
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

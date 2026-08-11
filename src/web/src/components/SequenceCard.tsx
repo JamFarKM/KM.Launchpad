@@ -9,6 +9,7 @@ interface Props {
   item: ViewItem;
   sequence?: Sequence;
   onRemove: (item: ViewItem) => void;
+  onRename: (item: ViewItem, name: string) => void;
   onDragCard: (item: ViewItem) => void;
 }
 
@@ -27,7 +28,7 @@ function stepTone(s: SequenceRunStep): string {
 const isTerminal = (r?: SequenceRun | null) =>
   !!r && (r.status === "succeeded" || r.status === "failed" || r.status === "canceled");
 
-export function SequenceCard({ item, sequence, onRemove, onDragCard }: Props) {
+export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }: Props) {
   const seqId = item.sequenceId!;
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +89,17 @@ export function SequenceCard({ item, sequence, onRemove, onDragCard }: Props) {
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}>
       <div className="card-head">
         <div className="title">
-          <span className="seq-badge">SEQ</span> {item.name}
+          <span className="seq-badge">SEQ</span>{" "}
+          <span
+            className="card-title-text"
+            title="Double-click to rename"
+            onDoubleClick={() => {
+              const n = window.prompt("Rename card", item.name);
+              if (n && n.trim()) onRename(item, n.trim());
+            }}
+          >
+            {item.name}
+          </span>
           <div className="sub">
             {missing ? "sequence not found" : `${sequence!.steps.length} steps`}
             {run && <> · <span className={`badge ${run.status === "succeeded" ? "success" : run.status === "failed" ? "failed" : run.status === "running" ? "running" : "canceled"}`}>

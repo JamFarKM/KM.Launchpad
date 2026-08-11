@@ -137,6 +137,12 @@ export function Dashboard() {
     commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, shelf } : i)));
   }
 
+  function renameItem(item: ViewItem, name: string) {
+    if (!activeView) return;
+    const view = freshest(activeView.id) ?? activeView;
+    commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, name } : i)));
+  }
+
   function addShelf() {
     if (!activeView) return;
     const name = window.prompt("New shelf name", "New shelf");
@@ -292,6 +298,7 @@ export function Dashboard() {
                           item={item}
                           sequence={sequences.find((s) => s.id === item.sequenceId)}
                           onRemove={removeItem}
+                          onRename={renameItem}
                           onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
                         />
                       ) : (
@@ -301,6 +308,7 @@ export function Dashboard() {
                           onRun={setRunItem}
                           onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
                           onRemove={removeItem}
+                          onRename={renameItem}
                           onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
                         />
                       ),

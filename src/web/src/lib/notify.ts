@@ -1,7 +1,9 @@
 // Desktop notifications for pipeline run completions.
+import { notificationsEnabled } from "./settings";
 
 export function ensureNotifyPermission(): void {
   if (!("Notification" in window)) return;
+  if (!notificationsEnabled()) return;
   if (Notification.permission === "default") {
     void Notification.requestPermission();
   }
@@ -12,7 +14,7 @@ export function canNotify(): boolean {
 }
 
 export function notify(title: string, body: string, tag?: string): void {
-  if (!canNotify()) return;
+  if (!notificationsEnabled() || !canNotify()) return;
   try {
     new Notification(title, { body, tag });
   } catch {

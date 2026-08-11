@@ -11,10 +11,11 @@ interface Props {
   onRun: (item: ViewItem) => void;
   onOpenRun: (project: string, buildId: number) => void;
   onRemove: (item: ViewItem) => void;
+  onRename: (item: ViewItem, name: string) => void;
   onDragCard: (item: ViewItem) => void;
 }
 
-export function PipelineCard({ item, onRun, onOpenRun, onRemove, onDragCard }: Props) {
+export function PipelineCard({ item, onRun, onOpenRun, onRemove, onRename, onDragCard }: Props) {
   const runsQ = useQuery<Run[]>({
     queryKey: ["runs", item.project, item.pipelineId],
     queryFn: () => api.runs(item.project, item.pipelineId, 4),
@@ -58,7 +59,16 @@ export function PipelineCard({ item, onRun, onOpenRun, onRemove, onDragCard }: P
     >
       <div className="card-head">
         <div className="title">
-          {item.name}
+          <span
+            className="card-title-text"
+            title="Double-click to rename"
+            onDoubleClick={() => {
+              const n = window.prompt("Rename card", item.name);
+              if (n && n.trim()) onRename(item, n.trim());
+            }}
+          >
+            {item.name}
+          </span>
           <div className="sub">{item.project}</div>
         </div>
         <RunBadge run={latest} />

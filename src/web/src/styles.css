@@ -18,6 +18,25 @@
   color-scheme: dark;
 }
 
+:root[data-theme="light"] {
+  --bg: #f6f8fa;
+  --bg-2: #ffffff;
+  --bg-3: #eef1f4;
+  --border: #d8dee4;
+  --border-2: #c3ccd6;
+  --text: #1f2328;
+  --text-dim: #57606a;
+  --text-faint: #8c959f;
+  --accent: #0969da;
+  --accent-2: #0a6ad1;
+  --success: #1a7f37;
+  --failed: #cf222e;
+  --running: #9a6700;
+  --canceled: #6e7781;
+  --shadow: 0 8px 30px rgba(140, 149, 159, 0.22);
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -602,6 +621,16 @@ a {
   font-weight: 600;
   flex: 1;
   min-width: 0;
+}
+
+.card-title-text {
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.card-title-text:hover {
+  background: var(--bg-3);
+  cursor: text;
 }
 
 .card .sub {
