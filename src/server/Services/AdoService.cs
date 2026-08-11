@@ -118,8 +118,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             !string.Equals(queueStatus, "disabled", StringComparison.OrdinalIgnoreCase));
 
         var parameters = new List<PipelineParamDto>();
+        var resourceAliases = new List<string>();
 
-        // 1) YAML template parameters (scraped from the pipeline's yaml in the repo).
+        // 1) YAML template parameters + pipeline resource aliases (scraped from the repo).
         string? yamlFile = null;
         if (root.TryGetProperty("process", out var process))
             yamlFile = process.TryGetProperty("yamlFilename", out var yf) ? yf.GetString() : null;
@@ -128,8 +129,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         {
             try
             {
-                var scraped = await ScrapeYamlParametersAsync(project, repoId, defaultBranch, yamlFile, ct);
+                var (scraped, aliases) = await ScrapeYamlAsync(project, repoId, defaultBranch, yamlFile, ct);
                 parameters.AddRange(scraped);
+                resourceAliases = aliases;
             }
             catch { /* best-effort — fall back to variables + free-form */ }
         }
@@ -151,7 +153,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             ? await GetBranchesAsync(project, repoId, defaultBranch, ct)
             : new List<BranchDto>();
 
-        return new PipelineDetailDto(pipeline, branches, parameters);
+        return new PipelineDetailDto(pipeline, branches, parameters, resourceAliases);
     }
 
     public async Task<List<BranchDto>> GetBranchesAsync(string project, string repoId, string? defaultBranch, CancellationToken ct)
@@ -234,29 +236,32 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     /// <c>parameters:</c>. Follows one level of <c>extends: template:</c> to a
     /// same-repo template if the entry file has no parameters of its own.
     /// </summary>
-    private async Task<List<PipelineParamDto>> ScrapeYamlParametersAsync(
+    private async Task<(List<PipelineParamDto> Parameters, List<string> ResourceAliases)> ScrapeYamlAsync(
         string project, string repoId, string? defaultBranch, string yamlPath, CancellationToken ct)
     {
         var branch = (defaultBranch ?? "refs/heads/main").Replace("refs/heads/", "");
         var text = await GetRepoFileTextAsync(project, repoId, yamlPath, branch, ct);
-        if (text is null) return new();
+        if (text is null) return (new(), new());
 
         var root = ParseYamlRoot(text);
-        if (root is null) return new();
+        if (root is null) return (new(), new());
+
+        var aliases = ExtractResourceAliases(root);
+        var parameters = new List<PipelineParamDto>();
 
         // Direct parameters on the entry file.
         if (root.Children.TryGetValue(new YamlScalarNode("parameters"), out var pNode)
             && pNode is YamlSequenceNode seq)
-            return ParseParamSequence(seq);
-
+        {
+            parameters = ParseParamSequence(seq);
+        }
         // Otherwise follow a local `extends: template: <path>`.
-        if (root.Children.TryGetValue(new YamlScalarNode("extends"), out var ext)
+        else if (root.Children.TryGetValue(new YamlScalarNode("extends"), out var ext)
             && ext is YamlMappingNode extMap
             && extMap.Children.TryGetValue(new YamlScalarNode("template"), out var tmpl)
             && tmpl is YamlScalarNode tmplScalar)
         {
             var templatePath = tmplScalar.Value ?? "";
-            // Only same-repo templates ("path" or "path@self"); skip cross-repo "@resource".
             var at = templatePath.IndexOf('@');
             var resource = at >= 0 ? templatePath[(at + 1)..] : "self";
             var pathOnly = at >= 0 ? templatePath[..at] : templatePath;
@@ -265,14 +270,35 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
                 var resolved = ResolveRepoPath(yamlPath, pathOnly);
                 var ttext = await GetRepoFileTextAsync(project, repoId, resolved, branch, ct);
                 var troot = ttext is null ? null : ParseYamlRoot(ttext);
-                if (troot is not null
-                    && troot.Children.TryGetValue(new YamlScalarNode("parameters"), out var tp)
-                    && tp is YamlSequenceNode tseq)
-                    return ParseParamSequence(tseq);
+                if (troot is not null)
+                {
+                    aliases = aliases.Concat(ExtractResourceAliases(troot)).Distinct().ToList();
+                    if (troot.Children.TryGetValue(new YamlScalarNode("parameters"), out var tp)
+                        && tp is YamlSequenceNode tseq)
+                        parameters = ParseParamSequence(tseq);
+                }
             }
         }
 
-        return new();
+        return (parameters, aliases);
+    }
+
+    /// <summary>Extracts pipeline resource aliases: resources: pipelines: - pipeline: &lt;alias&gt;.</summary>
+    private static List<string> ExtractResourceAliases(YamlMappingNode root)
+    {
+        var aliases = new List<string>();
+        if (root.Children.TryGetValue(new YamlScalarNode("resources"), out var res)
+            && res is YamlMappingNode resMap
+            && resMap.Children.TryGetValue(new YamlScalarNode("pipelines"), out var pl)
+            && pl is YamlSequenceNode plSeq)
+        {
+            foreach (var node in plSeq.Children.OfType<YamlMappingNode>())
+            {
+                var alias = Scalar(node, "pipeline");
+                if (!string.IsNullOrWhiteSpace(alias)) aliases.Add(alias!);
+            }
+        }
+        return aliases;
     }
 
     private async Task<string?> GetRepoFileTextAsync(

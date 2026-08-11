@@ -43,6 +43,7 @@ export interface PipelineDetail {
   pipeline: Pipeline;
   branches: Branch[];
   parameters: PipelineParam[];
+  resourceAliases: string[];
 }
 
 export type RunState = "notStarted" | "inProgress" | "completed" | string;
@@ -98,19 +99,38 @@ export interface StepLink {
   key?: string | null;
 }
 
+export interface ParamBinding {
+  target: "parameter" | "variable";
+  name: string;
+  inputId: string;
+}
+
+export interface SequenceInput {
+  id: string;
+  name: string;
+  kind: "branch" | "value";
+  default?: string | null;
+  sourceProject?: string | null;
+  sourcePipelineId?: number | null;
+}
+
 export interface SequenceStep {
+  id: string;
   project: string;
   pipelineId: number;
   name: string;
   branch?: string | null;
+  branchInputId?: string | null;
   templateParameters?: Record<string, string> | null;
   variables?: Record<string, string> | null;
+  bindings?: ParamBinding[] | null;
   link?: StepLink | null;
 }
 
 export interface Sequence {
   id: string;
   name: string;
+  inputs: SequenceInput[];
   steps: SequenceStep[];
 }
 

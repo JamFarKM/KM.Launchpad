@@ -50,18 +50,32 @@ public class ConfigService(AppDbContext db)
         foreach (var s in root.Element("sequences")?.Elements("sequence") ?? Enumerable.Empty<XElement>())
         {
             var seq = new CfgSequence { Name = Attr(s, "name") };
+            foreach (var inp in s.Element("inputs")?.Elements("input") ?? Enumerable.Empty<XElement>())
+            {
+                seq.Inputs.Add(new SequenceInputDto
+                {
+                    Id = Attr(inp, "id"),
+                    Name = Attr(inp, "name"),
+                    Kind = Attr(inp, "kind", "value"),
+                    Default = Attr(inp, "default"),
+                    SourceProject = Attr(inp, "sourceProject"),
+                    SourcePipelineId = IntAttr(inp, "sourcePipelineId") is var sp && sp > 0 ? sp : null,
+                });
+            }
             foreach (var st in s.Elements("step"))
             {
-                seq.Steps.Add(new CfgStep
+                seq.Steps.Add(new SequenceStepDto
                 {
+                    Id = Attr(st, "id"),
                     Project = Attr(st, "project"),
                     PipelineId = IntAttr(st, "pipelineId"),
                     Name = Attr(st, "name"),
                     Branch = Attr(st, "branch"),
+                    BranchInputId = Attr(st, "branchInputId"),
                     TemplateParameters = KvBag(st.Element("templateParameters")),
                     Variables = KvBag(st.Element("variables")),
                     Link = st.Element("link") is { } l
-                        ? new CfgLink { Mode = Attr(l, "mode", "none"), Key = Attr(l, "key") }
+                        ? new StepLinkDto(Attr(l, "mode", "none"), Attr(l, "key"))
                         : null,
                 });
             }
@@ -110,17 +124,13 @@ public class ConfigService(AppDbContext db)
 
         foreach (var cs in doc.Sequences)
         {
-            var steps = cs.Steps.Select(s => new SequenceStepDto(
-                s.Project, s.PipelineId, s.Name, s.Branch,
-                s.TemplateParameters, s.Variables,
-                s.Link is null ? null : new StepLinkDto(s.Link.Mode, s.Link.Key))).ToList();
-
             var id = Guid.NewGuid().ToString("N");
             nameToId[cs.Name] = id;
             db.Sequences.Add(new Sequence
             {
                 Id = id, UserId = userId, Name = cs.Name,
-                StepsJson = JsonSerializer.Serialize(steps, Json), CreatedAt = now, UpdatedAt = now,
+                StepsJson = JsonSerializer.Serialize(new { inputs = cs.Inputs, steps = cs.Steps }, Json),
+                CreatedAt = now, UpdatedAt = now,
             });
         }
 
@@ -162,18 +172,8 @@ public class ConfigService(AppDbContext db)
 
         foreach (var s in seqs)
         {
-            var steps = JsonSerializer.Deserialize<List<SequenceStepDto>>(s.StepsJson, Json) ?? new();
-            doc.Sequences.Add(new CfgSequence
-            {
-                Name = s.Name,
-                Steps = steps.Select(st => new CfgStep
-                {
-                    Project = st.Project, PipelineId = st.PipelineId, Name = st.Name, Branch = st.Branch,
-                    TemplateParameters = st.TemplateParameters ?? new(),
-                    Variables = st.Variables ?? new(),
-                    Link = st.Link is null ? null : new CfgLink { Mode = st.Link.Mode, Key = st.Link.Key },
-                }).ToList(),
-            });
+            var def = SequenceRunner.ParseDef(s.StepsJson);
+            doc.Sequences.Add(new CfgSequence { Name = s.Name, Inputs = def.Inputs, Steps = def.Steps });
         }
 
         foreach (var v in views)

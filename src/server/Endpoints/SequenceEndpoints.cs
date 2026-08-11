@@ -32,7 +32,7 @@ public static class SequenceEndpoints
                 Id = Guid.NewGuid().ToString("N"),
                 UserId = ctx.UserId!,
                 Name = body.Name.Trim(),
-                StepsJson = JsonSerializer.Serialize(body.Steps ?? new(), Json),
+                StepsJson = SerializeDef(body),
                 CreatedAt = now,
                 UpdatedAt = now,
             };
@@ -47,7 +47,7 @@ public static class SequenceEndpoints
             var seq = await db.Sequences.FirstOrDefaultAsync(s => s.Id == id && s.UserId == ctx.UserId, ct);
             if (seq is null) return Results.NotFound();
             seq.Name = body.Name.Trim();
-            seq.StepsJson = JsonSerializer.Serialize(body.Steps ?? new(), Json);
+            seq.StepsJson = SerializeDef(body);
             seq.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToDto(seq));
@@ -62,13 +62,13 @@ public static class SequenceEndpoints
 
         // ---- execution ----
         api.MapPost("/sequences/{id}/run", async (
-            string id, AdoContext ctx, AppDbContext db, SequenceRunner runner, CancellationToken ct) =>
+            string id, RunSequenceRequest? body, AdoContext ctx, AppDbContext db, SequenceRunner runner, CancellationToken ct) =>
         {
             if (!ctx.IsAuthenticated) return Results.Json(new { error = "Not connected to Azure DevOps." }, statusCode: 401);
             var seq = await db.Sequences.FirstOrDefaultAsync(s => s.Id == id && s.UserId == ctx.UserId, ct);
             if (seq is null) return Results.NotFound();
 
-            var steps = JsonSerializer.Deserialize<List<SequenceStepDto>>(seq.StepsJson, Json) ?? new();
+            var steps = SequenceRunner.ParseDef(seq.StepsJson).Steps;
             if (steps.Count == 0) return Results.BadRequest(new { error = "This sequence has no steps." });
 
             var runSteps = steps.Select((s, i) =>
@@ -86,7 +86,7 @@ public static class SequenceEndpoints
             db.SequenceRuns.Add(run);
             await db.SaveChangesAsync(ct);
 
-            runner.Start(run.Id, ctx.Org!, ctx.Pat!);
+            runner.Start(run.Id, ctx.Org!, ctx.Pat!, body?.Inputs ?? new());
             return Results.Ok(ToRunDto(run));
         });
 
@@ -117,8 +117,14 @@ public static class SequenceEndpoints
         });
     }
 
-    private static SequenceDto ToDto(Sequence s) =>
-        new(s.Id, s.Name, JsonSerializer.Deserialize<List<SequenceStepDto>>(s.StepsJson, Json) ?? new());
+    private static string SerializeDef(UpsertSequenceRequest body) =>
+        JsonSerializer.Serialize(new { inputs = body.Inputs ?? new(), steps = body.Steps ?? new() }, Json);
+
+    private static SequenceDto ToDto(Sequence s)
+    {
+        var def = SequenceRunner.ParseDef(s.StepsJson);
+        return new SequenceDto(s.Id, s.Name, def.Inputs, def.Steps);
+    }
 
     private static SequenceRunDto ToRunDto(SequenceRun r) =>
         new(r.Id, r.SequenceId, r.Status,

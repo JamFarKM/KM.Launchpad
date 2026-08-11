@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import type { Sequence, SequenceRun, SequenceRunStep, ViewItem } from "../types";
 import { notify } from "../lib/notify";
 import { timeAgo } from "../lib/format";
+import { SequenceRunDialog } from "./SequenceRunDialog";
 
 interface Props {
   item: ViewItem;
@@ -33,6 +34,7 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }:
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showRunDialog, setShowRunDialog] = useState(false);
 
   const latestQ = useQuery<SequenceRun | null>({
     queryKey: ["seq-latest", seqId],
@@ -58,13 +60,20 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }:
     }
   }, [run, sequence?.name]);
 
-  async function start() {
+  function start() {
+    // If the sequence has pre-run inputs, collect them first; otherwise run now.
+    if (sequence && sequence.inputs.length > 0) setShowRunDialog(true);
+    else runNow({});
+  }
+
+  async function runNow(inputs: Record<string, string>) {
     setBusy(true);
     setError(null);
     try {
-      const started = await api.runSequence(seqId);
+      const started = await api.runSequence(seqId, inputs);
       setActiveRunId(started.id);
       notified.current = null;
+      setShowRunDialog(false);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to start the sequence.");
     } finally {
@@ -85,6 +94,7 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }:
   const missing = !sequence;
 
   return (
+    <>
     <div className="card seq-card" draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}>
       <div className="card-head">
@@ -143,5 +153,15 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }:
         <button className="btn ghost small" title="Remove from view" onClick={() => onRemove(item)}>✕</button>
       </div>
     </div>
+
+    {showRunDialog && sequence && (
+      <SequenceRunDialog
+        sequence={sequence}
+        busy={busy}
+        onClose={() => setShowRunDialog(false)}
+        onRun={(inputs) => runNow(inputs)}
+      />
+    )}
+    </>
   );
 }

@@ -9,6 +9,7 @@ import type {
   RunRequest,
   SavedView,
   Sequence,
+  SequenceInput,
   SequenceRun,
   SequenceStep,
   User,
@@ -119,14 +120,14 @@ export const api = {
 
   // sequences
   sequences: () => req<Sequence[]>("/api/sequences"),
-  createSequence: (name: string, steps: SequenceStep[]) =>
-    req<Sequence>("/api/sequences", { method: "POST", body: JSON.stringify({ name, steps }) }),
-  updateSequence: (id: string, name: string, steps: SequenceStep[]) =>
-    req<Sequence>(`/api/sequences/${id}`, { method: "PUT", body: JSON.stringify({ name, steps }) }),
+  createSequence: (name: string, inputs: SequenceInput[], steps: SequenceStep[]) =>
+    req<Sequence>("/api/sequences", { method: "POST", body: JSON.stringify({ name, inputs, steps }) }),
+  updateSequence: (id: string, name: string, inputs: SequenceInput[], steps: SequenceStep[]) =>
+    req<Sequence>(`/api/sequences/${id}`, { method: "PUT", body: JSON.stringify({ name, inputs, steps }) }),
   deleteSequence: (id: string) =>
     req<void>(`/api/sequences/${id}`, { method: "DELETE" }),
-  runSequence: (id: string) =>
-    req<SequenceRun>(`/api/sequences/${id}/run`, { method: "POST" }),
+  runSequence: (id: string, inputs?: Record<string, string>) =>
+    req<SequenceRun>(`/api/sequences/${id}/run`, { method: "POST", body: JSON.stringify({ inputs: inputs ?? {} }) }),
   sequenceRuns: (id: string, top = 1) =>
     req<SequenceRun[]>(`/api/sequences/${id}/runs?top=${top}`),
   sequenceRun: (runId: string) =>

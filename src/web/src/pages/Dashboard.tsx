@@ -25,6 +25,15 @@ export function Dashboard() {
 
   useEffect(() => { ensureNotifyPermission(); }, []);
 
+  const [poolCollapsed, setPoolCollapsed] = useState(() => localStorage.getItem("pl-pool-collapsed") === "1");
+  function togglePool() {
+    setPoolCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem("pl-pool-collapsed", next ? "1" : "0");
+      return next;
+    });
+  }
+
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
   const sequencesQ = useQuery<Sequence[]>({ queryKey: ["sequences"], queryFn: api.sequences });
   const [activeProject, setActiveProject] = useState("");
@@ -206,25 +215,34 @@ export function Dashboard() {
   return (
     <>
       <div className="body">
-        <PipelinePool
-          projects={projectsQ.data ?? []}
-          activeProject={activeProject}
-          onProject={setActiveProject}
-          pipelines={pipelinesQ.data ?? []}
-          loading={pipelinesQ.isLoading || projectsQ.isLoading}
-          search={search}
-          onSearch={setSearch}
-          pinnedIds={pinnedIds}
-          onAdd={(p) => addPipeline(p)}
-          onDragStart={(p) => { poolDrag.current = p; seqDrag.current = null; cardDrag.current = null; }}
-          sequences={sequences}
-          pinnedSequenceIds={pinnedSequenceIds}
-          onAddSequence={(s) => addSequence(s)}
-          onDragStartSequence={(s) => { seqDrag.current = s; poolDrag.current = null; cardDrag.current = null; }}
-        />
+        {!poolCollapsed && (
+          <PipelinePool
+            projects={projectsQ.data ?? []}
+            activeProject={activeProject}
+            onProject={setActiveProject}
+            pipelines={pipelinesQ.data ?? []}
+            loading={pipelinesQ.isLoading || projectsQ.isLoading}
+            search={search}
+            onSearch={setSearch}
+            pinnedIds={pinnedIds}
+            onAdd={(p) => addPipeline(p)}
+            onDragStart={(p) => { poolDrag.current = p; seqDrag.current = null; cardDrag.current = null; }}
+            sequences={sequences}
+            pinnedSequenceIds={pinnedSequenceIds}
+            onAddSequence={(s) => addSequence(s)}
+            onDragStartSequence={(s) => { seqDrag.current = s; poolDrag.current = null; cardDrag.current = null; }}
+          />
+        )}
 
         <div className="main">
           <div className="tabs">
+            <button
+              className="btn ghost small"
+              title={poolCollapsed ? "Show pipeline list" : "Hide pipeline list"}
+              onClick={togglePool}
+            >
+              {poolCollapsed ? "☰" : "⟨"}
+            </button>
             {views.map((v) => (
               <button
                 key={v.id}

@@ -19,17 +19,29 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
 
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _running = new();
 
-    public void Start(string sequenceRunId, string org, string pat)
+    public void Start(string sequenceRunId, string org, string pat, Dictionary<string, string> inputs)
     {
         var cts = new CancellationTokenSource();
         _running[sequenceRunId] = cts;
-        _ = Task.Run(() => ExecuteAsync(sequenceRunId, org, pat, cts.Token));
+        _ = Task.Run(() => ExecuteAsync(sequenceRunId, org, pat, inputs, cts.Token));
+    }
+
+    /// <summary>Stored sequence definition: pre-run inputs + run steps.</summary>
+    public record SeqDef(List<SequenceInputDto> Inputs, List<SequenceStepDto> Steps);
+
+    public static SeqDef ParseDef(string? json)
+    {
+        var t = (json ?? "").TrimStart();
+        if (t.StartsWith("["))
+            return new SeqDef(new(), JsonSerializer.Deserialize<List<SequenceStepDto>>(t, Json) ?? new());
+        if (t.Length == 0) return new SeqDef(new(), new());
+        return JsonSerializer.Deserialize<SeqDef>(t, Json) ?? new SeqDef(new(), new());
     }
 
     public bool Cancel(string sequenceRunId) =>
         _running.TryGetValue(sequenceRunId, out var cts) && Try(() => cts.Cancel());
 
-    private async Task ExecuteAsync(string runId, string org, string pat, CancellationToken ct)
+    private async Task ExecuteAsync(string runId, string org, string pat, Dictionary<string, string> inputOverrides, CancellationToken ct)
     {
         try
         {
@@ -44,8 +56,13 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
             if (run is null) return;
 
             var steps = JsonSerializer.Deserialize<List<SequenceRunStepDto>>(run.StepsJson, Json) ?? new();
-            var def = JsonSerializer.Deserialize<List<SequenceStepDto>>(
-                (await db.Sequences.FindAsync([run.SequenceId], ct))?.StepsJson ?? "[]", Json) ?? new();
+            var parsed = ParseDef((await db.Sequences.FindAsync([run.SequenceId], ct))?.StepsJson);
+            var def = parsed.Steps;
+
+            // Resolve pre-run inputs: caller overrides win over the stored defaults.
+            var resolvedInputs = new Dictionary<string, string>();
+            foreach (var input in parsed.Inputs)
+                resolvedInputs[input.Id] = inputOverrides.TryGetValue(input.Id, out var ov) ? ov : (input.Default ?? "");
 
             RunDto? previous = null;
 
@@ -60,13 +77,26 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                 RunDto triggered;
                 try
                 {
-                    var branch = step.Branch;
+                    // Branch: a pre-run input wins, else the step's static branch, else the default.
+                    string? branch = null;
+                    if (!string.IsNullOrEmpty(step.BranchInputId) && resolvedInputs.TryGetValue(step.BranchInputId, out var bIn) && bIn != "")
+                        branch = bIn;
+                    branch ??= step.Branch;
                     if (string.IsNullOrWhiteSpace(branch))
                         branch = await ado.GetDefaultBranchAsync(step.Project, step.PipelineId, ct) ?? "main";
 
                     var tps = new Dictionary<string, string>(step.TemplateParameters ?? new());
                     var vars = new Dictionary<string, string>(step.Variables ?? new());
                     var resources = new Dictionary<string, string>();
+
+                    // Bindings: pre-run input values plugged into this step's params/variables.
+                    foreach (var b in step.Bindings ?? new())
+                    {
+                        if (!resolvedInputs.TryGetValue(b.InputId, out var val) || val == "") continue;
+                        if (b.Target == "variable") vars[b.Name] = val;
+                        else tps[b.Name] = val;
+                    }
+
                     ApplyLink(step.Link, previous, tps, vars, resources);
 
                     triggered = await ado.RunPipelineAsync(

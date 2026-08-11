@@ -14,24 +14,8 @@ public class ConfigDoc
 public class CfgSequence
 {
     public string Name { get; set; } = "";
-    public List<CfgStep> Steps { get; set; } = new();
-}
-
-public class CfgStep
-{
-    public string Project { get; set; } = "";
-    public int PipelineId { get; set; }
-    public string Name { get; set; } = "";
-    public string? Branch { get; set; }
-    public Dictionary<string, string> TemplateParameters { get; set; } = new();
-    public Dictionary<string, string> Variables { get; set; } = new();
-    public CfgLink? Link { get; set; }
-}
-
-public class CfgLink
-{
-    public string Mode { get; set; } = "none";
-    public string? Key { get; set; }
+    public List<SequenceInputDto> Inputs { get; set; } = new();
+    public List<SequenceStepDto> Steps { get; set; } = new();
 }
 
 public class CfgView

@@ -29,7 +29,8 @@ public record PipelineParamDto(
 public record PipelineDetailDto(
     PipelineDto Pipeline,
     IReadOnlyList<BranchDto> Branches,
-    IReadOnlyList<PipelineParamDto> Parameters);
+    IReadOnlyList<PipelineParamDto> Parameters,
+    IReadOnlyList<string> ResourceAliases);
 
 // ----- runs -----
 public record RunRequest(
@@ -60,17 +61,40 @@ public record StepLinkDto(
     string Mode,   // "none" | "resource" | "parameter" | "variable"
     string? Key);  // resource alias, or template-parameter / variable name
 
-public record SequenceStepDto(
-    string Project,
-    int PipelineId,
-    string Name,
-    string? Branch,
-    Dictionary<string, string>? TemplateParameters,
-    Dictionary<string, string>? Variables,
-    StepLinkDto? Link);
+/// <summary>Binds a step's template parameter / variable to a pre-run input's value.</summary>
+public record ParamBindingDto(
+    string Target,   // "parameter" | "variable"
+    string Name,     // the parameter / variable name on the pipeline
+    string InputId); // which pre-run input supplies the value
 
-public record SequenceDto(string Id, string Name, List<SequenceStepDto> Steps);
-public record UpsertSequenceRequest(string Name, List<SequenceStepDto> Steps);
+/// <summary>A value collected before the sequence runs (branch, environment, …).</summary>
+public class SequenceInputDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "value";   // "branch" | "value"
+    public string? Default { get; set; }
+    public string? SourceProject { get; set; }     // branch inputs: pipeline to autofill branches from
+    public int? SourcePipelineId { get; set; }
+}
+
+public class SequenceStepDto
+{
+    public string Id { get; set; } = "";
+    public string Project { get; set; } = "";
+    public int PipelineId { get; set; }
+    public string Name { get; set; } = "";
+    public string? Branch { get; set; }
+    public string? BranchInputId { get; set; }     // if set, branch comes from this pre-run input
+    public Dictionary<string, string>? TemplateParameters { get; set; }
+    public Dictionary<string, string>? Variables { get; set; }
+    public List<ParamBindingDto>? Bindings { get; set; }
+    public StepLinkDto? Link { get; set; }
+}
+
+public record SequenceDto(string Id, string Name, List<SequenceInputDto> Inputs, List<SequenceStepDto> Steps);
+public record UpsertSequenceRequest(string Name, List<SequenceInputDto> Inputs, List<SequenceStepDto> Steps);
+public record RunSequenceRequest(Dictionary<string, string>? Inputs);
 
 public record SequenceRunStepDto(
     int Index,

@@ -600,6 +600,142 @@ a {
   margin-top: 8px;
 }
 
+/* ---------- combobox ---------- */
+.combo {
+  position: relative;
+  width: 100%;
+}
+
+.combo-input {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.combo-input:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.combo.disabled .combo-input {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.combo-input > span:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-caret {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.combo-pop {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+.combo-search {
+  margin-bottom: 6px;
+}
+
+.combo-list {
+  overflow-y: auto;
+}
+
+.combo-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.combo-opt:hover {
+  background: var(--bg-3);
+}
+
+.combo-opt.active {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.combo-opt-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-empty {
+  color: var(--text-faint);
+  padding: 10px;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* ---------- sequence pre-run inputs ---------- */
+.seq-section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  margin: 18px 0 8px;
+}
+
+.seq-input-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-2);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.seq-binding-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+/* ---------- collapsible sidebar ---------- */
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-right: none;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  left: 8px;
+  bottom: 10px;
+  z-index: 20;
+}
+
 /* ---------- pipeline card ---------- */
 .card {
   background: var(--bg-2);
