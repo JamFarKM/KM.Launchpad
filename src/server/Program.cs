@@ -9,9 +9,11 @@ var builder = WebApplication.CreateBuilder(args);
 // Environment overrides (Docker) win over appsettings.
 builder.Configuration.AddEnvironmentVariables();
 
-// Persisted state directory (SQLite db + Data Protection keys).
+// Persisted state directory (SQLite db + Data Protection keys). The local default is
+// ".pl-data" (not "data") so it never collides with the source folder src/server/Data
+// on case-insensitive filesystems. In Docker, PL_DATA_DIR=/data (a mounted volume).
 var dataDir = builder.Configuration["PL_DATA_DIR"]
-    ?? Path.Combine(builder.Environment.ContentRootPath, "data");
+    ?? Path.Combine(builder.Environment.ContentRootPath, ".pl-data");
 Directory.CreateDirectory(dataDir);
 
 // --- persistence ---

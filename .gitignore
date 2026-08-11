@@ -10,10 +10,13 @@ dist/
 *.tsbuildinfo
 
 # Data / secrets
+# NOTE: do NOT use a bare "data/" here — on case-insensitive filesystems it also
+# matches the source folder src/server/Data/ and silently drops it from git.
 *.db
 *.db-shm
 *.db-wal
-data/
+/data/
+.pl-data/
 .env
 .env.local
 
