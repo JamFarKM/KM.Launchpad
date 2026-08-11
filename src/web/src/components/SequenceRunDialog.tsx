@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { PipelineDetail, Sequence, SequenceInput } from "../types";
@@ -64,6 +64,16 @@ function BranchInput({ input, value, onChange }: {
     enabled: !!input.sourceProject && !!input.sourcePipelineId,
   });
 
+  const branches = detailQ.data?.branches ?? [];
+  const resolveSmart = () =>
+    branches.find((b) => b.mine)?.name ?? branches.find((b) => b.isDefault)?.name ?? branches[0]?.name ?? "";
+
+  // Show the actual branch, not the "smart" sentinel: resolve it once branches load.
+  useEffect(() => {
+    if (value === SMART_BRANCH && branches.length > 0) onChange(resolveSmart());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, detailQ.data]);
+
   if (!input.sourcePipelineId) {
     return <input className="input" placeholder="branch" value={value} onChange={(e) => onChange(e.target.value)} />;
   }
@@ -72,11 +82,11 @@ function BranchInput({ input, value, onChange }: {
       value={value}
       options={[
         { value: SMART_BRANCH, label: "🔍 smart-detect — your last branch", hint: "auto" },
-        ...(detailQ.data?.branches ?? []).map((b) => ({ value: b.name, label: b.name, hint: b.isDefault ? "default" : undefined })),
+        ...branches.map((b) => ({ value: b.name, label: b.name, hint: b.isDefault ? "default" : b.mine ? "yours" : undefined })),
       ]}
       loading={detailQ.isLoading}
       placeholder="— branch —"
-      onChange={onChange}
+      onChange={(v) => onChange(v === SMART_BRANCH ? resolveSmart() : v)}
     />
   );
 }
