@@ -32,6 +32,7 @@ builder.Services.AddScoped<AdoContext>();
 builder.Services.AddScoped<AdoService>();
 builder.Services.AddScoped<ConfigService>();
 builder.Services.AddSingleton<ConfigStoreService>();
+builder.Services.AddSingleton<VaultStoreService>();
 builder.Services.AddSingleton<SequenceRunner>();
 
 var app = builder.Build();
@@ -73,6 +74,15 @@ using (var scope = app.Services.CreateScope())
             "CreatedAt" TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS "IX_ConfigRegistries_UserId" ON "ConfigRegistries" ("UserId");
+
+        CREATE TABLE IF NOT EXISTS "VaultRegistries" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_VaultRegistries" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Name" TEXT NOT NULL,
+            "Secret" TEXT NOT NULL,
+            "CreatedAt" TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_VaultRegistries_UserId" ON "VaultRegistries" ("UserId");
         """);
 }
 
@@ -82,6 +92,7 @@ app.MapApi();
 app.MapSequences();
 app.MapImportExport();
 app.MapConfigRegistries();
+app.MapVaultRegistries();
 
 // Serve the built React SPA and fall back to index.html for client routes.
 app.UseDefaultFiles();

@@ -40,6 +40,19 @@ public class ConfigRegistry
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>An Azure Key Vault the user has registered to browse secrets in.</summary>
+public class VaultRegistry
+{
+    public string Id { get; set; } = default!;
+    public string UserId { get; set; } = default!;
+    public string Name { get; set; } = "";
+
+    /// <summary>Encrypted vault URI. Never returned to the client.</summary>
+    public string Secret { get; set; } = "";
+
+    public DateTime CreatedAt { get; set; }
+}
+
 /// <summary>A user-defined chain of pipelines run in sequence (build → deploy → …).</summary>
 public class Sequence
 {

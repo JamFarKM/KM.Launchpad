@@ -55,6 +55,9 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
             var run = await db.SequenceRuns.FindAsync([runId], ct);
             if (run is null) return;
 
+            // Needed so "smart" branch detection can identify the user's own branches.
+            adoCtx.UniqueName = (await db.Users.FindAsync([run.UserId], ct))?.UniqueName;
+
             var steps = JsonSerializer.Deserialize<List<SequenceRunStepDto>>(run.StepsJson, Json) ?? new();
             var parsed = ParseDef((await db.Sequences.FindAsync([run.SequenceId], ct))?.StepsJson);
             var def = parsed.Steps;
@@ -77,11 +80,14 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                 RunDto triggered;
                 try
                 {
-                    // Branch: a pre-run input wins, else the step's static branch, else the default.
+                    // Branch: a pre-run input wins, else the step's branch (which may be the
+                    // "smart" sentinel → the user's most recent branch), else the default.
                     string? branch = null;
                     if (!string.IsNullOrEmpty(step.BranchInputId) && resolvedInputs.TryGetValue(step.BranchInputId, out var bIn) && bIn != "")
                         branch = bIn;
                     branch ??= step.Branch;
+                    if (branch == AdoService.SmartBranch)
+                        branch = await ado.GetMyRecentBranchAsync(step.Project, step.PipelineId, ct);
                     if (string.IsNullOrWhiteSpace(branch))
                         branch = await ado.GetDefaultBranchAsync(step.Project, step.PipelineId, ct) ?? "main";
 

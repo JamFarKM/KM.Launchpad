@@ -184,6 +184,18 @@ export function Dashboard() {
       view.items.map((i) => (shelfOfItem(view, i) === name ? { ...i, shelf: remaining[0] } : i)));
   }
 
+  function moveShelf(name: string, dir: -1 | 1) {
+    if (!activeView) return;
+    const view = freshest(activeView.id) ?? activeView;
+    const shelves = shelvesOf(view);
+    const i = shelves.indexOf(name);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= shelves.length) return;
+    const next = [...shelves];
+    [next[i], next[j]] = [next[j], next[i]];
+    commit(view, next, view.items);
+  }
+
   // --- drag & drop ---
   const poolDrag = useRef<Pipeline | null>(null);
   const seqDrag = useRef<Sequence | null>(null);
@@ -303,9 +315,9 @@ export function Dashboard() {
               </div>
             )}
 
-            {activeView && shelvesOf(activeView).map((shelf) => {
+            {activeView && shelvesOf(activeView).map((shelf, si, arr) => {
               const items = activeView.items.filter((i) => shelfOfItem(activeView, i) === shelf);
-              const canDelete = shelvesOf(activeView).length > 1;
+              const canDelete = arr.length > 1;
               return (
                 <section
                   key={shelf}
@@ -318,6 +330,8 @@ export function Dashboard() {
                     <span className="shelf-title">{shelf}</span>
                     <span className="shelf-count">{items.length}</span>
                     <span style={{ flex: 1 }} />
+                    <button className="btn ghost small" title="Move shelf up" disabled={si === 0} onClick={() => moveShelf(shelf, -1)}>↑</button>
+                    <button className="btn ghost small" title="Move shelf down" disabled={si === arr.length - 1} onClick={() => moveShelf(shelf, 1)}>↓</button>
                     <button className="btn ghost small" onClick={() => renameShelf(shelf)}>rename</button>
                     {canDelete && <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>}
                   </div>

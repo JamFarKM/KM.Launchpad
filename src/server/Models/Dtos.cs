@@ -127,6 +127,11 @@ public record ConfigRegistryDto(string Id, string Name, string Endpoint);
 public record UpsertConfigRegistryRequest(string Name, string Connection);
 public record ConfigSettingDto(string Key, string? Value, string? Label, string? ContentType, DateTimeOffset? LastModified);
 
+// ----- key vault -----
+public record VaultRegistryDto(string Id, string Name, string Endpoint);
+public record UpsertVaultRegistryRequest(string Name, string VaultUri);
+public record VaultSecretValueDto(string Name, string? Value);
+
 // ----- views -----
 public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf);
 public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, List<ViewItemDto> Items);

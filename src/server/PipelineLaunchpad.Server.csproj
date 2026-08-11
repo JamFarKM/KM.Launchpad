@@ -17,6 +17,8 @@
     <!-- Read Azure App Configuration stores (connection string or AAD via DefaultAzureCredential). -->
     <PackageReference Include="Azure.Data.AppConfiguration" Version="1.5.0" />
     <PackageReference Include="Azure.Identity" Version="1.13.2" />
+    <!-- Read Azure Key Vault secrets (AAD via DefaultAzureCredential). -->
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.7.0" />
   </ItemGroup>
 
 </Project>

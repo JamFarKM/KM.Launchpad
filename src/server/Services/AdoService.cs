@@ -432,6 +432,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         catch { /* tagging is a nicety, not a requirement */ }
     }
 
+    /// <summary>Sentinel branch value meaning "resolve to the user's most recent branch at run time".</summary>
+    public const string SmartBranch = "__smart__";
+
     /// <summary>Cheap lookup of a pipeline's default branch (no YAML scrape).</summary>
     public async Task<string?> GetDefaultBranchAsync(string project, int pipelineId, CancellationToken ct)
     {
@@ -443,6 +446,25 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             && repo.TryGetProperty("defaultBranch", out var db))
             return db.GetString()?.Replace("refs/heads/", "");
         return null;
+    }
+
+    /// <summary>The connected user's most recently worked-on branch for a pipeline's repo, else the default branch.</summary>
+    public async Task<string?> GetMyRecentBranchAsync(string project, int pipelineId, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(
+            HttpMethod.Get,
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions/{pipelineId}?api-version={ApiVersion}",
+            null, null, null, ct);
+        string? repoId = null, defaultBranch = null;
+        if (doc.RootElement.TryGetProperty("repository", out var repo))
+        {
+            repoId = repo.TryGetProperty("id", out var ri) ? ri.GetString() : null;
+            defaultBranch = repo.TryGetProperty("defaultBranch", out var db) ? db.GetString() : null;
+        }
+        var def = defaultBranch?.Replace("refs/heads/", "");
+        if (repoId is null) return def;
+        var branches = await GetBranchesAsync(project, repoId, defaultBranch, ct);
+        return branches.FirstOrDefault(b => b.Mine)?.Name ?? def;
     }
 
     public async Task<List<RunDto>> GetRunsAsync(string project, int pipelineId, int top, CancellationToken ct)

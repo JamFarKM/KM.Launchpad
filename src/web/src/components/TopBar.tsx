@@ -4,7 +4,7 @@ import { canInstall as pwaCanInstall, promptInstall } from "../pwa";
 import { SettingsModal } from "./SettingsModal";
 import type { User } from "../types";
 
-export type Page = "views" | "sequences" | "configurations";
+export type Page = "views" | "sequences" | "configurations" | "keyvault";
 
 interface Props {
   user: User;
@@ -75,6 +75,7 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
         <button className={`nav-btn ${page === "views" ? "active" : ""}`} onClick={() => onNav("views")}>Views</button>
         <button className={`nav-btn ${page === "sequences" ? "active" : ""}`} onClick={() => onNav("sequences")}>Sequences</button>
         <button className={`nav-btn ${page === "configurations" ? "active" : ""}`} onClick={() => onNav("configurations")}>Configurations</button>
+        <button className={`nav-btn ${page === "keyvault" ? "active" : ""}`} onClick={() => onNav("keyvault")}>Key Vault</button>
       </nav>
 
       <div className="spacer" />

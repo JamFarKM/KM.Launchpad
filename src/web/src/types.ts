@@ -193,3 +193,14 @@ export interface ConfigSetting {
   contentType?: string | null;
   lastModified?: string | null;
 }
+
+export interface VaultRegistry {
+  id: string;
+  name: string;
+  endpoint: string;
+}
+
+export interface VaultSecretValue {
+  name: string;
+  value?: string | null;
+}

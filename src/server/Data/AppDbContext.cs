@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Sequence> Sequences => Set<Sequence>();
     public DbSet<SequenceRun> SequenceRuns => Set<SequenceRun>();
     public DbSet<ConfigRegistry> ConfigRegistries => Set<ConfigRegistry>();
+    public DbSet<VaultRegistry> VaultRegistries => Set<VaultRegistry>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -34,5 +35,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         b.Entity<ConfigRegistry>().HasKey(c => c.Id);
         b.Entity<ConfigRegistry>().HasIndex(c => c.UserId);
+
+        b.Entity<VaultRegistry>().HasKey(v => v.Id);
+        b.Entity<VaultRegistry>().HasIndex(v => v.UserId);
     }
 }

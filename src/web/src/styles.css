@@ -813,6 +813,8 @@ a {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+  max-width: 1040px;
 }
 
 .cfg-registry-head {
@@ -832,7 +834,7 @@ a {
 }
 
 .cfg-tree {
-  max-width: 920px;
+  width: 100%;
 }
 
 .cfg-group {
@@ -909,6 +911,40 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* key vault rows */
+.kv-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.kv-row:hover {
+  background: var(--hover);
+}
+
+.kv-name {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  min-width: 220px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kv-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.kv-secret {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text);
+  word-break: break-all;
 }
 
 /* JSON viewer */

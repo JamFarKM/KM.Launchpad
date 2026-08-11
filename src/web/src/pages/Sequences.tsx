@@ -9,6 +9,9 @@ import { Combobox, type ComboOption } from "../components/Combobox";
 
 type Draft = { id: string | null; name: string; inputs: SequenceInput[]; steps: SequenceStep[] };
 
+// Must match AdoService.SmartBranch on the server.
+const SMART_BRANCH = "__smart__";
+
 const uid = () =>
   (globalThis.crypto?.randomUUID?.() ?? `id${Math.floor(performance.now() * 1000)}${Math.round(Math.random() * 1e6)}`);
 
@@ -298,15 +301,19 @@ function StepEditor({ step, index, total, projects, inputs, onChange, onMove, on
   const branchInputs = inputs.filter((i) => i.kind === "branch");
   const valueInputs = inputs.filter((i) => i.kind !== "branch"); // value + environment are bindable
 
-  // Branch selector merges: default + branch-inputs + the pipeline's branches.
-  const branchValue = step.branchInputId ? `input:${step.branchInputId}` : step.branch ? `branch:${step.branch}` : "";
+  // Branch selector merges: default + smart-detect + branch-inputs + the pipeline's branches.
+  const branchValue = step.branch === SMART_BRANCH
+    ? "smart"
+    : step.branchInputId ? `input:${step.branchInputId}` : step.branch ? `branch:${step.branch}` : "";
   const branchOptions: ComboOption[] = [
     { value: "", label: "(default branch)" },
+    { value: "smart", label: "🔍 smart-detect — your last branch", hint: "auto" },
     ...branchInputs.map((i) => ({ value: `input:${i.id}`, label: `input: ${i.name || "(unnamed)"}`, hint: "pre-run" })),
     ...(detail?.branches ?? []).map((b) => ({ value: `branch:${b.name}`, label: b.name, hint: b.isDefault ? "default" : undefined })),
   ];
   function onBranchChange(v: string) {
-    if (v.startsWith("input:")) onChange({ branchInputId: v.slice(6), branch: "" });
+    if (v === "smart") onChange({ branchInputId: "", branch: SMART_BRANCH });
+    else if (v.startsWith("input:")) onChange({ branchInputId: v.slice(6), branch: "" });
     else if (v.startsWith("branch:")) onChange({ branchInputId: "", branch: v.slice(7) });
     else onChange({ branchInputId: "", branch: "" });
   }

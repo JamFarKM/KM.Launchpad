@@ -2,6 +2,8 @@ import type {
   Branch,
   ConfigRegistry,
   ConfigSetting,
+  VaultRegistry,
+  VaultSecretValue,
   LogContent,
   LogEntry,
   Pipeline,
@@ -171,4 +173,18 @@ export const api = {
     req<void>(`/api/config-registries/${id}`, { method: "DELETE" }),
   configSettings: (id: string) =>
     req<ConfigSetting[]>(`/api/config-registries/${id}/settings`),
+
+  // Azure Key Vault registries
+  vaultRegistries: () => req<VaultRegistry[]>("/api/vault-registries"),
+  addVaultRegistry: (name: string, vaultUri: string) =>
+    req<VaultRegistry>("/api/vault-registries", {
+      method: "POST",
+      body: JSON.stringify({ name, vaultUri }),
+    }),
+  deleteVaultRegistry: (id: string) =>
+    req<void>(`/api/vault-registries/${id}`, { method: "DELETE" }),
+  vaultSecrets: (id: string) =>
+    req<string[]>(`/api/vault-registries/${id}/secrets`),
+  vaultSecret: (id: string, name: string) =>
+    req<VaultSecretValue>(`/api/vault-registries/${id}/secrets/${encodeURIComponent(name)}`),
 };

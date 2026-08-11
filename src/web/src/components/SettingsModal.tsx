@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { getSettings, setSettings, type Theme } from "../lib/settings";
 import { ensureNotifyPermission } from "../lib/notify";
-import type { ConfigRegistry } from "../types";
+import type { ConfigRegistry, VaultRegistry } from "../types";
 
 const THEMES: Theme[] = ["system", "light", "dark"];
 
@@ -52,7 +52,57 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <ConfigRegistriesSection />
+          <VaultRegistriesSection />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function VaultRegistriesSection() {
+  const qc = useQueryClient();
+  const registriesQ = useQuery<VaultRegistry[]>({ queryKey: ["vault-registries"], queryFn: api.vaultRegistries });
+  const [name, setName] = useState("");
+  const [vaultUri, setVaultUri] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const add = useMutation({
+    mutationFn: () => api.addVaultRegistry(name.trim(), vaultUri.trim()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["vault-registries"] }); setName(""); setVaultUri(""); setError(null); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not add vault."),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteVaultRegistry(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["vault-registries"] }),
+  });
+
+  const registries = registriesQ.data ?? [];
+
+  return (
+    <div className="field">
+      <label className="label">Azure Key Vaults</label>
+      <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
+        Add a vault by URI (e.g. <code>https://my-vault.vault.azure.net</code>). Uses your Azure login; secret values are only fetched when you reveal them.
+      </div>
+
+      {registries.map((r) => (
+        <div className="row" key={r.id} style={{ marginBottom: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+            <div className="faint" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.endpoint}</div>
+          </div>
+          <button className="btn ghost small" onClick={() => remove.mutate(r.id)}>Remove</button>
+        </div>
+      ))}
+
+      {error && <div className="error" style={{ fontSize: 12, margin: "8px 0" }}>{error}</div>}
+
+      <div style={{ marginTop: 8 }}>
+        <input className="input" placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 6 }} />
+        <input className="input" placeholder="Vault URI (https://…vault.azure.net)" value={vaultUri} onChange={(e) => setVaultUri(e.target.value)} style={{ marginBottom: 6 }} />
+        <button className="btn small primary" disabled={!vaultUri.trim() || add.isPending} onClick={() => add.mutate()}>
+          {add.isPending ? "Validating…" : "+ Add vault"}
+        </button>
       </div>
     </div>
   );
