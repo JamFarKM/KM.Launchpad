@@ -79,16 +79,21 @@ export function RunDetailModal({ project, buildId, onClose }: Props) {
               {!logsQ.isLoading && logs.length === 0 && (
                 <div className="faint" style={{ fontSize: 13 }}>No step logs yet.</div>
               )}
-              {logs.map((l) => (
-                <div
-                  key={l.id}
-                  className={`log-step ${activeLog === l.id ? "active" : ""}`}
-                  onClick={() => setActiveLog(l.id)}
-                >
-                  <span className={`badge ${stepTone(l)}`}><span className="dot" /></span>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {l.name || `Log ${l.id}`}
-                  </span>
+              {groupLogs(logs).map((grp, gi) => (
+                <div className="log-group" key={gi}>
+                  {grp.group && <div className="log-group-title" title={grp.group}>{grp.group}</div>}
+                  {grp.items.map((l) => (
+                    <div
+                      key={l.id}
+                      className={`log-step ${activeLog === l.id ? "active" : ""}`}
+                      onClick={() => setActiveLog(l.id)}
+                    >
+                      <span className={`badge ${stepTone(l)}`}><span className="dot" /></span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {l.name || `Log ${l.id}`}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -108,6 +113,17 @@ export function RunDetailModal({ project, buildId, onClose }: Props) {
       </div>
     </div>
   );
+}
+
+function groupLogs(logs: LogEntry[]): { group: string | null; items: LogEntry[] }[] {
+  const out: { group: string | null; items: LogEntry[] }[] = [];
+  for (const l of logs) {
+    const g = l.group ?? null;
+    let last = out[out.length - 1];
+    if (!last || last.group !== g) { last = { group: g, items: [] }; out.push(last); }
+    last.items.push(l);
+  }
+  return out;
 }
 
 function stepTone(l: LogEntry): string {

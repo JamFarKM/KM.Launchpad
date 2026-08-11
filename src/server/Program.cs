@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using PipelineLaunchpad.Server.Data;
 using PipelineLaunchpad.Server.Endpoints;
+using PipelineLaunchpad.Server.Models;
 using PipelineLaunchpad.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -90,6 +92,27 @@ using (var scope = app.Services.CreateScope())
             "UpdatedAt" TEXT NOT NULL
         );
         """);
+
+    // Any sequence run still "running" was orphaned by a previous process (restart/crash)
+    // and can never resume — fail it so it doesn't hang forever as "in progress".
+    var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+    var orphaned = db.SequenceRuns.Where(r => r.Status == "running").ToList();
+    foreach (var run in orphaned)
+    {
+        var steps = JsonSerializer.Deserialize<List<SequenceRunStepDto>>(run.StepsJson, web) ?? new();
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var s = steps[i];
+            if (s.State is "running" or "inProgress" or "notStarted")
+                steps[i] = s with { State = "completed", Result = "failed", Message = "Interrupted by a server restart.", FinishedAt = DateTime.UtcNow };
+            else if (s.State == "pending")
+                steps[i] = s with { State = "skipped" };
+        }
+        run.StepsJson = JsonSerializer.Serialize(steps, web);
+        run.Status = "failed";
+        run.FinishedAt = DateTime.UtcNow;
+    }
+    if (orphaned.Count > 0) db.SaveChanges();
 }
 
 app.UseMiddleware<SessionMiddleware>();

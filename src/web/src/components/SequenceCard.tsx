@@ -18,7 +18,7 @@ interface Props {
 }
 
 function stepTone(s: SequenceRunStep): string {
-  if (s.state === "running") return "running";
+  if (s.state === "running" || s.state === "inProgress" || s.state === "notStarted") return "running";
   if (s.state === "pending") return "idle";
   if (s.state === "skipped") return "canceled";
   switch (s.result) {
@@ -44,6 +44,7 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
     queryKey: ["seq-latest", seqId],
     queryFn: () => api.sequenceRuns(seqId, 1).then((r) => r[0] ?? null),
     enabled: !activeRunId,
+    refetchInterval: (q) => (q.state.data?.status === "running" ? 3000 : false),
   });
 
   const runQ = useQuery<SequenceRun>({

@@ -155,11 +155,39 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
         catch (Exception ex)
         {
             log.LogError(ex, "Sequence run {RunId} crashed", runId);
+            await SafeMarkFailedAsync(runId, ex.Message);
         }
         finally
         {
             _running.TryRemove(runId, out _);
         }
+    }
+
+    /// <summary>Best-effort: finalize a run as failed if the runner crashed mid-flight.</summary>
+    private async Task SafeMarkFailedAsync(string runId, string message)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var run = await db.SequenceRuns.FindAsync(runId);
+            if (run is null || run.Status != "running") return;
+
+            var steps = JsonSerializer.Deserialize<List<SequenceRunStepDto>>(run.StepsJson, Json) ?? new();
+            for (var i = 0; i < steps.Count; i++)
+            {
+                var s = steps[i];
+                if (s.State is "running" or "inProgress" or "notStarted")
+                    steps[i] = s with { State = "completed", Result = "failed", Message = Trim(message), FinishedAt = DateTime.UtcNow };
+                else if (s.State == "pending")
+                    steps[i] = s with { State = "skipped" };
+            }
+            run.StepsJson = JsonSerializer.Serialize(steps, Json);
+            run.Status = "failed";
+            run.FinishedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch { /* nothing more we can do */ }
     }
 
     private async Task<RunDto?> PollToTerminalAsync(

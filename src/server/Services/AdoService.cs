@@ -512,22 +512,54 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds/{buildId}/timeline?api-version={ApiVersion}",
             null, null, null, ct);
 
-        var list = new List<LogEntryDto>();
-        if (doc.RootElement.TryGetProperty("records", out var records))
+        if (!doc.RootElement.TryGetProperty("records", out var records))
+            return new();
+
+        // Index every timeline record by id so we can walk parent chains to the owning job.
+        var byId = new Dictionary<string, JsonElement>();
+        foreach (var r in records.EnumerateArray())
+            if (r.TryGetProperty("id", out var idEl) && idEl.GetString() is { } rid) byId[rid] = r;
+
+        static int Order(JsonElement e) =>
+            e.TryGetProperty("order", out var o) && o.ValueKind == JsonValueKind.Number ? o.GetInt32() : 0;
+
+        // The name (and order) of the nearest ancestor-or-self record of type "Job",
+        // used to group the many repeated task names under the job they belong to.
+        (string? name, int order) JobOf(JsonElement r)
         {
-            foreach (var r in records.EnumerateArray()
-                         .OrderBy(r => r.TryGetProperty("order", out var o) && o.ValueKind == JsonValueKind.Number ? o.GetInt32() : 0))
+            var cur = r;
+            for (var depth = 0; depth < 12; depth++)
             {
-                if (!r.TryGetProperty("log", out var log) || log.ValueKind != JsonValueKind.Object) continue;
-                list.Add(new LogEntryDto(
-                    log.GetProperty("id").GetInt32(),
-                    r.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
-                    r.TryGetProperty("state", out var st) ? st.GetString() ?? "" : "",
-                    r.TryGetProperty("result", out var rs) && rs.ValueKind != JsonValueKind.Null ? rs.GetString() : null,
-                    r.TryGetProperty("lineCount", out var lc) && lc.ValueKind == JsonValueKind.Number ? lc.GetInt32() : null));
+                var type = cur.TryGetProperty("type", out var t) ? t.GetString() : null;
+                if (string.Equals(type, "Job", StringComparison.OrdinalIgnoreCase))
+                    return (cur.TryGetProperty("name", out var jn) ? jn.GetString() : null, Order(cur));
+                var parentId = cur.TryGetProperty("parentId", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+                if (parentId is null || !byId.TryGetValue(parentId, out var parent)) break;
+                cur = parent;
             }
+            return (null, 0);
         }
-        return list;
+
+        var rows = new List<(int jobOrder, int order, LogEntryDto entry)>();
+        foreach (var r in records.EnumerateArray())
+        {
+            if (!r.TryGetProperty("log", out var log) || log.ValueKind != JsonValueKind.Object) continue;
+            var (jobName, jobOrder) = JobOf(r);
+            rows.Add((jobOrder, Order(r), new LogEntryDto(
+                log.GetProperty("id").GetInt32(),
+                r.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
+                r.TryGetProperty("state", out var st) ? st.GetString() ?? "" : "",
+                r.TryGetProperty("result", out var rs) && rs.ValueKind != JsonValueKind.Null ? rs.GetString() : null,
+                r.TryGetProperty("lineCount", out var lc) && lc.ValueKind == JsonValueKind.Number ? lc.GetInt32() : null,
+                jobName)));
+        }
+
+        // Keep each job's steps contiguous and in execution order.
+        return rows
+            .OrderBy(x => x.jobOrder)
+            .ThenBy(x => x.order)
+            .Select(x => x.entry)
+            .ToList();
     }
 
     public async Task<LogContentDto> GetLogContentAsync(string project, int buildId, int logId, CancellationToken ct)

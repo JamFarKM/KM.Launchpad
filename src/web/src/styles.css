@@ -1210,11 +1210,26 @@ a {
   max-height: 100%;
 }
 
+.log-group + .log-group {
+  margin-top: 6px;
+}
+
+.log-group-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  padding: 6px 8px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .log-step {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 6px 8px 6px 16px;
   border-radius: 6px;
   font-size: 13px;
 }

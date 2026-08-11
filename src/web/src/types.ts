@@ -80,6 +80,7 @@ export interface LogEntry {
   state: string;
   result?: string | null;
   lineCount?: number | null;
+  group?: string | null;
 }
 
 export interface LogContent {

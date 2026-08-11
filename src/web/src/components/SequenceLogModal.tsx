@@ -12,7 +12,7 @@ function statusTone(status: string): string {
 }
 
 function stepTone(s: SequenceRunStep): string {
-  if (s.state === "running") return "running";
+  if (s.state === "running" || s.state === "inProgress" || s.state === "notStarted") return "running";
   if (s.state === "pending") return "idle";
   if (s.state === "skipped") return "canceled";
   switch (s.result) {
@@ -26,7 +26,7 @@ function stepTone(s: SequenceRunStep): string {
 function stepLabel(s: SequenceRunStep): string {
   if (s.state === "pending") return "pending";
   if (s.state === "skipped") return "skipped";
-  if (s.state === "running") return "running";
+  if (s.state === "running" || s.state === "inProgress" || s.state === "notStarted") return "running";
   return s.result ?? s.state;
 }
 

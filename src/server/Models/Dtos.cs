@@ -55,7 +55,7 @@ public record RunDto(
     DateTime? FinishTime,
     string WebUrl);
 
-public record LogEntryDto(int Id, string Name, string State, string? Result, int? LineCount);
+public record LogEntryDto(int Id, string Name, string State, string? Result, int? LineCount, string? Group);
 public record LogContentDto(int Id, string Name, string Content);
 
 // ----- sequences -----
