@@ -31,6 +31,7 @@ export interface Branch {
 export interface PipelineParam {
   name: string;
   kind: "parameter" | "variable";
+  type: "string" | "boolean" | "number" | "enum";
   defaultValue?: string | null;
   allowOverride: boolean;
   allowedValues?: string[] | null;
@@ -82,12 +83,14 @@ export interface ViewItem {
   project: string;
   pipelineId: number;
   name: string;
+  shelf?: string | null;
 }
 
 export interface SavedView {
   id: string;
   name: string;
   sortOrder: number;
+  shelves: string[];
   items: ViewItem[];
 }
 

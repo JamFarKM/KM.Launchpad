@@ -137,7 +137,7 @@ public static class ApiEndpoints
                 UserId = ctx.UserId!,
                 Name = body.Name.Trim(),
                 SortOrder = body.SortOrder,
-                ItemsJson = JsonSerializer.Serialize(body.Items, Json),
+                ItemsJson = SerializeLayout(body.Shelves, body.Items),
                 CreatedAt = now,
                 UpdatedAt = now,
             };
@@ -153,7 +153,7 @@ public static class ApiEndpoints
             if (view is null) return Results.NotFound();
             view.Name = body.Name.Trim();
             view.SortOrder = body.SortOrder;
-            view.ItemsJson = JsonSerializer.Serialize(body.Items, Json);
+            view.ItemsJson = SerializeLayout(body.Shelves, body.Items);
             view.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToDto(view));
@@ -175,7 +175,29 @@ public static class ApiEndpoints
         catch (AdoService.AdoException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
     }
 
-    private static SavedViewDto ToDto(SavedView v) => new(
-        v.Id, v.Name, v.SortOrder,
-        JsonSerializer.Deserialize<List<ViewItemDto>>(v.ItemsJson, Json) ?? new());
+    // Layout (shelves + items) is stored in the single ItemsJson column so no schema
+    // change is needed. Tolerates the legacy shape where ItemsJson was a bare array.
+    private record ViewLayout(List<string> Shelves, List<ViewItemDto> Items);
+
+    private static string SerializeLayout(List<string>? shelves, List<ViewItemDto>? items) =>
+        JsonSerializer.Serialize(new ViewLayout(shelves ?? new(), items ?? new()), Json);
+
+    private static SavedViewDto ToDto(SavedView v)
+    {
+        var json = (v.ItemsJson ?? "").TrimStart();
+        List<string> shelves = new();
+        List<ViewItemDto> items = new();
+        if (json.StartsWith("["))
+        {
+            // legacy: bare array of items
+            items = JsonSerializer.Deserialize<List<ViewItemDto>>(json, Json) ?? new();
+        }
+        else if (json.Length > 0)
+        {
+            var layout = JsonSerializer.Deserialize<ViewLayout>(json, Json);
+            shelves = layout?.Shelves ?? new();
+            items = layout?.Items ?? new();
+        }
+        return new SavedViewDto(v.Id, v.Name, v.SortOrder, shelves, items);
+    }
 }

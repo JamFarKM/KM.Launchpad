@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using PipelineLaunchpad.Server.Models;
+using YamlDotNet.RepresentationModel;
 
 namespace PipelineLaunchpad.Server.Services;
 
@@ -112,8 +113,24 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             defaultBranch,
             !string.Equals(queueStatus, "disabled", StringComparison.OrdinalIgnoreCase));
 
-        // overridable variables => surfaced as parameters
         var parameters = new List<PipelineParamDto>();
+
+        // 1) YAML template parameters (scraped from the pipeline's yaml in the repo).
+        string? yamlFile = null;
+        if (root.TryGetProperty("process", out var process))
+            yamlFile = process.TryGetProperty("yamlFilename", out var yf) ? yf.GetString() : null;
+
+        if (yamlFile is not null && repoId is not null)
+        {
+            try
+            {
+                var scraped = await ScrapeYamlParametersAsync(project, repoId, defaultBranch, yamlFile, ct);
+                parameters.AddRange(scraped);
+            }
+            catch { /* best-effort — fall back to variables + free-form */ }
+        }
+
+        // 2) Overridable pipeline variables.
         if (root.TryGetProperty("variables", out var vars) && vars.ValueKind == JsonValueKind.Object)
         {
             foreach (var v in vars.EnumerateObject())
@@ -122,7 +139,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
                 var val = v.Value.TryGetProperty("value", out var vv) ? vv.GetString() : null;
                 var isSecret = v.Value.TryGetProperty("isSecret", out var s) && s.GetBoolean();
                 if (isSecret) continue; // never prefill secrets
-                parameters.Add(new PipelineParamDto(v.Name, "variable", val, allowOverride, null));
+                parameters.Add(new PipelineParamDto(v.Name, "variable", "string", val, allowOverride, null));
             }
         }
 
@@ -153,6 +170,127 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             .OrderByDescending(b => b.IsDefault)
             .ThenBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    // ------------------------------------------------- yaml parameters
+
+    /// <summary>
+    /// Reads the pipeline's YAML from the repo and extracts its declared
+    /// <c>parameters:</c>. Follows one level of <c>extends: template:</c> to a
+    /// same-repo template if the entry file has no parameters of its own.
+    /// </summary>
+    private async Task<List<PipelineParamDto>> ScrapeYamlParametersAsync(
+        string project, string repoId, string? defaultBranch, string yamlPath, CancellationToken ct)
+    {
+        var branch = (defaultBranch ?? "refs/heads/main").Replace("refs/heads/", "");
+        var text = await GetRepoFileTextAsync(project, repoId, yamlPath, branch, ct);
+        if (text is null) return new();
+
+        var root = ParseYamlRoot(text);
+        if (root is null) return new();
+
+        // Direct parameters on the entry file.
+        if (root.Children.TryGetValue(new YamlScalarNode("parameters"), out var pNode)
+            && pNode is YamlSequenceNode seq)
+            return ParseParamSequence(seq);
+
+        // Otherwise follow a local `extends: template: <path>`.
+        if (root.Children.TryGetValue(new YamlScalarNode("extends"), out var ext)
+            && ext is YamlMappingNode extMap
+            && extMap.Children.TryGetValue(new YamlScalarNode("template"), out var tmpl)
+            && tmpl is YamlScalarNode tmplScalar)
+        {
+            var templatePath = tmplScalar.Value ?? "";
+            // Only same-repo templates ("path" or "path@self"); skip cross-repo "@resource".
+            var at = templatePath.IndexOf('@');
+            var resource = at >= 0 ? templatePath[(at + 1)..] : "self";
+            var pathOnly = at >= 0 ? templatePath[..at] : templatePath;
+            if (resource == "self" && !string.IsNullOrWhiteSpace(pathOnly))
+            {
+                var resolved = ResolveRepoPath(yamlPath, pathOnly);
+                var ttext = await GetRepoFileTextAsync(project, repoId, resolved, branch, ct);
+                var troot = ttext is null ? null : ParseYamlRoot(ttext);
+                if (troot is not null
+                    && troot.Children.TryGetValue(new YamlScalarNode("parameters"), out var tp)
+                    && tp is YamlSequenceNode tseq)
+                    return ParseParamSequence(tseq);
+            }
+        }
+
+        return new();
+    }
+
+    private async Task<string?> GetRepoFileTextAsync(
+        string project, string repoId, string path, string branch, CancellationToken ct)
+    {
+        var url = $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{repoId}/items" +
+                  $"?path={Uri.EscapeDataString(path)}&versionDescriptor.version={Uri.EscapeDataString(branch)}" +
+                  $"&versionDescriptor.versionType=branch&includeContent=true&$format=text&api-version={ApiVersion}";
+        try { return await SendTextAsync(HttpMethod.Get, url, ct); }
+        catch (AdoException) { return null; }
+    }
+
+    private static YamlMappingNode? ParseYamlRoot(string text)
+    {
+        try
+        {
+            var stream = new YamlStream();
+            using var reader = new StringReader(text);
+            stream.Load(reader);
+            if (stream.Documents.Count == 0) return null;
+            return stream.Documents[0].RootNode as YamlMappingNode;
+        }
+        catch { return null; }
+    }
+
+    private static List<PipelineParamDto> ParseParamSequence(YamlSequenceNode seq)
+    {
+        var list = new List<PipelineParamDto>();
+        foreach (var node in seq.Children.OfType<YamlMappingNode>())
+        {
+            var name = Scalar(node, "name");
+            if (string.IsNullOrEmpty(name)) continue;
+
+            var rawType = Scalar(node, "type") ?? "string";
+            var def = Scalar(node, "default");
+
+            List<string>? values = null;
+            if (node.Children.TryGetValue(new YamlScalarNode("values"), out var vNode)
+                && vNode is YamlSequenceNode vSeq)
+                values = vSeq.Children.OfType<YamlScalarNode>().Select(s => s.Value ?? "").ToList();
+
+            var uiType = values is { Count: > 0 }
+                ? "enum"
+                : rawType switch
+                {
+                    "boolean" => "boolean",
+                    "number" => "number",
+                    _ => "string",
+                };
+
+            list.Add(new PipelineParamDto(name, "parameter", uiType, def, true, values));
+        }
+        return list;
+    }
+
+    private static string? Scalar(YamlMappingNode node, string key) =>
+        node.Children.TryGetValue(new YamlScalarNode(key), out var v) && v is YamlScalarNode s ? s.Value : null;
+
+    /// <summary>Resolve a template path relative to the referencing yaml file.</summary>
+    private static string ResolveRepoPath(string fromFile, string templatePath)
+    {
+        if (templatePath.StartsWith("/")) return templatePath.TrimStart('/');
+        var dir = fromFile.Contains('/') ? fromFile[..fromFile.LastIndexOf('/')] : "";
+        var combined = string.IsNullOrEmpty(dir) ? templatePath : $"{dir}/{templatePath}";
+        // normalise ../ and ./ segments
+        var parts = new List<string>();
+        foreach (var seg in combined.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (seg == ".") continue;
+            if (seg == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); }
+            else parts.Add(seg);
+        }
+        return string.Join('/', parts);
     }
 
     // --------------------------------------------------------------- runs

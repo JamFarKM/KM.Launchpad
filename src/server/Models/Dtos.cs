@@ -20,7 +20,8 @@ public record BranchDto(string Name, bool IsDefault);
 
 public record PipelineParamDto(
     string Name,
-    string Kind,              // "parameter" | "variable"
+    string Kind,              // "parameter" (YAML templateParameter) | "variable"
+    string Type,              // "string" | "boolean" | "number" | "enum"
     string? DefaultValue,
     bool AllowOverride,
     IReadOnlyList<string>? AllowedValues);
@@ -53,6 +54,6 @@ public record LogEntryDto(int Id, string Name, string State, string? Result, int
 public record LogContentDto(int Id, string Name, string Content);
 
 // ----- views -----
-public record ViewItemDto(string Project, int PipelineId, string Name);
-public record SavedViewDto(string Id, string Name, int SortOrder, List<ViewItemDto> Items);
-public record UpsertViewRequest(string Name, int SortOrder, List<ViewItemDto> Items);
+public record ViewItemDto(string Project, int PipelineId, string Name, string? Shelf);
+public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, List<ViewItemDto> Items);
+public record UpsertViewRequest(string Name, int SortOrder, List<string> Shelves, List<ViewItemDto> Items);

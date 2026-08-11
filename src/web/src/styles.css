@@ -340,6 +340,81 @@ a {
   gap: 12px;
 }
 
+/* ---------- shelves ---------- */
+.shelf {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+
+.shelf.active {
+  border-color: var(--border-2);
+}
+
+.shelf-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.shelf-title {
+  font-weight: 600;
+}
+
+.shelf-count {
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg-3);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.shelf-cards {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 12px;
+  min-height: 96px;
+  align-items: stretch;
+}
+
+.shelf-cards.drop-hint {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+  border-radius: 10px;
+}
+
+.shelf-cards > .card {
+  flex: 0 0 320px;
+  max-width: 320px;
+}
+
+.shelf-empty {
+  color: var(--text-faint);
+  border: 1px dashed var(--border-2);
+  border-radius: 10px;
+  padding: 22px;
+  width: 100%;
+  text-align: center;
+  align-self: center;
+}
+
+.add-shelf {
+  margin-top: 2px;
+}
+
+.shelf-select {
+  width: auto;
+  padding: 3px 6px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
 /* ---------- pipeline card ---------- */
 .card {
   background: var(--bg-2);

@@ -12,6 +12,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
     <!-- Override the transitive native SQLite bundle to a version without GHSA-2m69-gcr7-jv3q. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
+    <!-- Parse pipeline YAML to surface declared template parameters. -->
+    <PackageReference Include="YamlDotNet" Version="16.2.0" />
   </ItemGroup>
 
 </Project>

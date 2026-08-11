@@ -6,9 +6,21 @@ import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
 import { RunDialog } from "../components/RunDialog";
 import { RunDetailModal } from "../components/RunDetailModal";
+import { ensureNotifyPermission } from "../lib/notify";
+
+const DEFAULT_SHELF = "Pipelines";
+
+const shelvesOf = (v: SavedView): string[] => (v.shelves.length ? v.shelves : [DEFAULT_SHELF]);
+const shelfOfItem = (v: SavedView, i: ViewItem): string => {
+  const ss = shelvesOf(v);
+  return i.shelf && ss.includes(i.shelf) ? i.shelf : ss[0];
+};
+const sameItem = (a: ViewItem, b: ViewItem) => a.project === b.project && a.pipelineId === b.pipelineId;
 
 export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: () => void }) {
   const qc = useQueryClient();
+
+  useEffect(() => { ensureNotifyPermission(); }, []);
 
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
   const [activeProject, setActiveProject] = useState("");
@@ -38,27 +50,34 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
 
   const activeView = views.find((v) => v.id === activeViewId) ?? null;
 
-  // --- view mutations ---
+  const [activeShelf, setActiveShelf] = useState<string>(DEFAULT_SHELF);
+  useEffect(() => {
+    if (activeView) {
+      const ss = shelvesOf(activeView);
+      if (!ss.includes(activeShelf)) setActiveShelf(ss[0]);
+    }
+  }, [activeView, activeShelf]);
+
+  // --- mutations ---
   const createView = useMutation({
-    mutationFn: (name: string) => api.createView(name, views.length, []),
+    mutationFn: (name: string) => api.createView(name, views.length, [DEFAULT_SHELF], []),
     onSuccess: (v) => {
       qc.invalidateQueries({ queryKey: ["views"] });
       setActiveViewId(v.id);
     },
   });
 
-  const saveItems = useMutation({
-    mutationFn: (args: { view: SavedView; items: ViewItem[] }) =>
-      api.updateView(args.view.id, args.view.name, args.view.sortOrder, args.items),
-    // The cache is updated optimistically & synchronously by mutateItems below, so
-    // rapid successive adds read each other's results. Only refetch on failure to
-    // roll back — refetching on success would stomp a newer optimistic edit mid-flight.
+  const saveLayout = useMutation({
+    mutationFn: (a: { view: SavedView; shelves: string[]; items: ViewItem[] }) =>
+      api.updateView(a.view.id, a.view.name, a.view.sortOrder, a.shelves, a.items),
+    // Cache is updated optimistically & synchronously below; only refetch on failure
+    // to roll back (a success refetch could stomp a newer in-flight optimistic edit).
     onError: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
 
   const renameView = useMutation({
-    mutationFn: (args: { view: SavedView; name: string }) =>
-      api.updateView(args.view.id, args.name, args.view.sortOrder, args.view.items),
+    mutationFn: (a: { view: SavedView; name: string }) =>
+      api.updateView(a.view.id, a.name, a.view.sortOrder, a.view.shelves, a.view.items),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
 
@@ -70,49 +89,100 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
     },
   });
 
-  // --- helpers to add/remove pipelines ---
+  // --- layout helpers (read freshest cache, optimistic write, persist) ---
+  const freshest = (id: string): SavedView | undefined =>
+    (qc.getQueryData<SavedView[]>(["views"]) ?? []).find((v) => v.id === id);
+
+  function commit(view: SavedView, shelves: string[], items: ViewItem[]) {
+    qc.setQueryData<SavedView[]>(["views"], (prev) =>
+      (prev ?? []).map((v) => (v.id === view.id ? { ...v, shelves, items } : v)),
+    );
+    saveLayout.mutate({ view, shelves, items });
+  }
+
   async function ensureView(): Promise<SavedView> {
     if (activeView) return activeView;
-    const created = await api.createView("My pipelines", views.length, []);
+    const created = await api.createView("My pipelines", views.length, [DEFAULT_SHELF], []);
     await qc.invalidateQueries({ queryKey: ["views"] });
     setActiveViewId(created.id);
     return created;
   }
 
-  // Read the freshest copy of a view from the cache (not the possibly-stale render
-  // closure), apply an optimistic update, then persist.
-  function freshest(id: string): SavedView | undefined {
-    return (qc.getQueryData<SavedView[]>(["views"]) ?? []).find((v) => v.id === id);
-  }
-
-  function mutateItems(view: SavedView, items: ViewItem[]) {
-    qc.setQueryData<SavedView[]>(["views"], (prev) =>
-      (prev ?? []).map((v) => (v.id === view.id ? { ...v, items } : v)),
-    );
-    saveItems.mutate({ view, items });
-  }
-
-  async function addPipeline(p: Pipeline) {
+  async function addPipeline(p: Pipeline, shelf?: string) {
     const base = await ensureView();
     const view = freshest(base.id) ?? base;
     if (view.items.some((i) => i.project === p.project && i.pipelineId === p.id)) return;
-    mutateItems(view, [...view.items, { project: p.project, pipelineId: p.id, name: p.name }]);
+    const targetShelf = shelf ?? (shelvesOf(view).includes(activeShelf) ? activeShelf : shelvesOf(view)[0]);
+    commit(view, shelvesOf(view), [
+      ...view.items,
+      { project: p.project, pipelineId: p.id, name: p.name, shelf: targetShelf },
+    ]);
   }
 
   function removeItem(item: ViewItem) {
     if (!activeView) return;
     const view = freshest(activeView.id) ?? activeView;
-    mutateItems(
+    commit(view, shelvesOf(view), view.items.filter((i) => !sameItem(i, item)));
+  }
+
+  function moveItemToShelf(item: ViewItem, shelf: string) {
+    if (!activeView) return;
+    const view = freshest(activeView.id) ?? activeView;
+    commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, shelf } : i)));
+  }
+
+  function addShelf() {
+    if (!activeView) return;
+    const name = window.prompt("New shelf name", "New shelf");
+    if (!name || !name.trim()) return;
+    const view = freshest(activeView.id) ?? activeView;
+    const shelves = shelvesOf(view);
+    if (shelves.includes(name.trim())) return;
+    commit(view, [...shelves, name.trim()], view.items);
+    setActiveShelf(name.trim());
+  }
+
+  function renameShelf(oldName: string) {
+    if (!activeView) return;
+    const name = window.prompt("Rename shelf", oldName);
+    if (!name || !name.trim() || name.trim() === oldName) return;
+    const view = freshest(activeView.id) ?? activeView;
+    commit(
       view,
-      view.items.filter(
-        (i) => !(i.project === item.project && i.pipelineId === item.pipelineId),
-      ),
+      shelvesOf(view).map((s) => (s === oldName ? name.trim() : s)),
+      view.items.map((i) => (shelfOfItem(view, i) === oldName ? { ...i, shelf: name.trim() } : i)),
     );
   }
 
-  // --- drag & drop ---
-  const dragItem = useRef<Pipeline | null>(null);
-  const [dropHint, setDropHint] = useState(false);
+  function deleteShelf(name: string) {
+    if (!activeView) return;
+    const view = freshest(activeView.id) ?? activeView;
+    const shelves = shelvesOf(view);
+    if (shelves.length <= 1) return;
+    const remaining = shelves.filter((s) => s !== name);
+    const fallback = remaining[0];
+    commit(
+      view,
+      remaining,
+      view.items.map((i) => (shelfOfItem(view, i) === name ? { ...i, shelf: fallback } : i)),
+    );
+  }
+
+  // --- drag & drop (pool pipeline OR existing card) ---
+  const poolDrag = useRef<Pipeline | null>(null);
+  const cardDrag = useRef<ViewItem | null>(null);
+  const [hintShelf, setHintShelf] = useState<string | null>(null);
+
+  function handleShelfDrop(shelf: string) {
+    setHintShelf(null);
+    if (poolDrag.current) {
+      addPipeline(poolDrag.current, shelf);
+      poolDrag.current = null;
+    } else if (cardDrag.current) {
+      moveItemToShelf(cardDrag.current, shelf);
+      cardDrag.current = null;
+    }
+  }
 
   const pinnedIds = useMemo(() => {
     const ids = new Set<number>();
@@ -129,9 +199,7 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
   return (
     <div className="app">
       <div className="topbar">
-        <div className="brand">
-          Pipeline <span>Launchpad</span>
-        </div>
+        <div className="brand">Pipeline <span>Launchpad</span></div>
         <span className="faint">·</span>
         <span className="muted">{user.org}</span>
         <div className="spacer" />
@@ -149,8 +217,8 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
           search={search}
           onSearch={setSearch}
           pinnedIds={pinnedIds}
-          onAdd={addPipeline}
-          onDragStart={(p) => (dragItem.current = p)}
+          onAdd={(p) => addPipeline(p)}
+          onDragStart={(p) => { poolDrag.current = p; cardDrag.current = null; }}
         />
 
         <div className="main">
@@ -169,85 +237,86 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
                 {v.name}
               </button>
             ))}
-            <button
-              className="btn ghost small"
-              onClick={() => {
-                const name = window.prompt("New view name", "My pipelines");
-                if (name && name.trim()) createView.mutate(name.trim());
-              }}
-            >
+            <button className="btn ghost small" onClick={() => {
+              const name = window.prompt("New view name", "My pipelines");
+              if (name && name.trim()) createView.mutate(name.trim());
+            }}>
               + New view
             </button>
             {activeView && (
-              <button
-                className="btn ghost small"
-                title="Delete this view"
-                onClick={() => {
-                  if (window.confirm(`Delete view "${activeView.name}"?`))
-                    deleteView.mutate(activeView.id);
-                }}
-              >
+              <button className="btn ghost small" title="Delete this view" onClick={() => {
+                if (window.confirm(`Delete view "${activeView.name}"?`)) deleteView.mutate(activeView.id);
+              }}>
                 🗑
               </button>
             )}
           </div>
 
-          <div
-            className={`view-area ${dropHint ? "drop-hint" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "copy";
-              if (!dropHint) setDropHint(true);
-            }}
-            onDragLeave={(e) => {
-              if (e.currentTarget === e.target) setDropHint(false);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDropHint(false);
-              if (dragItem.current) {
-                addPipeline(dragItem.current);
-                dragItem.current = null;
-              }
-            }}
-          >
+          <div className="view-area">
             {viewsQ.isLoading && <div className="center-note"><span className="spin" /> Loading views…</div>}
 
             {!viewsQ.isLoading && views.length === 0 && (
               <div className="empty">
                 <h3>No views yet</h3>
-                <p>
-                  Create a view, then drag pipelines in from the left (or hit the{" "}
-                  <b>+</b> next to each). Views are saved to your account.
-                </p>
-                <button
-                  className="btn primary"
-                  onClick={() => createView.mutate("My pipelines")}
-                >
+                <p>Create a view, then drag pipelines in from the left (or hit the <b>+</b> next to each). Views are saved to your account.</p>
+                <button className="btn primary" onClick={() => createView.mutate("My pipelines")}>
                   Create your first view
                 </button>
               </div>
             )}
 
-            {activeView && activeView.items.length === 0 && (
-              <div className="empty">
-                <h3>{activeView.name} is empty</h3>
-                <p>Drag pipelines here from the left panel, or click the + beside a pipeline.</p>
-              </div>
-            )}
+            {activeView && shelvesOf(activeView).map((shelf) => {
+              const items = activeView.items.filter((i) => shelfOfItem(activeView, i) === shelf);
+              const canDelete = shelvesOf(activeView).length > 1;
+              return (
+                <section
+                  key={shelf}
+                  className={`shelf ${activeShelf === shelf ? "active" : ""}`}
+                  onDragOver={(e) => { e.preventDefault(); setHintShelf(shelf); }}
+                  onDragLeave={(e) => { if (e.currentTarget === e.target) setHintShelf(null); }}
+                  onDrop={(e) => { e.preventDefault(); handleShelfDrop(shelf); }}
+                >
+                  <div className="shelf-head">
+                    <span className="shelf-title">{shelf}</span>
+                    <span className="shelf-count">{items.length}</span>
+                    <button
+                      className={`btn ghost small ${activeShelf === shelf ? "primary" : ""}`}
+                      title="Add pipelines from the left to this shelf"
+                      onClick={() => setActiveShelf(shelf)}
+                    >
+                      {activeShelf === shelf ? "◎ adding here" : "add here"}
+                    </button>
+                    <span style={{ flex: 1 }} />
+                    <button className="btn ghost small" onClick={() => renameShelf(shelf)}>rename</button>
+                    {canDelete && (
+                      <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>
+                    )}
+                  </div>
 
-            {activeView && activeView.items.length > 0 && (
-              <div className="cards">
-                {activeView.items.map((item) => (
-                  <PipelineCard
-                    key={`${item.project}:${item.pipelineId}`}
-                    item={item}
-                    onRun={setRunItem}
-                    onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
-                    onRemove={removeItem}
-                  />
-                ))}
-              </div>
+                  <div className={`shelf-cards ${hintShelf === shelf ? "drop-hint" : ""}`}>
+                    {items.length === 0 && (
+                      <div className="shelf-empty">Drop pipelines here, or click “add here” then + in the list.</div>
+                    )}
+                    {items.map((item) => (
+                      <PipelineCard
+                        key={`${item.project}:${item.pipelineId}`}
+                        item={item}
+                        shelves={shelvesOf(activeView)}
+                        currentShelf={shelf}
+                        onRun={setRunItem}
+                        onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
+                        onRemove={removeItem}
+                        onMoveShelf={moveItemToShelf}
+                        onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; }}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+
+            {activeView && (
+              <button className="btn small add-shelf" onClick={addShelf}>+ Add shelf</button>
             )}
           </div>
         </div>

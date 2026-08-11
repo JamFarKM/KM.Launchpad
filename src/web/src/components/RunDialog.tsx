@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import type { PipelineDetail, RunRequest, ViewItem } from "../types";
+import type { PipelineDetail, PipelineParam, RunRequest, ViewItem } from "../types";
 
 interface Props {
   item: ViewItem;
@@ -14,6 +14,8 @@ interface Kv {
   value: string;
 }
 
+const paramKey = (p: PipelineParam) => `${p.kind}:${p.name}`;
+
 export function RunDialog({ item, onClose, onLaunched }: Props) {
   const detailQ = useQuery<PipelineDetail>({
     queryKey: ["detail", item.project, item.pipelineId],
@@ -21,21 +23,31 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
   });
 
   const [branch, setBranch] = useState<string>("");
-  const [vars, setVars] = useState<Record<string, string>>({});
-  const [params, setParams] = useState<Kv[]>([]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [extra, setExtra] = useState<Kv[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const detail = detailQ.data;
 
-  // Initialise branch + overridable variables once the detail arrives.
   const initialBranch = useMemo(() => {
     if (!detail) return "";
     return detail.branches.find((b) => b.isDefault)?.name ?? detail.branches[0]?.name ?? "";
   }, [detail]);
 
   const effectiveBranch = branch || initialBranch;
-  const overridable = detail?.parameters.filter((p) => p.allowOverride) ?? [];
+
+  const templateParams = detail?.parameters.filter((p) => p.kind === "parameter") ?? [];
+  const variableParams = detail?.parameters.filter((p) => p.kind === "variable" && p.allowOverride) ?? [];
+
+  function valueOf(p: PipelineParam): string {
+    const k = paramKey(p);
+    if (k in values) return values[k];
+    return p.defaultValue ?? (p.type === "boolean" ? "false" : "");
+  }
+  function setValue(p: PipelineParam, v: string) {
+    setValues((prev) => ({ ...prev, [paramKey(p)]: v }));
+  }
 
   async function launch() {
     if (!effectiveBranch) {
@@ -44,12 +56,23 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
     }
     setBusy(true);
     setError(null);
+
     const body: RunRequest = { branch: effectiveBranch };
-    const varEntries = Object.entries(vars).filter(([, v]) => v !== "");
-    if (varEntries.length) body.variables = Object.fromEntries(varEntries);
-    const paramEntries = params.filter((p) => p.key.trim() !== "");
-    if (paramEntries.length)
-      body.templateParameters = Object.fromEntries(paramEntries.map((p) => [p.key.trim(), p.value]));
+
+    const tp: Record<string, string> = {};
+    for (const p of templateParams) {
+      const v = valueOf(p);
+      if (v !== "") tp[p.name] = v;
+    }
+    for (const kv of extra) if (kv.key.trim() !== "") tp[kv.key.trim()] = kv.value;
+    if (Object.keys(tp).length) body.templateParameters = tp;
+
+    const vars: Record<string, string> = {};
+    for (const p of variableParams) {
+      const k = paramKey(p);
+      if (k in values && values[k] !== "") vars[p.name] = values[k];
+    }
+    if (Object.keys(vars).length) body.variables = vars;
 
     try {
       const run = await api.run(item.project, item.pipelineId, body);
@@ -84,74 +107,53 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
 
               <div className="field">
                 <label className="label">Branch</label>
-                <select
-                  className="select"
-                  value={effectiveBranch}
-                  onChange={(e) => setBranch(e.target.value)}
-                >
+                <select className="select" value={effectiveBranch} onChange={(e) => setBranch(e.target.value)}>
                   {detail.branches.length === 0 && <option value="">(no branches found)</option>}
                   {detail.branches.map((b) => (
                     <option key={b.name} value={b.name}>
-                      {b.name}
-                      {b.isDefault ? "  (default)" : ""}
+                      {b.name}{b.isDefault ? "  (default)" : ""}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {overridable.length > 0 && (
+              {templateParams.length > 0 && (
                 <div className="field">
-                  <label className="label">Variables (overridable)</label>
-                  {overridable.map((p) => (
-                    <div className="field" key={p.name} style={{ marginBottom: 8 }}>
-                      <label className="label" style={{ color: "var(--text)" }}>{p.name}</label>
-                      <input
-                        className="input"
-                        defaultValue={p.defaultValue ?? ""}
-                        placeholder={p.defaultValue ?? ""}
-                        onChange={(e) => setVars((v) => ({ ...v, [p.name]: e.target.value }))}
-                      />
-                    </div>
+                  <label className="label">Parameters</label>
+                  {templateParams.map((p) => (
+                    <ParamInput key={paramKey(p)} p={p} value={valueOf(p)} onChange={(v) => setValue(p, v)} />
                   ))}
                 </div>
               )}
 
-              <div className="field">
-                <label className="label">
-                  Template parameters{" "}
-                  <span className="faint">(optional — for YAML pipeline parameters)</span>
-                </label>
-                {params.map((kv, i) => (
-                  <div className="row" key={i} style={{ marginBottom: 6 }}>
-                    <input
-                      className="input"
-                      placeholder="name"
-                      value={kv.key}
-                      onChange={(e) =>
-                        setParams((ps) => ps.map((p, j) => (j === i ? { ...p, key: e.target.value } : p)))
-                      }
-                    />
-                    <input
-                      className="input"
-                      placeholder="value"
-                      value={kv.value}
-                      onChange={(e) =>
-                        setParams((ps) => ps.map((p, j) => (j === i ? { ...p, value: e.target.value } : p)))
-                      }
-                    />
-                    <button
-                      className="btn ghost small"
-                      onClick={() => setParams((ps) => ps.filter((_, j) => j !== i))}
-                    >✕</button>
-                  </div>
-                ))}
-                <button
-                  className="btn small"
-                  onClick={() => setParams((ps) => [...ps, { key: "", value: "" }])}
-                >
-                  + Add parameter
-                </button>
-              </div>
+              {variableParams.length > 0 && (
+                <div className="field">
+                  <label className="label">Variables (overridable)</label>
+                  {variableParams.map((p) => (
+                    <ParamInput key={paramKey(p)} p={p} value={valueOf(p)} onChange={(v) => setValue(p, v)} />
+                  ))}
+                </div>
+              )}
+
+              <details className="field">
+                <summary className="label" style={{ cursor: "pointer" }}>
+                  Advanced — extra template parameters
+                </summary>
+                <div style={{ marginTop: 8 }}>
+                  {extra.map((kv, i) => (
+                    <div className="row" key={i} style={{ marginBottom: 6 }}>
+                      <input className="input" placeholder="name" value={kv.key}
+                        onChange={(e) => setExtra((ps) => ps.map((p, j) => (j === i ? { ...p, key: e.target.value } : p)))} />
+                      <input className="input" placeholder="value" value={kv.value}
+                        onChange={(e) => setExtra((ps) => ps.map((p, j) => (j === i ? { ...p, value: e.target.value } : p)))} />
+                      <button className="btn ghost small" onClick={() => setExtra((ps) => ps.filter((_, j) => j !== i))}>✕</button>
+                    </div>
+                  ))}
+                  <button className="btn small" onClick={() => setExtra((ps) => [...ps, { key: "", value: "" }])}>
+                    + Add parameter
+                  </button>
+                </div>
+              </details>
             </>
           )}
         </div>
@@ -163,6 +165,36 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ParamInput({ p, value, onChange }: { p: PipelineParam; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="field" style={{ marginBottom: 10 }}>
+      <label className="label" style={{ color: "var(--text)" }}>
+        {p.name} <span className="faint">· {p.type}</span>
+      </label>
+      {p.type === "enum" && p.allowedValues ? (
+        <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+          {p.allowedValues.map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      ) : p.type === "boolean" ? (
+        <select className="select" value={value || "false"} onChange={(e) => onChange(e.target.value)}>
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      ) : (
+        <input
+          className="input"
+          type={p.type === "number" ? "number" : "text"}
+          value={value}
+          placeholder={p.defaultValue ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
     </div>
   );
 }
