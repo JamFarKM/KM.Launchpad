@@ -11,7 +11,9 @@ interface Props {
   sequence?: Sequence;
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
+  onOpenRun: (project: string, buildId: number) => void;
   onDragCard: (item: ViewItem) => void;
+  onReorder: (target: ViewItem) => void;
 }
 
 function stepTone(s: SequenceRunStep): string {
@@ -29,7 +31,7 @@ function stepTone(s: SequenceRunStep): string {
 const isTerminal = (r?: SequenceRun | null) =>
   !!r && (r.status === "succeeded" || r.status === "failed" || r.status === "canceled");
 
-export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }: Props) {
+export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, onDragCard, onReorder }: Props) {
   const seqId = item.sequenceId!;
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,11 +94,16 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }:
 
   const running = run?.status === "running";
   const missing = !sequence;
+  // Prefer the failed step's logs; otherwise the latest step that produced a build.
+  const logStep = steps.find((s) => s.result === "failed" && s.buildId)
+    ?? [...steps].reverse().find((s) => s.buildId);
 
   return (
     <>
     <div className="card seq-card" draggable
-      onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}>
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onReorder(item); }}>
       <div className="card-head">
         <div className="title">
           <span className="seq-badge">SEQ</span>{" "}
@@ -124,15 +131,14 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }:
         {steps.map((s, i) => (
           <div className="seq-step" key={i} title={s.message ?? s.name}>
             <span className={`badge ${stepTone(s)}`}><span className="dot" /></span>
-            <a
-              className="seq-step-name"
-              href={s.webUrl ?? undefined}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => { if (!s.webUrl) e.preventDefault(); }}
+            <button
+              className="seq-step-name linklike"
+              disabled={!s.buildId}
+              title={s.buildId ? "View logs" : s.name}
+              onClick={() => s.buildId && onOpenRun(s.project, s.buildId)}
             >
               {s.name}
-            </a>
+            </button>
             {i < steps.length - 1 && <span className="seq-arrow">→</span>}
           </div>
         ))}
@@ -149,6 +155,11 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onDragCard }:
           {busy ? <><span className="spin" /> starting…</> : running ? "running…" : "▶ Run sequence"}
         </button>
         {running && <button className="btn small" onClick={cancel}>Cancel</button>}
+        {logStep && (
+          <button className="btn small" title="View logs for the failed / latest step" onClick={() => onOpenRun(logStep.project, logStep.buildId!)}>
+            Logs
+          </button>
+        )}
         <span style={{ flex: 1 }} />
         <button className="btn ghost small" title="Remove from view" onClick={() => onRemove(item)}>✕</button>
       </div>

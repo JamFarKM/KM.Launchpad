@@ -518,6 +518,25 @@ a {
   margin: 0 2px;
 }
 
+.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.linklike:disabled {
+  cursor: default;
+  color: var(--text-dim);
+}
+
+.linklike:not(:disabled):hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 /* ---------- sequences page ---------- */
 .seq-list {
   width: 300px;
@@ -740,31 +759,62 @@ a {
 }
 
 /* ---------- configurations ---------- */
-.cfg-registry {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg-2);
-  margin-bottom: 16px;
+.view-area.cfg-area {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+
+.cfg-registry-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .cfg-registry-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.cfg-registry-name {
-  font-weight: 600;
+  padding: 0 0 12px;
 }
 
 .cfg-table-wrap {
-  overflow-x: auto;
-  max-height: 60vh;
-  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
+
+.cfg-digest {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-dim);
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfg-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* JSON viewer */
+.json-view {
+  margin: 0;
+  font: 12.5px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre;
+  overflow: auto;
+  color: var(--text);
+}
+
+.json-view .j-key { color: var(--accent); }
+.json-view .j-str { color: var(--success); }
+.json-view .j-num { color: var(--running); }
+.json-view .j-bool { color: #c678dd; }
+.json-view .j-null { color: var(--text-faint); }
 
 .cfg-table {
   width: 100%;
@@ -823,6 +873,14 @@ a {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.card {
+  cursor: grab;
+}
+
+.card:active {
+  cursor: grabbing;
 }
 
 .card .card-head {

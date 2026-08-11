@@ -152,6 +152,17 @@ export function Dashboard() {
     commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, name } : i)));
   }
 
+  // Reorder a dragged card to sit before `target` (landing on target's shelf).
+  function reorderItem(dragged: ViewItem, target: ViewItem) {
+    if (!activeView || sameItem(dragged, target)) return;
+    const view = freshest(activeView.id) ?? activeView;
+    const without = view.items.filter((i) => !sameItem(i, dragged));
+    const ti = without.findIndex((i) => sameItem(i, target));
+    if (ti < 0) return;
+    without.splice(ti, 0, { ...dragged, shelf: shelfOfItem(view, target) });
+    commit(view, shelvesOf(view), without);
+  }
+
   function addShelf() {
     if (!activeView) return;
     const name = window.prompt("New shelf name", "New shelf");
@@ -320,7 +331,9 @@ export function Dashboard() {
                           sequence={sequences.find((s) => s.id === item.sequenceId)}
                           onRemove={removeItem}
                           onRename={renameItem}
+                          onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
                           onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
+                          onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
                         />
                       ) : (
                         <PipelineCard
@@ -331,6 +344,7 @@ export function Dashboard() {
                           onRemove={removeItem}
                           onRename={renameItem}
                           onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
+                          onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
                         />
                       ),
                     )}

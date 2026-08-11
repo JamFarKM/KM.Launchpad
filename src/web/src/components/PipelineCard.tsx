@@ -13,9 +13,10 @@ interface Props {
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
   onDragCard: (item: ViewItem) => void;
+  onReorder: (target: ViewItem) => void;
 }
 
-export function PipelineCard({ item, onRun, onOpenRun, onRemove, onRename, onDragCard }: Props) {
+export function PipelineCard({ item, onRun, onOpenRun, onRemove, onRename, onDragCard, onReorder }: Props) {
   const runsQ = useQuery<Run[]>({
     queryKey: ["runs", item.project, item.pipelineId],
     queryFn: () => api.runs(item.project, item.pipelineId, 4),
@@ -56,6 +57,8 @@ export function PipelineCard({ item, onRun, onOpenRun, onRemove, onRename, onDra
         e.dataTransfer.effectAllowed = "move";
         onDragCard(item);
       }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onReorder(item); }}
     >
       <div className="card-head">
         <div className="title">
