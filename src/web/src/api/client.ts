@@ -19,17 +19,32 @@ export class ApiError extends Error {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    credentials: "same-origin",
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      credentials: "same-origin",
+    });
+  } catch {
+    // fetch only rejects on network-level failures (server down, DNS, refused).
+    throw new ApiError(0, "Can't reach the server. Is the backend running?");
+  }
+
   if (res.status === 204) return undefined as T;
+
   const text = await res.text();
-  const body = text ? JSON.parse(text) : undefined;
+  let body: any;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // Not JSON — surface the raw response so the real cause is visible.
+      throw new ApiError(res.status, text.slice(0, 300) || res.statusText);
+    }
+  }
   if (!res.ok) {
-    const message = body?.error ?? res.statusText ?? "Request failed";
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, body?.error ?? res.statusText ?? "Request failed");
   }
   return body as T;
 }
