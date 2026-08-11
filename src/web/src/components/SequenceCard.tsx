@@ -146,12 +146,11 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
             <button
               className="seq-step-name linklike"
               disabled={!s.buildId}
-              title={s.buildId ? "View logs" : s.name}
+              title={s.buildId ? `${s.name} — view logs` : s.name}
               onClick={() => s.buildId && onOpenRun(s.project, s.buildId)}
             >
               {s.name}
             </button>
-            {i < steps.length - 1 && <span className="seq-arrow">→</span>}
           </div>
         ))}
       </div>

@@ -429,6 +429,8 @@ a {
 .shelf-cards > .card {
   flex: 0 0 320px;
   max-width: 320px;
+  /* Uniform floor so sparse cards (and widened sequences) match a normal card's height. */
+  min-height: 190px;
 }
 
 .shelf-empty {
@@ -507,10 +509,10 @@ a {
 }
 
 .seq-flow {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px 10px;
   align-items: center;
-  gap: 6px;
 }
 
 /* sequence run log modal */
@@ -546,16 +548,19 @@ a {
 }
 
 .seq-step {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
+  min-width: 0;
 }
 
 .seq-step-name {
   color: var(--text);
   text-decoration: none;
-  max-width: 130px;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
