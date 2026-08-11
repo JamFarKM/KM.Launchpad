@@ -64,14 +64,6 @@ export function Dashboard() {
 
   const activeView = views.find((v) => v.id === activeViewId) ?? null;
 
-  const [activeShelf, setActiveShelf] = useState<string>(DEFAULT_SHELF);
-  useEffect(() => {
-    if (activeView) {
-      const ss = shelvesOf(activeView);
-      if (!ss.includes(activeShelf)) setActiveShelf(ss[0]);
-    }
-  }, [activeView, activeShelf]);
-
   // --- mutations ---
   const createView = useMutation({
     mutationFn: (name: string) => api.createView(name, views.length, [DEFAULT_SHELF], []),
@@ -110,8 +102,7 @@ export function Dashboard() {
   }
 
   function targetShelf(view: SavedView, shelf?: string): string {
-    if (shelf) return shelf;
-    return shelvesOf(view).includes(activeShelf) ? activeShelf : shelvesOf(view)[0];
+    return shelf ?? shelvesOf(view)[0];
   }
 
   async function addPipeline(p: Pipeline, shelf?: string) {
@@ -171,7 +162,6 @@ export function Dashboard() {
     const shelves = shelvesOf(view);
     if (shelves.includes(name.trim())) return;
     commit(view, [...shelves, name.trim()], view.items);
-    setActiveShelf(name.trim());
   }
 
   function renameShelf(oldName: string) {
@@ -199,6 +189,19 @@ export function Dashboard() {
   const seqDrag = useRef<Sequence | null>(null);
   const cardDrag = useRef<ViewItem | null>(null);
   const [hintShelf, setHintShelf] = useState<string | null>(null);
+
+  // Any drag ending (drop, cancel, or a card-to-card drop that stopped propagation)
+  // must clear the shelf drop-outline and drag state.
+  useEffect(() => {
+    const clear = () => {
+      setHintShelf(null);
+      poolDrag.current = null;
+      seqDrag.current = null;
+      cardDrag.current = null;
+    };
+    window.addEventListener("dragend", clear);
+    return () => window.removeEventListener("dragend", clear);
+  }, []);
 
   function handleShelfDrop(shelf: string) {
     setHintShelf(null);
@@ -276,9 +279,16 @@ export function Dashboard() {
               if (name && name.trim()) createView.mutate(name.trim());
             }}>+ New view</button>
             {activeView && (
-              <button className="btn ghost small" title="Delete this view" onClick={() => {
+              <button className="btn ghost small icon-btn" title="Delete this view" onClick={() => {
                 if (window.confirm(`Delete view "${activeView.name}"?`)) deleteView.mutate(activeView.id);
-              }}>🗑</button>
+              }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                </svg>
+              </button>
             )}
           </div>
 
@@ -299,7 +309,7 @@ export function Dashboard() {
               return (
                 <section
                   key={shelf}
-                  className={`shelf ${activeShelf === shelf ? "active" : ""}`}
+                  className="shelf"
                   onDragOver={(e) => { e.preventDefault(); setHintShelf(shelf); }}
                   onDragLeave={(e) => { if (e.currentTarget === e.target) setHintShelf(null); }}
                   onDrop={(e) => { e.preventDefault(); handleShelfDrop(shelf); }}
@@ -307,13 +317,6 @@ export function Dashboard() {
                   <div className="shelf-head">
                     <span className="shelf-title">{shelf}</span>
                     <span className="shelf-count">{items.length}</span>
-                    <button
-                      className={`btn ghost small ${activeShelf === shelf ? "primary" : ""}`}
-                      title="Add pipelines/sequences from the left to this shelf"
-                      onClick={() => setActiveShelf(shelf)}
-                    >
-                      {activeShelf === shelf ? "◎ adding here" : "add here"}
-                    </button>
                     <span style={{ flex: 1 }} />
                     <button className="btn ghost small" onClick={() => renameShelf(shelf)}>rename</button>
                     {canDelete && <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>}

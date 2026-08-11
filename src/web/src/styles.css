@@ -485,11 +485,54 @@ a {
   vertical-align: 1px;
 }
 
+.seq-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.seq-sub-sep {
+  color: var(--text-faint);
+}
+
 .seq-flow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+/* sequence run log modal */
+.seq-log-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.seq-log-step {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-2);
+}
+
+.seq-log-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.seq-log-message {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  border-radius: 8px;
+  color: var(--text);
+  font: 12px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .seq-step {
@@ -779,25 +822,92 @@ a {
   padding: 0 0 12px;
 }
 
-.cfg-table-wrap {
+.cfg-tree-wrap {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
+  padding: 6px;
 }
 
-.cfg-digest {
+.cfg-tree {
+  max-width: 920px;
+}
+
+.cfg-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.cfg-group:hover {
+  background: var(--hover);
+}
+
+.cfg-chevron {
+  width: 12px;
+  flex: 0 0 12px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.cfg-group-name {
+  font-weight: 600;
+}
+
+.cfg-count {
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg-3);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+.cfg-leaf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.cfg-leaf:hover {
+  background: var(--hover);
+}
+
+.cfg-leaf-name {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: var(--text-dim);
-  max-width: 520px;
+  min-width: 160px;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.cfg-actions {
-  text-align: right;
+.cfg-leaf-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg-3);
+  border-radius: 5px;
+  padding: 1px 6px;
+  flex: 0 0 auto;
+}
+
+.cfg-leaf-digest {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -939,8 +1049,10 @@ a {
 
 .card .actions {
   display: flex;
+  align-items: center;
   gap: 6px;
-  margin-top: 2px;
+  margin-top: auto; /* pin to the bottom so button rows align across cards */
+  padding-top: 4px;
 }
 
 /* ---------- modal ---------- */

@@ -11,7 +11,7 @@ function digest(raw?: string | null): { text: string; expandable: boolean } {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { text: raw.length > 80 ? raw.slice(0, 80) + "…" : raw, expandable: false };
+    return { text: raw.length > 60 ? raw.slice(0, 60) + "…" : raw, expandable: false };
   }
   if (Array.isArray(parsed)) return { text: `[ ${parsed.length} item${parsed.length === 1 ? "" : "s"} ]`, expandable: true };
   if (parsed && typeof parsed === "object") {
@@ -20,6 +20,45 @@ function digest(raw?: string | null): { text: string; expandable: boolean } {
   }
   return { text: String(parsed), expandable: false };
 }
+
+// ---- key tree (split on ":" and "/") ----
+interface TreeNode {
+  key: string;      // full prefix path (joined by "/")
+  name: string;     // this segment
+  children: Map<string, TreeNode>;
+  settings: ConfigSetting[]; // settings whose key ends exactly at this node
+}
+
+function newNode(key: string, name: string): TreeNode {
+  return { key, name, children: new Map(), settings: [] };
+}
+
+function buildTree(settings: ConfigSetting[]): TreeNode {
+  const root = newNode("", "");
+  for (const s of settings) {
+    const segs = s.key.split(/[:/]/).filter(Boolean);
+    if (segs.length === 0) { root.settings.push(s); continue; }
+    let node = root;
+    let prefix = "";
+    segs.forEach((seg, i) => {
+      prefix = prefix ? `${prefix}/${seg}` : seg;
+      let child = node.children.get(seg);
+      if (!child) { child = newNode(prefix, seg); node.children.set(seg, child); }
+      if (i === segs.length - 1) child.settings.push(s);
+      else node = child;
+    });
+  }
+  return root;
+}
+
+function countLeaves(node: TreeNode): number {
+  let n = node.settings.length;
+  for (const c of node.children.values()) n += countLeaves(c);
+  return n;
+}
+
+const sortedChildren = (node: TreeNode) =>
+  [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
 export function ConfigurationsPage() {
   const registriesQ = useQuery<ConfigRegistry[]>({ queryKey: ["config-registries"], queryFn: api.configRegistries });
@@ -57,26 +96,40 @@ export function ConfigurationsPage() {
             </div>
           )}
 
-          {active && <RegistrySettings key={active.id} registry={active} />}
+          {active && <RegistryTree key={active.id} registry={active} />}
         </div>
       </div>
     </div>
   );
 }
 
-function RegistrySettings({ registry }: { registry: ConfigRegistry }) {
+function RegistryTree({ registry }: { registry: ConfigRegistry }) {
   const [q, setQ] = useState("");
   const [viewing, setViewing] = useState<ConfigSetting | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
   const settingsQ = useQuery<ConfigSetting[]>({
     queryKey: ["config-settings", registry.id],
     queryFn: () => api.configSettings(registry.id),
   });
 
   const needle = q.trim().toLowerCase();
-  const rows = useMemo(
+  const filtered = useMemo(
     () => (settingsQ.data ?? []).filter((s) => !needle || s.key.toLowerCase().includes(needle) || (s.value ?? "").toLowerCase().includes(needle)),
     [settingsQ.data, needle],
   );
+  const tree = useMemo(() => buildTree(filtered), [filtered]);
+
+  function toggle(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+  const forceOpen = needle.length > 0; // expand everything while filtering
+
+  const roots = sortedChildren(tree);
 
   return (
     <div className="cfg-registry-body">
@@ -92,34 +145,69 @@ function RegistrySettings({ registry }: { registry: ConfigRegistry }) {
       )}
 
       {settingsQ.data && (
-        <div className="cfg-table-wrap">
-          <table className="cfg-table">
-            <thead>
-              <tr><th>Key</th><th>Value</th><th>Label</th><th></th></tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && <tr><td colSpan={4} className="faint">No matching settings.</td></tr>}
-              {rows.map((s, i) => {
-                const d = digest(s.value);
-                return (
-                  <tr key={`${s.key}:${s.label}:${i}`}>
-                    <td className="cfg-key">{s.key}</td>
-                    <td className="cfg-digest">{d.text}</td>
-                    <td className="faint">{s.label ?? ""}</td>
-                    <td className="cfg-actions">
-                      {d.expandable && <button className="btn ghost small" onClick={() => setViewing(s)}>View</button>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="cfg-tree-wrap">
+          <div className="cfg-tree">
+            {roots.length === 0 && <div className="faint" style={{ padding: 12 }}>No matching settings.</div>}
+            {tree.settings.map((s, i) => <Leaf key={`root:${i}`} setting={s} name={s.key} depth={0} onView={setViewing} />)}
+            {roots.map((node) => (
+              <TreeGroupOrLeaf key={node.key} node={node} depth={0} expanded={expanded} forceOpen={forceOpen} toggle={toggle} onView={setViewing} />
+            ))}
+          </div>
         </div>
       )}
 
-      {viewing && (
-        <JsonModal title={viewing.key} raw={viewing.value ?? ""} onClose={() => setViewing(null)} />
+      {viewing && <JsonModal title={viewing.key} raw={viewing.value ?? ""} onClose={() => setViewing(null)} />}
+    </div>
+  );
+}
+
+function TreeGroupOrLeaf({ node, depth, expanded, forceOpen, toggle, onView }: {
+  node: TreeNode;
+  depth: number;
+  expanded: Set<string>;
+  forceOpen: boolean;
+  toggle: (key: string) => void;
+  onView: (s: ConfigSetting) => void;
+}) {
+  // A pure leaf: no children and exactly one setting at this segment.
+  if (node.children.size === 0 && node.settings.length === 1) {
+    return <Leaf setting={node.settings[0]} name={node.name} depth={depth} onView={onView} />;
+  }
+
+  const open = forceOpen || expanded.has(node.key);
+  return (
+    <div className="cfg-node">
+      <button className="cfg-group" style={{ paddingLeft: depth * 16 + 6 }} onClick={() => toggle(node.key)}>
+        <span className="cfg-chevron">{open ? "▾" : "▸"}</span>
+        <span className="cfg-group-name">{node.name}</span>
+        <span className="cfg-count">{countLeaves(node)}</span>
+      </button>
+      {open && (
+        <>
+          {node.settings.map((s, i) => <Leaf key={`self:${i}`} setting={s} name="(value)" depth={depth + 1} onView={onView} muted />)}
+          {sortedChildren(node).map((c) => (
+            <TreeGroupOrLeaf key={c.key} node={c} depth={depth + 1} expanded={expanded} forceOpen={forceOpen} toggle={toggle} onView={onView} />
+          ))}
+        </>
       )}
+    </div>
+  );
+}
+
+function Leaf({ setting, name, depth, onView, muted }: {
+  setting: ConfigSetting;
+  name: string;
+  depth: number;
+  onView: (s: ConfigSetting) => void;
+  muted?: boolean;
+}) {
+  const d = digest(setting.value);
+  return (
+    <div className="cfg-leaf" style={{ paddingLeft: depth * 16 + 22 }} title={setting.key}>
+      <span className={`cfg-leaf-name ${muted ? "faint" : ""}`}>{name}</span>
+      {setting.label && <span className="cfg-leaf-label">{setting.label}</span>}
+      <span className="cfg-leaf-digest">{d.text}</span>
+      {d.expandable && <button className="btn ghost small" onClick={() => onView(setting)}>View</button>}
     </div>
   );
 }

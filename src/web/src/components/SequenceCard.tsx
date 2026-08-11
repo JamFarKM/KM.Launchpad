@@ -5,6 +5,7 @@ import type { Sequence, SequenceRun, SequenceRunStep, ViewItem } from "../types"
 import { notify } from "../lib/notify";
 import { timeAgo } from "../lib/format";
 import { SequenceRunDialog } from "./SequenceRunDialog";
+import { SequenceLogModal } from "./SequenceLogModal";
 
 interface Props {
   item: ViewItem;
@@ -37,6 +38,7 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showRunDialog, setShowRunDialog] = useState(false);
+  const [showLog, setShowLog] = useState(false);
 
   const latestQ = useQuery<SequenceRun | null>({
     queryKey: ["seq-latest", seqId],
@@ -94,9 +96,6 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
 
   const running = run?.status === "running";
   const missing = !sequence;
-  // Prefer the failed step's logs; otherwise the latest step that produced a build.
-  const logStep = steps.find((s) => s.result === "failed" && s.buildId)
-    ?? [...steps].reverse().find((s) => s.buildId);
 
   return (
     <>
@@ -117,10 +116,16 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
           >
             {item.name}
           </span>
-          <div className="sub">
-            {missing ? "sequence not found" : `${sequence!.steps.length} steps`}
-            {run && <> · <span className={`badge ${run.status === "succeeded" ? "success" : run.status === "failed" ? "failed" : run.status === "running" ? "running" : "canceled"}`}>
-              <span className="dot" />{run.status}</span></>}
+          <div className="sub seq-sub">
+            <span>{missing ? "sequence not found" : `${sequence!.steps.length} steps`}</span>
+            {run && (
+              <>
+                <span className="seq-sub-sep">·</span>
+                <span className={`badge ${run.status === "succeeded" ? "success" : run.status === "failed" ? "failed" : run.status === "running" ? "running" : "canceled"}`}>
+                  <span className="dot" />{run.status}
+                </span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -155,8 +160,8 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
           {busy ? <><span className="spin" /> starting…</> : running ? "running…" : "▶ Run sequence"}
         </button>
         {running && <button className="btn small" onClick={cancel}>Cancel</button>}
-        {logStep && (
-          <button className="btn small" title="View logs for the failed / latest step" onClick={() => onOpenRun(logStep.project, logStep.buildId!)}>
+        {run && (
+          <button className="btn small" title="View this sequence run's logs" onClick={() => setShowLog(true)}>
             Logs
           </button>
         )}
@@ -171,6 +176,15 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
         busy={busy}
         onClose={() => setShowRunDialog(false)}
         onRun={(inputs) => runNow(inputs)}
+      />
+    )}
+
+    {showLog && run && (
+      <SequenceLogModal
+        run={run}
+        sequenceName={sequence?.name ?? item.name}
+        onClose={() => setShowLog(false)}
+        onOpenRun={onOpenRun}
       />
     )}
     </>
