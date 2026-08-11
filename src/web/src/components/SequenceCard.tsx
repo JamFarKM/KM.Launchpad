@@ -97,9 +97,16 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
   const running = run?.status === "running";
   const missing = !sequence;
 
+  // Long sequences widen in whole card-width units instead of growing tall.
+  // Keep in sync with .shelf-cards > .card (320px) and the 12px gap.
+  const NOMINAL = 320, GAP = 12, STEPS_PER_UNIT = 2, MAX_UNITS = 4;
+  const units = Math.min(MAX_UNITS, Math.max(1, Math.ceil(steps.length / STEPS_PER_UNIT)));
+  const cardWidth = units * NOMINAL + (units - 1) * GAP;
+
   return (
     <>
     <div className="card seq-card" draggable
+      style={{ flex: "0 0 auto", width: cardWidth, maxWidth: "none" }}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onReorder(item); }}>
