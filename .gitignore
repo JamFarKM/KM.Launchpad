@@ -1,0 +1,23 @@
+# .NET
+bin/
+obj/
+*.user
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Data / secrets
+*.db
+*.db-shm
+*.db-wal
+data/
+.env
+.env.local
+
+# IDE / OS
+.vs/
+.idea/
+.DS_Store
+Thumbs.db

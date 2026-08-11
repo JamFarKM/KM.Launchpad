@@ -1,0 +1,16 @@
+services:
+  launchpad:
+    build: .
+    image: pipeline-launchpad:latest
+    container_name: pipeline-launchpad
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      ADO_DEFAULT_ORG: ${ADO_DEFAULT_ORG:-BetagyDevOps}
+      DATAPROTECTION_KEY: ${DATAPROTECTION_KEY:-}
+    volumes:
+      - launchpad-data:/data
+    restart: unless-stopped
+
+volumes:
+  launchpad-data:

@@ -1,0 +1,11 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.vite
+**/*.db
+data/
+.git
+.env
+.env.local
+README.md
