@@ -17,6 +17,13 @@ interface Props {
   onReorder: (target: ViewItem) => void;
 }
 
+function seqStatusTone(status: string): string {
+  return status === "succeeded" ? "success"
+    : status === "failed" ? "failed"
+    : status === "running" ? "running"
+    : "canceled";
+}
+
 function stepTone(s: SequenceRunStep): string {
   if (s.state === "running" || s.state === "inProgress" || s.state === "notStarted") return "running";
   if (s.state === "pending") return "idle";
@@ -99,8 +106,9 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
   const missing = !sequence;
 
   // Long sequences widen in whole card-width units instead of growing tall.
+  // ~4 steps fit per cell width, so e.g. 8 steps → 2 cells wide (not 4).
   // Keep in sync with .shelf-cards > .card (320px) and the 12px gap.
-  const NOMINAL = 320, GAP = 12, STEPS_PER_UNIT = 2, MAX_UNITS = 4;
+  const NOMINAL = 320, GAP = 12, STEPS_PER_UNIT = 4, MAX_UNITS = 4;
   const units = Math.min(MAX_UNITS, Math.max(1, Math.ceil(steps.length / STEPS_PER_UNIT)));
   const cardWidth = units * NOMINAL + (units - 1) * GAP;
 
@@ -124,18 +132,13 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
           >
             {item.name}
           </span>
-          <div className="sub seq-sub">
-            <span>{missing ? "sequence not found" : `${sequence!.steps.length} steps`}</span>
-            {run && (
-              <>
-                <span className="seq-sub-sep">·</span>
-                <span className={`badge ${run.status === "succeeded" ? "success" : run.status === "failed" ? "failed" : run.status === "running" ? "running" : "canceled"}`}>
-                  <span className="dot" />{run.status}
-                </span>
-              </>
-            )}
-          </div>
+          <div className="sub">{missing ? "sequence not found" : `${sequence!.steps.length} steps`}</div>
         </div>
+        {run && (
+          <span className={`badge ${seqStatusTone(run.status)}`}>
+            <span className="dot" />{run.status}
+          </span>
+        )}
       </div>
 
       {error && <div className="error" style={{ fontSize: 12 }}>{error}</div>}

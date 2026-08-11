@@ -184,7 +184,7 @@ function TreeGroupOrLeaf({ node, depth, expanded, forceOpen, toggle, onView }: {
       </button>
       {open && (
         <>
-          {node.settings.map((s, i) => <Leaf key={`self:${i}`} setting={s} name="(value)" depth={depth + 1} onView={onView} muted />)}
+          {node.settings.map((s, i) => <Leaf key={`self:${i}`} setting={s} name={node.name} depth={depth + 1} onView={onView} />)}
           {sortedChildren(node).map((c) => (
             <TreeGroupOrLeaf key={c.key} node={c} depth={depth + 1} expanded={expanded} forceOpen={forceOpen} toggle={toggle} onView={onView} />
           ))}
@@ -205,7 +205,9 @@ function Leaf({ setting, name, depth, onView, muted }: {
   return (
     <div className="cfg-leaf" style={{ paddingLeft: depth * 16 + 22 }} title={setting.key}>
       <span className={`cfg-leaf-name ${muted ? "faint" : ""}`}>{name}</span>
-      {setting.label && <span className="cfg-leaf-label">{setting.label}</span>}
+      <span className={`cfg-leaf-label ${setting.label ? "" : "cfg-no-label"}`} title={setting.label ? `label: ${setting.label}` : "no label"}>
+        {setting.label || "no label"}
+      </span>
       <span className="cfg-leaf-digest">{d.text}</span>
       {d.expandable && <button className="btn ghost small" onClick={() => onView(setting)}>View</button>}
     </div>

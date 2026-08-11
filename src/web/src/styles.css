@@ -509,9 +509,13 @@ a {
 }
 
 .seq-flow {
+  /* Fill top-to-bottom (up to 4 steps per cell-width column), then move to the next
+     column — so each step gets a full cell width and long chains stay compact. */
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 6px 10px;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(4, auto);
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px 12px;
   align-items: center;
 }
 
@@ -912,11 +916,22 @@ a {
 
 .cfg-leaf-label {
   font-size: 11px;
-  color: var(--text-faint);
-  background: var(--bg-3);
+  color: var(--accent);
+  background: rgba(76, 141, 255, 0.14);
   border-radius: 5px;
-  padding: 1px 6px;
+  padding: 1px 7px;
   flex: 0 0 auto;
+  min-width: 64px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfg-leaf-label.cfg-no-label {
+  color: var(--text-faint);
+  background: transparent;
+  font-style: italic;
 }
 
 .cfg-leaf-digest {
