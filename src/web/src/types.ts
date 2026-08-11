@@ -193,3 +193,9 @@ export interface ConfigSetting {
   contentType?: string | null;
   lastModified?: string | null;
 }
+
+export interface AzureCredential {
+  configured: boolean;
+  tenantId?: string | null;
+  clientId?: string | null;
+}

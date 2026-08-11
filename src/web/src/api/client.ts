@@ -1,4 +1,5 @@
 import type {
+  AzureCredential,
   Branch,
   ConfigRegistry,
   ConfigSetting,
@@ -171,4 +172,12 @@ export const api = {
     req<void>(`/api/config-registries/${id}`, { method: "DELETE" }),
   configSettings: (id: string) =>
     req<ConfigSetting[]>(`/api/config-registries/${id}/settings`),
+
+  azureCredential: () => req<AzureCredential>("/api/azure-credential"),
+  setAzureCredential: (tenantId: string, clientId: string, clientSecret: string) =>
+    req<AzureCredential>("/api/azure-credential", {
+      method: "PUT",
+      body: JSON.stringify({ tenantId, clientId, clientSecret }),
+    }),
+  clearAzureCredential: () => req<void>("/api/azure-credential", { method: "DELETE" }),
 };

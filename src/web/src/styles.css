@@ -649,11 +649,8 @@ a {
 }
 
 .combo-pop {
-  position: absolute;
-  z-index: 60;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  /* positioned via inline fixed coords from a portal so it escapes modal overflow */
+  z-index: 100;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
   border-radius: 10px;
