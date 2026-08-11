@@ -27,6 +27,15 @@ public class Session
     public DateTime LastSeenAt { get; set; }
 }
 
+/// <summary>A user's Azure service principal, used to auth to Key Vault + endpoint-URL config stores.</summary>
+public class AzureCredential
+{
+    public string UserId { get; set; } = default!;
+    /// <summary>Encrypted JSON { tenantId, clientId, clientSecret }. Never returned to the client.</summary>
+    public string Secret { get; set; } = "";
+    public DateTime UpdatedAt { get; set; }
+}
+
 /// <summary>An Azure App Configuration store the user has registered to browse.</summary>
 public class ConfigRegistry
 {

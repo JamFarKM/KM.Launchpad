@@ -83,6 +83,12 @@ using (var scope = app.Services.CreateScope())
             "CreatedAt" TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS "IX_VaultRegistries_UserId" ON "VaultRegistries" ("UserId");
+
+        CREATE TABLE IF NOT EXISTS "AzureCredentials" (
+            "UserId" TEXT NOT NULL CONSTRAINT "PK_AzureCredentials" PRIMARY KEY,
+            "Secret" TEXT NOT NULL,
+            "UpdatedAt" TEXT NOT NULL
+        );
         """);
 }
 

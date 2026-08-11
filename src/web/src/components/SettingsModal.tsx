@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { getSettings, setSettings, type Theme } from "../lib/settings";
 import { ensureNotifyPermission } from "../lib/notify";
-import type { ConfigRegistry, VaultRegistry } from "../types";
+import type { AzureCredential, ConfigRegistry, VaultRegistry } from "../types";
 
 const THEMES: Theme[] = ["system", "light", "dark"];
 
@@ -51,9 +51,52 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
 
+          <AzureCredentialSection />
           <ConfigRegistriesSection />
           <VaultRegistriesSection />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AzureCredentialSection() {
+  const qc = useQueryClient();
+  const credQ = useQuery<AzureCredential>({ queryKey: ["azure-credential"], queryFn: api.azureCredential });
+  const [tenantId, setTenantId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: () => api.setAzureCredential(tenantId.trim(), clientId.trim(), clientSecret.trim()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["azure-credential"] }); setClientSecret(""); setError(null); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save credential."),
+  });
+  const clear = useMutation({
+    mutationFn: () => api.clearAzureCredential(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["azure-credential"] }); setTenantId(""); setClientId(""); setClientSecret(""); },
+  });
+
+  const cred = credQ.data;
+
+  return (
+    <div className="field">
+      <label className="label">Azure service principal (for Key Vault &amp; endpoint-URL config)</label>
+      <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
+        An Entra ID app registration (App registrations → new → client secret), granted read access to your vaults/stores.
+        Required for Key Vault; also used for App Configuration added by endpoint URL. Not needed for connection-string stores.
+        {cred?.configured && <> Currently configured{cred.clientId ? ` (client ${cred.clientId})` : ""}.</>}
+      </div>
+      {error && <div className="error" style={{ fontSize: 12, marginBottom: 8 }}>{error}</div>}
+      <input className="input" placeholder="Tenant ID" value={tenantId} onChange={(e) => setTenantId(e.target.value)} style={{ marginBottom: 6 }} />
+      <input className="input" placeholder="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} style={{ marginBottom: 6 }} />
+      <input className="input" type="password" placeholder={cred?.configured ? "Client secret (enter to replace)" : "Client secret"} value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} style={{ marginBottom: 6 }} />
+      <div className="row">
+        <button className="btn small primary" disabled={!tenantId.trim() || !clientId.trim() || !clientSecret.trim() || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? "Saving…" : "Save credential"}
+        </button>
+        {cred?.configured && <button className="btn ghost small" onClick={() => clear.mutate()}>Clear</button>}
       </div>
     </div>
   );
@@ -82,7 +125,7 @@ function VaultRegistriesSection() {
     <div className="field">
       <label className="label">Azure Key Vaults</label>
       <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
-        Add a vault by URI (e.g. <code>https://my-vault.vault.azure.net</code>). Uses your Azure login; secret values are only fetched when you reveal them.
+        Add a vault by URI (e.g. <code>https://my-vault.vault.azure.net</code>). Authenticates with the service principal above; secret values are only fetched when you reveal them.
       </div>
 
       {registries.map((r) => (

@@ -1,3 +1,4 @@
+using Azure.Core;
 using Azure.Data.AppConfiguration;
 using Azure.Identity;
 using PipelineLaunchpad.Server.Models;
@@ -29,19 +30,23 @@ public class ConfigStoreService
         return "(unknown endpoint)";
     }
 
-    private static ConfigurationClient CreateClient(string connection)
+    private static ConfigurationClient CreateClient(string connection, AzureSp? sp)
     {
         connection = connection.Trim();
-        return connection.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-            ? new ConfigurationClient(new Uri(connection), new DefaultAzureCredential())
-            : new ConfigurationClient(connection);
+        if (!connection.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            return new ConfigurationClient(connection);
+
+        TokenCredential cred = sp is not null
+            ? new ClientSecretCredential(sp.TenantId, sp.ClientId, sp.ClientSecret)
+            : new DefaultAzureCredential();
+        return new ConfigurationClient(new Uri(connection), cred);
     }
 
-    public async Task<List<ConfigSettingDto>> ListAsync(string connection, CancellationToken ct)
+    public async Task<List<ConfigSettingDto>> ListAsync(string connection, AzureSp? sp, CancellationToken ct)
     {
         try
         {
-            var client = CreateClient(connection);
+            var client = CreateClient(connection, sp);
             var list = new List<ConfigSettingDto>();
             await foreach (var s in client.GetConfigurationSettingsAsync(new SettingSelector(), ct))
             {

@@ -200,6 +200,12 @@ export interface VaultRegistry {
   endpoint: string;
 }
 
+export interface AzureCredential {
+  configured: boolean;
+  tenantId?: string | null;
+  clientId?: string | null;
+}
+
 export interface VaultSecretValue {
   name: string;
   value?: string | null;

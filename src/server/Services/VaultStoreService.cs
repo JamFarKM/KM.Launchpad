@@ -1,3 +1,4 @@
+using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 
@@ -13,15 +14,20 @@ public class VaultStoreService
 
     public static string EndpointOf(string vaultUri) => vaultUri.Trim().TrimEnd('/');
 
-    private static SecretClient CreateClient(string vaultUri) =>
-        new(new Uri(vaultUri.Trim()), new DefaultAzureCredential());
+    private static SecretClient CreateClient(string vaultUri, AzureSp? sp)
+    {
+        TokenCredential cred = sp is not null
+            ? new ClientSecretCredential(sp.TenantId, sp.ClientId, sp.ClientSecret)
+            : new DefaultAzureCredential();
+        return new SecretClient(new Uri(vaultUri.Trim()), cred);
+    }
 
     /// <summary>Lists secret names only (never values).</summary>
-    public async Task<List<string>> ListNamesAsync(string vaultUri, CancellationToken ct)
+    public async Task<List<string>> ListNamesAsync(string vaultUri, AzureSp? sp, CancellationToken ct)
     {
         try
         {
-            var client = CreateClient(vaultUri);
+            var client = CreateClient(vaultUri, sp);
             var names = new List<string>();
             await foreach (var p in client.GetPropertiesOfSecretsAsync(ct))
             {
@@ -39,11 +45,11 @@ public class VaultStoreService
     }
 
     /// <summary>Fetches a single secret's value (revealed on demand).</summary>
-    public async Task<string?> GetSecretAsync(string vaultUri, string name, CancellationToken ct)
+    public async Task<string?> GetSecretAsync(string vaultUri, string name, AzureSp? sp, CancellationToken ct)
     {
         try
         {
-            var client = CreateClient(vaultUri);
+            var client = CreateClient(vaultUri, sp);
             var secret = await client.GetSecretAsync(name, cancellationToken: ct);
             return secret.Value.Value;
         }

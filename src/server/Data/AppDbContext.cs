@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<SequenceRun> SequenceRuns => Set<SequenceRun>();
     public DbSet<ConfigRegistry> ConfigRegistries => Set<ConfigRegistry>();
     public DbSet<VaultRegistry> VaultRegistries => Set<VaultRegistry>();
+    public DbSet<AzureCredential> AzureCredentials => Set<AzureCredential>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -38,5 +39,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         b.Entity<VaultRegistry>().HasKey(v => v.Id);
         b.Entity<VaultRegistry>().HasIndex(v => v.UserId);
+
+        b.Entity<AzureCredential>().HasKey(c => c.UserId);
     }
 }

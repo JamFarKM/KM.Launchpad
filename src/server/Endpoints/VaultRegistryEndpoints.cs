@@ -26,7 +26,8 @@ public static class VaultRegistryEndpoints
                 return Results.BadRequest(new { error = "A vault URI is required, e.g. https://my-vault.vault.azure.net" });
 
             // Validate by listing secret names before saving.
-            try { await store.ListNamesAsync(body.VaultUri.Trim(), ct); }
+            var sp = await AzureCredentialStore.LoadAsync(db, protector, ctx.UserId!, ct);
+            try { await store.ListNamesAsync(body.VaultUri.Trim(), sp, ct); }
             catch (VaultStoreService.VaultException ex)
             {
                 return Results.BadRequest(new { error = $"Could not connect to that vault: {ex.Message}" });
@@ -58,7 +59,8 @@ public static class VaultRegistryEndpoints
         {
             var uri = await ResolveUri(id, ctx, db, protector);
             if (uri is null) return Results.NotFound();
-            try { return Results.Ok(await store.ListNamesAsync(uri, ct)); }
+            var sp = await AzureCredentialStore.LoadAsync(db, protector, ctx.UserId!, ct);
+            try { return Results.Ok(await store.ListNamesAsync(uri, sp, ct)); }
             catch (VaultStoreService.VaultException ex) { return Results.Json(new { error = ex.Message }, statusCode: 502); }
         });
 
@@ -68,7 +70,8 @@ public static class VaultRegistryEndpoints
         {
             var uri = await ResolveUri(id, ctx, db, protector);
             if (uri is null) return Results.NotFound();
-            try { return Results.Ok(new VaultSecretValueDto(name, await store.GetSecretAsync(uri, name, ct))); }
+            var sp = await AzureCredentialStore.LoadAsync(db, protector, ctx.UserId!, ct);
+            try { return Results.Ok(new VaultSecretValueDto(name, await store.GetSecretAsync(uri, name, sp, ct))); }
             catch (VaultStoreService.VaultException ex) { return Results.Json(new { error = ex.Message }, statusCode: 502); }
         });
     }

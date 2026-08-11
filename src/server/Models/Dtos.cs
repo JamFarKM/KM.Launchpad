@@ -127,6 +127,10 @@ public record ConfigRegistryDto(string Id, string Name, string Endpoint);
 public record UpsertConfigRegistryRequest(string Name, string Connection);
 public record ConfigSettingDto(string Key, string? Value, string? Label, string? ContentType, DateTimeOffset? LastModified);
 
+// ----- azure service principal (for Key Vault + endpoint-URL App Config) -----
+public record AzureCredentialDto(bool Configured, string? TenantId, string? ClientId);
+public record UpsertAzureCredentialRequest(string TenantId, string ClientId, string ClientSecret);
+
 // ----- key vault -----
 public record VaultRegistryDto(string Id, string Name, string Endpoint);
 public record UpsertVaultRegistryRequest(string Name, string VaultUri);

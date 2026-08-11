@@ -1,4 +1,5 @@
 import type {
+  AzureCredential,
   Branch,
   ConfigRegistry,
   ConfigSetting,
@@ -187,4 +188,13 @@ export const api = {
     req<string[]>(`/api/vault-registries/${id}/secrets`),
   vaultSecret: (id: string, name: string) =>
     req<VaultSecretValue>(`/api/vault-registries/${id}/secrets/${encodeURIComponent(name)}`),
+
+  // Azure service principal (Key Vault + endpoint-URL App Config)
+  azureCredential: () => req<AzureCredential>("/api/azure-credential"),
+  setAzureCredential: (tenantId: string, clientId: string, clientSecret: string) =>
+    req<AzureCredential>("/api/azure-credential", {
+      method: "PUT",
+      body: JSON.stringify({ tenantId, clientId, clientSecret }),
+    }),
+  clearAzureCredential: () => req<void>("/api/azure-credential", { method: "DELETE" }),
 };
