@@ -815,6 +815,7 @@ a {
 .view-area.cfg-area {
   display: flex;
   flex-direction: column;
+  align-items: center; /* center the constrained panel horizontally */
   overflow: hidden;
 }
 
