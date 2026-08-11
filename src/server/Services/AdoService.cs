@@ -379,18 +379,19 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     // --------------------------------------------------------------- runs
 
     public Task<RunDto> RunPipelineAsync(string project, int pipelineId, RunRequest req, CancellationToken ct) =>
-        RunPipelineAsync(project, pipelineId, req.Branch, req.TemplateParameters, req.Variables, req.PipelineResources, ct);
+        RunPipelineAsync(project, pipelineId, req.Branch, req.TemplateParameters, req.Variables, req.PipelineResources, null, ct);
 
     /// <summary>
     /// Triggers a pipeline run. <paramref name="pipelineResources"/> maps a pipeline
-    /// resource alias to a version (typically a prior run's build number), used to
-    /// link a build's artifact into a downstream deploy.
+    /// resource alias to a version, and <paramref name="containerResources"/> maps a
+    /// container resource alias to a tag — used to link a build's image into a deploy.
     /// </summary>
     public async Task<RunDto> RunPipelineAsync(
         string project, int pipelineId, string branch,
         IReadOnlyDictionary<string, string>? templateParameters,
         IReadOnlyDictionary<string, string>? variables,
         IReadOnlyDictionary<string, string>? pipelineResources,
+        IReadOnlyDictionary<string, string>? containerResources,
         CancellationToken ct)
     {
         var resources = new Dictionary<string, object?>
@@ -399,6 +400,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         };
         if (pipelineResources is { Count: > 0 })
             resources["pipelines"] = pipelineResources.ToDictionary(
+                kv => kv.Key, kv => (object)new { version = kv.Value });
+        if (containerResources is { Count: > 0 })
+            resources["containers"] = containerResources.ToDictionary(
                 kv => kv.Key, kv => (object)new { version = kv.Value });
 
         var body = new Dictionary<string, object?> { ["resources"] = resources };

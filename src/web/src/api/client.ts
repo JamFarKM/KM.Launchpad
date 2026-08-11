@@ -114,15 +114,15 @@ export const api = {
 
   // views
   views: () => req<SavedView[]>("/api/views"),
-  createView: (name: string, sortOrder: number, shelves: string[], items: ViewItem[]) =>
+  createView: (name: string, sortOrder: number, shelves: string[], shelfWidths: Record<string, number>, shelfColors: Record<string, string>, items: ViewItem[]) =>
     req<SavedView>("/api/views", {
       method: "POST",
-      body: JSON.stringify({ name, sortOrder, shelves, items }),
+      body: JSON.stringify({ name, sortOrder, shelves, shelfWidths, shelfColors, items }),
     }),
-  updateView: (id: string, name: string, sortOrder: number, shelves: string[], items: ViewItem[]) =>
+  updateView: (id: string, name: string, sortOrder: number, shelves: string[], shelfWidths: Record<string, number>, shelfColors: Record<string, string>, items: ViewItem[]) =>
     req<SavedView>(`/api/views/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ name, sortOrder, shelves, items }),
+      body: JSON.stringify({ name, sortOrder, shelves, shelfWidths, shelfColors, items }),
     }),
   deleteView: (id: string) =>
     req<void>(`/api/views/${id}`, { method: "DELETE" }),

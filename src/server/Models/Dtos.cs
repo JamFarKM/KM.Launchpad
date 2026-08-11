@@ -139,5 +139,5 @@ public record VaultSecretValueDto(string Name, string? Value);
 
 // ----- views -----
 public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf);
-public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, List<ViewItemDto> Items);
-public record UpsertViewRequest(string Name, int SortOrder, List<string> Shelves, List<ViewItemDto> Items);
+public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, Dictionary<string, int> ShelfWidths, Dictionary<string, string> ShelfColors, List<ViewItemDto> Items);
+public record UpsertViewRequest(string Name, int SortOrder, List<string> Shelves, Dictionary<string, int>? ShelfWidths, Dictionary<string, string>? ShelfColors, List<ViewItemDto> Items);

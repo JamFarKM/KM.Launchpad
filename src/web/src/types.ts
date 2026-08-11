@@ -99,7 +99,7 @@ export interface ViewItem {
 }
 
 // ----- sequences -----
-export type LinkMode = "none" | "resource" | "parameter" | "variable";
+export type LinkMode = "none" | "resource" | "container" | "parameter" | "variable";
 
 export interface StepLink {
   mode: LinkMode;
@@ -171,6 +171,8 @@ export interface SavedView {
   name: string;
   sortOrder: number;
   shelves: string[];
+  shelfWidths?: Record<string, number>; // per-shelf width in card-width units; 0/absent = full width
+  shelfColors?: Record<string, string>; // per-shelf colour family (e.g. "red"); absent = none
   items: ViewItem[];
 }
 

@@ -104,6 +104,7 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                     var tps = new Dictionary<string, string>(step.TemplateParameters ?? new());
                     var vars = new Dictionary<string, string>(step.Variables ?? new());
                     var resources = new Dictionary<string, string>();
+                    var containers = new Dictionary<string, string>();
 
                     // Bindings: pre-run input values plugged into this step's params/variables.
                     foreach (var b in step.Bindings ?? new())
@@ -113,11 +114,12 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                         else tps[b.Name] = val;
                     }
 
-                    ApplyLink(step.Link, previous, tps, vars, resources);
+                    ApplyLink(step.Link, previous, tps, vars, resources, containers);
 
                     triggered = await ado.RunPipelineAsync(
                         step.Project, step.PipelineId, branch!, tps, vars,
-                        resources.Count > 0 ? resources : null, ct);
+                        resources.Count > 0 ? resources : null,
+                        containers.Count > 0 ? containers : null, ct);
                 }
                 catch (Exception ex)
                 {
@@ -218,12 +220,13 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
 
     private static void ApplyLink(
         StepLinkDto? link, RunDto? previous,
-        Dictionary<string, string> tps, Dictionary<string, string> vars, Dictionary<string, string> resources)
+        Dictionary<string, string> tps, Dictionary<string, string> vars,
+        Dictionary<string, string> resources, Dictionary<string, string> containers)
     {
         if (link is null || previous is null || string.IsNullOrWhiteSpace(link.Key)) return;
 
-        // The value passed for parameter/variable modes. "tag" composes the image tag the
-        // way the build does: <SourceBranchName>.<BuildNumber> (last branch segment + build number).
+        // The value passed for parameter/variable/container modes. "tag" composes the image
+        // tag the way a build does: <SourceBranchName>.<BuildNumber> (last branch segment + build number).
         static string LastSeg(string? b) => string.IsNullOrEmpty(b) ? "" : b.Split('/')[^1];
         var value = link.Source switch
         {
@@ -238,6 +241,10 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
             case "resource":
                 // ADO pipeline resources are versioned by the run's name (build number).
                 resources[link.Key!] = previous.BuildNumber ?? previous.Id.ToString();
+                break;
+            case "container":
+                // Container resources are versioned by image tag (e.g. branch.buildNumber).
+                containers[link.Key!] = value;
                 break;
             case "parameter":
                 tps[link.Key!] = value;

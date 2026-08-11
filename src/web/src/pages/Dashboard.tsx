@@ -10,6 +10,7 @@ import { RunDetailModal } from "../components/RunDetailModal";
 import { ensureNotifyPermission } from "../lib/notify";
 
 const DEFAULT_SHELF = "Pipelines";
+const SHELF_COLOR_FAMILIES = ["red", "orange", "amber", "green", "teal", "blue", "violet", "pink"];
 
 const shelvesOf = (v: SavedView): string[] => (v.shelves.length ? v.shelves : [DEFAULT_SHELF]);
 const shelfOfItem = (v: SavedView, i: ViewItem): string => {
@@ -66,17 +67,17 @@ export function Dashboard() {
 
   // --- mutations ---
   const createView = useMutation({
-    mutationFn: (name: string) => api.createView(name, views.length, [DEFAULT_SHELF], []),
+    mutationFn: (name: string) => api.createView(name, views.length, [DEFAULT_SHELF], {}, {}, []),
     onSuccess: (v) => { qc.invalidateQueries({ queryKey: ["views"] }); setActiveViewId(v.id); },
   });
   const saveLayout = useMutation({
-    mutationFn: (a: { view: SavedView; shelves: string[]; items: ViewItem[] }) =>
-      api.updateView(a.view.id, a.view.name, a.view.sortOrder, a.shelves, a.items),
+    mutationFn: (a: { view: SavedView; shelves: string[]; items: ViewItem[]; shelfWidths: Record<string, number>; shelfColors: Record<string, string> }) =>
+      api.updateView(a.view.id, a.view.name, a.view.sortOrder, a.shelves, a.shelfWidths, a.shelfColors, a.items),
     onError: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
   const renameView = useMutation({
     mutationFn: (a: { view: SavedView; name: string }) =>
-      api.updateView(a.view.id, a.name, a.view.sortOrder, a.view.shelves, a.view.items),
+      api.updateView(a.view.id, a.name, a.view.sortOrder, a.view.shelves, a.view.shelfWidths ?? {}, a.view.shelfColors ?? {}, a.view.items),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
   const deleteView = useMutation({
@@ -87,15 +88,17 @@ export function Dashboard() {
   const freshest = (id: string): SavedView | undefined =>
     (qc.getQueryData<SavedView[]>(["views"]) ?? []).find((v) => v.id === id);
 
-  function commit(view: SavedView, shelves: string[], items: ViewItem[]) {
+  function commit(view: SavedView, shelves: string[], items: ViewItem[], shelfWidths?: Record<string, number>, shelfColors?: Record<string, string>) {
+    const widths = shelfWidths ?? view.shelfWidths ?? {};
+    const colors = shelfColors ?? view.shelfColors ?? {};
     qc.setQueryData<SavedView[]>(["views"], (prev) =>
-      (prev ?? []).map((v) => (v.id === view.id ? { ...v, shelves, items } : v)));
-    saveLayout.mutate({ view, shelves, items });
+      (prev ?? []).map((v) => (v.id === view.id ? { ...v, shelves, items, shelfWidths: widths, shelfColors: colors } : v)));
+    saveLayout.mutate({ view, shelves, items, shelfWidths: widths, shelfColors: colors });
   }
 
   async function ensureView(): Promise<SavedView> {
     if (activeView) return activeView;
-    const created = await api.createView("My pipelines", views.length, [DEFAULT_SHELF], []);
+    const created = await api.createView("My pipelines", views.length, [DEFAULT_SHELF], {}, {}, []);
     await qc.invalidateQueries({ queryKey: ["views"] });
     setActiveViewId(created.id);
     return created;
@@ -169,9 +172,15 @@ export function Dashboard() {
     const name = window.prompt("Rename shelf", oldName);
     if (!name || !name.trim() || name.trim() === oldName) return;
     const view = freshest(activeView.id) ?? activeView;
+    const nn = name.trim();
+    const widths = { ...(view.shelfWidths ?? {}) };
+    if (oldName in widths) { widths[nn] = widths[oldName]; delete widths[oldName]; }
+    const colors = { ...(view.shelfColors ?? {}) };
+    if (oldName in colors) { colors[nn] = colors[oldName]; delete colors[oldName]; }
     commit(view,
-      shelvesOf(view).map((s) => (s === oldName ? name.trim() : s)),
-      view.items.map((i) => (shelfOfItem(view, i) === oldName ? { ...i, shelf: name.trim() } : i)));
+      shelvesOf(view).map((s) => (s === oldName ? nn : s)),
+      view.items.map((i) => (shelfOfItem(view, i) === oldName ? { ...i, shelf: nn } : i)),
+      widths, colors);
   }
 
   function deleteShelf(name: string) {
@@ -180,26 +189,80 @@ export function Dashboard() {
     const shelves = shelvesOf(view);
     if (shelves.length <= 1) return;
     const remaining = shelves.filter((s) => s !== name);
+    const widths = { ...(view.shelfWidths ?? {}) };
+    delete widths[name];
+    const colors = { ...(view.shelfColors ?? {}) };
+    delete colors[name];
     commit(view, remaining,
-      view.items.map((i) => (shelfOfItem(view, i) === name ? { ...i, shelf: remaining[0] } : i)));
+      view.items.map((i) => (shelfOfItem(view, i) === name ? { ...i, shelf: remaining[0] } : i)),
+      widths, colors);
   }
 
-  function moveShelf(name: string, dir: -1 | 1) {
+  // Drag a shelf to sit before `target` — combined with widths, lets shelves sit side by side.
+  function reorderShelves(dragged: string, target: string) {
+    if (!activeView || dragged === target) return;
+    const view = freshest(activeView.id) ?? activeView;
+    const shelves = shelvesOf(view).filter((s) => s !== dragged);
+    const ti = shelves.indexOf(target);
+    if (ti < 0) return;
+    shelves.splice(ti, 0, dragged);
+    commit(view, shelves, view.items);
+  }
+
+  // Per-shelf width in card-width units (0 = full width).
+  const shelfUnits = (view: SavedView, name: string): number => view.shelfWidths?.[name] ?? 0;
+
+  function setShelfWidth(name: string, units: number) {
     if (!activeView) return;
     const view = freshest(activeView.id) ?? activeView;
-    const shelves = shelvesOf(view);
-    const i = shelves.indexOf(name);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= shelves.length) return;
-    const next = [...shelves];
-    [next[i], next[j]] = [next[j], next[i]];
-    commit(view, next, view.items);
+    const widths = { ...(view.shelfWidths ?? {}) };
+    if (units <= 0) delete widths[name]; else widths[name] = units;
+    commit(view, shelvesOf(view), view.items, widths);
+  }
+
+  // Per-shelf colour family ("" = none).
+  const shelfColor = (view: SavedView, name: string): string => view.shelfColors?.[name] ?? "";
+
+  function setShelfColor(name: string, family: string) {
+    if (!activeView) return;
+    const view = freshest(activeView.id) ?? activeView;
+    const colors = { ...(view.shelfColors ?? {}) };
+    if (!family) delete colors[name]; else colors[name] = family;
+    commit(view, shelvesOf(view), view.items, view.shelfWidths ?? {}, colors);
+  }
+
+  const [colorMenu, setColorMenu] = useState<string | null>(null);
+
+  // Live drag-resize: snap the shelf width to the nearest whole card-width.
+  const CARD_W = 320, CARD_GAP = 12, SHELF_PAD = 26;
+  const shelfPx = (units: number) => units * CARD_W + (units - 1) * CARD_GAP + SHELF_PAD;
+  const [resizing, setResizing] = useState<{ name: string; units: number } | null>(null);
+
+  function startResize(e: React.PointerEvent, name: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const shelfEl = (e.currentTarget as HTMLElement).closest(".shelf") as HTMLElement | null;
+    if (!shelfEl) return;
+    const left = shelfEl.getBoundingClientRect().left;
+    const unitsAt = (clientX: number) =>
+      Math.max(1, Math.min(8, Math.round((clientX - left - SHELF_PAD + CARD_GAP) / (CARD_W + CARD_GAP))));
+    const onMove = (ev: PointerEvent) => setResizing({ name, units: unitsAt(ev.clientX) });
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      const units = unitsAt(ev.clientX);
+      setResizing(null);
+      setShelfWidth(name, units);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   // --- drag & drop ---
   const poolDrag = useRef<Pipeline | null>(null);
   const seqDrag = useRef<Sequence | null>(null);
   const cardDrag = useRef<ViewItem | null>(null);
+  const shelfDrag = useRef<string | null>(null);
   const [hintShelf, setHintShelf] = useState<string | null>(null);
 
   // Any drag ending (drop, cancel, or a card-to-card drop that stopped propagation)
@@ -315,60 +378,92 @@ export function Dashboard() {
               </div>
             )}
 
-            {activeView && shelvesOf(activeView).map((shelf, si, arr) => {
-              const items = activeView.items.filter((i) => shelfOfItem(activeView, i) === shelf);
-              const canDelete = arr.length > 1;
-              return (
-                <section
-                  key={shelf}
-                  className="shelf"
-                  onDragOver={(e) => { e.preventDefault(); setHintShelf(shelf); }}
-                  onDragLeave={(e) => { if (e.currentTarget === e.target) setHintShelf(null); }}
-                  onDrop={(e) => { e.preventDefault(); handleShelfDrop(shelf); }}
-                >
-                  <div className="shelf-head">
-                    <span className="shelf-title">{shelf}</span>
-                    <span className="shelf-count">{items.length}</span>
-                    <span style={{ flex: 1 }} />
-                    <button className="btn ghost small" title="Move shelf up" disabled={si === 0} onClick={() => moveShelf(shelf, -1)}>↑</button>
-                    <button className="btn ghost small" title="Move shelf down" disabled={si === arr.length - 1} onClick={() => moveShelf(shelf, 1)}>↓</button>
-                    <button className="btn ghost small" onClick={() => renameShelf(shelf)}>rename</button>
-                    {canDelete && <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>}
-                  </div>
+            {activeView && (
+              <div className="shelves-wrap">
+                {shelvesOf(activeView).map((shelf) => {
+                  const items = activeView.items.filter((i) => shelfOfItem(activeView, i) === shelf);
+                  const canDelete = shelvesOf(activeView).length > 1;
+                  const units = resizing?.name === shelf ? resizing.units : shelfUnits(activeView, shelf);
+                  const style: React.CSSProperties = units > 0 ? { width: shelfPx(units), flex: "0 0 auto" } : { width: "100%" };
+                  return (
+                    <section
+                      key={shelf}
+                      className="shelf"
+                      style={style}
+                      data-color={shelfColor(activeView, shelf) || undefined}
+                      onDragOver={(e) => { e.preventDefault(); if (!shelfDrag.current) setHintShelf(shelf); }}
+                      onDragLeave={(e) => { if (e.currentTarget === e.target) setHintShelf(null); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (shelfDrag.current) { reorderShelves(shelfDrag.current, shelf); shelfDrag.current = null; }
+                        else handleShelfDrop(shelf);
+                      }}
+                    >
+                      <div
+                        className="shelf-head"
+                        draggable
+                        title="Drag to reorder / place shelves side by side"
+                        onDragStart={(e) => { shelfDrag.current = shelf; poolDrag.current = null; seqDrag.current = null; cardDrag.current = null; e.dataTransfer.effectAllowed = "move"; }}
+                      >
+                        <span className="shelf-grip">⠿</span>
+                        <span className="shelf-title">{shelf}</span>
+                        <span className="shelf-count">{items.length}</span>
+                        <span style={{ flex: 1 }} />
+                        <div className="shelf-color-wrap">
+                          <button className="btn ghost small icon-btn" title="Shelf colour" onClick={() => setColorMenu(colorMenu === shelf ? null : shelf)}>
+                            <span className="shelf-color-dot" data-color={shelfColor(activeView, shelf) || undefined} />
+                          </button>
+                          {colorMenu === shelf && (
+                            <div className="color-menu" onMouseLeave={() => setColorMenu(null)}>
+                              <button className="swatch swatch-none" title="none" onClick={() => { setShelfColor(shelf, ""); setColorMenu(null); }} />
+                              {SHELF_COLOR_FAMILIES.map((f) => (
+                                <button key={f} className="swatch" data-color={f} title={f} onClick={() => { setShelfColor(shelf, f); setColorMenu(null); }} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <button className="btn ghost small" onClick={() => renameShelf(shelf)}>rename</button>
+                        {units > 0 && <button className="btn ghost small" title="Reset to full width" onClick={() => setShelfWidth(shelf, 0)}>full</button>}
+                        {canDelete && <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>}
+                      </div>
 
-                  <div className={`shelf-cards ${hintShelf === shelf ? "drop-hint" : ""}`}>
-                    {items.length === 0 && (
-                      <div className="shelf-empty">Drop pipelines or sequences here, or click “add here” then + in the list.</div>
-                    )}
-                    {items.map((item) =>
-                      item.kind === "sequence" ? (
-                        <SequenceCard
-                          key={itemKey(item)}
-                          item={item}
-                          sequence={sequences.find((s) => s.id === item.sequenceId)}
-                          onRemove={removeItem}
-                          onRename={renameItem}
-                          onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
-                          onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
-                          onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
-                        />
-                      ) : (
-                        <PipelineCard
-                          key={itemKey(item)}
-                          item={item}
-                          onRun={setRunItem}
-                          onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
-                          onRemove={removeItem}
-                          onRename={renameItem}
-                          onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
-                          onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
-                        />
-                      ),
-                    )}
-                  </div>
-                </section>
-              );
-            })}
+                      <div className={`shelf-cards ${hintShelf === shelf ? "drop-hint" : ""}`}>
+                        {items.length === 0 && (
+                          <div className="shelf-empty">Drop pipelines or sequences here from the left.</div>
+                        )}
+                        {items.map((item) =>
+                          item.kind === "sequence" ? (
+                            <SequenceCard
+                              key={itemKey(item)}
+                              item={item}
+                              sequence={sequences.find((s) => s.id === item.sequenceId)}
+                              onRemove={removeItem}
+                              onRename={renameItem}
+                              onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
+                              onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
+                              onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
+                            />
+                          ) : (
+                            <PipelineCard
+                              key={itemKey(item)}
+                              item={item}
+                              onRun={setRunItem}
+                              onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
+                              onRemove={removeItem}
+                              onRename={renameItem}
+                              onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
+                              onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
+                            />
+                          ),
+                        )}
+                      </div>
+
+                      <div className="shelf-resize" title="Drag to resize (snaps to card widths)" onPointerDown={(e) => startResize(e, shelf)} />
+                    </section>
+                  );
+                })}
+              </div>
+            )}
 
             {activeView && <button className="btn small add-shelf" onClick={addShelf}>+ Add shelf</button>}
           </div>

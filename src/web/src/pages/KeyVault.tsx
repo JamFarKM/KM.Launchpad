@@ -64,6 +64,11 @@ function VaultSecrets({ registry }: { registry: VaultRegistry }) {
       <div className="cfg-registry-head">
         <div className="faint" style={{ fontSize: 12 }}>{registry.endpoint}</div>
         <span style={{ flex: 1 }} />
+        <button className="btn ghost small icon-btn" title="Refresh" disabled={secretsQ.isFetching} onClick={() => secretsQ.refetch()}>
+          <svg className={secretsQ.isFetching ? "spin-svg" : ""} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
         <input className="input" style={{ maxWidth: 260 }} placeholder="Filter secrets…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
