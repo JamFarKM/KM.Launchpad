@@ -53,7 +53,7 @@ export function ConfigurationsPage() {
           {!registriesQ.isLoading && registries.length === 0 && (
             <div className="empty">
               <h3>No configuration registries yet</h3>
-              <p>Add Azure App Configuration stores in <b>Settings ⚙️</b> — a connection string, or an endpoint URL with a service principal. Each store appears here as its own tab.</p>
+              <p>Add Azure App Configuration stores in <b>Settings ⚙️</b> using a connection string. Each store appears here as its own tab.</p>
             </div>
           )}
 

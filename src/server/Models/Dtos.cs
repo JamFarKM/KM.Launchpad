@@ -124,8 +124,6 @@ public record SequenceRunDto(
 
 // ----- configurations (Azure App Configuration) -----
 public record ConfigRegistryDto(string Id, string Name, string Endpoint);
-public record AzureCredentialDto(bool Configured, string? TenantId, string? ClientId);
-public record UpsertAzureCredentialRequest(string TenantId, string ClientId, string ClientSecret);
 public record UpsertConfigRegistryRequest(string Name, string Connection);
 public record ConfigSettingDto(string Key, string? Value, string? Label, string? ContentType, DateTimeOffset? LastModified);
 
