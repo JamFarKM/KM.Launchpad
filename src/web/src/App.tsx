@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./api/client";
 import { ConnectPage } from "./pages/ConnectPage";
@@ -11,6 +12,16 @@ export function App() {
     queryFn: api.me,
     retry: false,
   });
+
+  // If any request 401s (session lapsed), drop back to the connect screen.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      qc.setQueryData(["me"], null);
+      qc.removeQueries({ queryKey: ["me"] });
+    };
+    window.addEventListener("pl-unauthorized", onUnauthorized);
+    return () => window.removeEventListener("pl-unauthorized", onUnauthorized);
+  }, [qc]);
 
   if (me.isLoading) {
     return <div className="center-note"><span className="spin" /> Loading…</div>;

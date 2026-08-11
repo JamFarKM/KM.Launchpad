@@ -44,6 +44,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
   if (!res.ok) {
+    // A 401 on any endpoint other than the auth probes means the session lapsed;
+    // signal the app to send the user back to the connect screen.
+    if (res.status === 401 && !path.startsWith("/api/auth/")) {
+      window.dispatchEvent(new Event("pl-unauthorized"));
+    }
     throw new ApiError(res.status, body?.error ?? res.statusText ?? "Request failed");
   }
   return body as T;

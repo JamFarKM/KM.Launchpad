@@ -15,20 +15,33 @@ public class SessionMiddleware(RequestDelegate next)
     {
         if (http.Request.Cookies.TryGetValue(CookieName, out var token) && !string.IsNullOrEmpty(token))
         {
-            var session = await db.Sessions.FirstOrDefaultAsync(s => s.Token == token);
-            if (session is not null)
+            try
             {
-                var user = await db.Users.FirstOrDefaultAsync(u => u.Id == session.UserId);
-                if (user is not null)
+                var session = await db.Sessions.FirstOrDefaultAsync(s => s.Token == token);
+                if (session is not null)
                 {
-                    ctx.UserId = user.Id;
-                    ctx.Org = user.Org;
-                    try { ctx.Pat = protector.Unprotect(user.EncryptedPat); }
-                    catch { /* key rotated / corrupt — treat as unauthenticated */ }
+                    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == session.UserId);
+                    if (user is not null)
+                    {
+                        ctx.UserId = user.Id;
+                        ctx.Org = user.Org;
+                        try { ctx.Pat = protector.Unprotect(user.EncryptedPat); }
+                        catch { /* key rotated / corrupt — treat as unauthenticated */ }
 
-                    session.LastSeenAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync();
+                        // Only touch the DB occasionally: a write on every request (incl.
+                        // status polling) causes needless SQLite lock contention.
+                        if (DateTime.UtcNow - session.LastSeenAt > TimeSpan.FromMinutes(5))
+                        {
+                            session.LastSeenAt = DateTime.UtcNow;
+                            await db.SaveChangesAsync();
+                        }
+                    }
                 }
+            }
+            catch
+            {
+                // Never let session bookkeeping fail a request; downstream auth guards
+                // will simply see an unauthenticated context if this failed.
             }
         }
 

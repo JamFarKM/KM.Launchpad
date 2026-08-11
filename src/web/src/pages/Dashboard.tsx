@@ -50,7 +50,10 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
   const saveItems = useMutation({
     mutationFn: (args: { view: SavedView; items: ViewItem[] }) =>
       api.updateView(args.view.id, args.view.name, args.view.sortOrder, args.items),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["views"] }),
+    // The cache is updated optimistically & synchronously by mutateItems below, so
+    // rapid successive adds read each other's results. Only refetch on failure to
+    // roll back — refetching on success would stomp a newer optimistic edit mid-flight.
+    onError: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
 
   const renameView = useMutation({
@@ -76,19 +79,35 @@ export function Dashboard({ user, onDisconnect }: { user: User; onDisconnect: ()
     return created;
   }
 
-  async function addPipeline(p: Pipeline) {
-    const view = await ensureView();
-    if (view.items.some((i) => i.project === p.project && i.pipelineId === p.id)) return;
-    const items = [...view.items, { project: p.project, pipelineId: p.id, name: p.name }];
+  // Read the freshest copy of a view from the cache (not the possibly-stale render
+  // closure), apply an optimistic update, then persist.
+  function freshest(id: string): SavedView | undefined {
+    return (qc.getQueryData<SavedView[]>(["views"]) ?? []).find((v) => v.id === id);
+  }
+
+  function mutateItems(view: SavedView, items: ViewItem[]) {
+    qc.setQueryData<SavedView[]>(["views"], (prev) =>
+      (prev ?? []).map((v) => (v.id === view.id ? { ...v, items } : v)),
+    );
     saveItems.mutate({ view, items });
+  }
+
+  async function addPipeline(p: Pipeline) {
+    const base = await ensureView();
+    const view = freshest(base.id) ?? base;
+    if (view.items.some((i) => i.project === p.project && i.pipelineId === p.id)) return;
+    mutateItems(view, [...view.items, { project: p.project, pipelineId: p.id, name: p.name }]);
   }
 
   function removeItem(item: ViewItem) {
     if (!activeView) return;
-    const items = activeView.items.filter(
-      (i) => !(i.project === item.project && i.pipelineId === item.pipelineId),
+    const view = freshest(activeView.id) ?? activeView;
+    mutateItems(
+      view,
+      view.items.filter(
+        (i) => !(i.project === item.project && i.pipelineId === item.pipelineId),
+      ),
     );
-    saveItems.mutate({ view: activeView, items });
   }
 
   // --- drag & drop ---
