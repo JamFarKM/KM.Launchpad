@@ -367,19 +367,28 @@ function StepEditor({ step, index, total, projects, inputs, onChange, onMove, on
         <div className="seq-link">
           <label className="label">Link from previous step</label>
           <div className="row">
-            <select className="select" style={{ maxWidth: 240 }} value={step.link?.mode ?? "none"}
-              onChange={(e) => onChange({ link: { mode: e.target.value as LinkMode, key: step.link?.key ?? "" } })}>
+            <select className="select" style={{ maxWidth: 220 }} value={step.link?.mode ?? "none"}
+              onChange={(e) => onChange({ link: { mode: e.target.value as LinkMode, key: step.link?.key ?? "", source: step.link?.source ?? "buildNumber" } })}>
               <option value="none">nothing (just run in order)</option>
               <option value="resource">pipeline resource (previous run version)</option>
-              <option value="parameter">template parameter = previous runId</option>
-              <option value="variable">variable = previous runId</option>
+              <option value="parameter">template parameter =</option>
+              <option value="variable">variable =</option>
             </select>
+            {step.link && (step.link.mode === "parameter" || step.link.mode === "variable") && (
+              <select className="select" style={{ maxWidth: 220 }} value={step.link.source ?? "buildNumber"}
+                onChange={(e) => onChange({ link: { ...step.link!, source: e.target.value } })}>
+                <option value="buildNumber">previous build number</option>
+                <option value="tag">image tag (branch.buildNumber)</option>
+                <option value="runId">previous run ID</option>
+                <option value="branch">previous source branch</option>
+              </select>
+            )}
             {step.link && step.link.mode !== "none" && (
               <>
                 <input className="input" list={`linkkeys-${step.id}`}
                   placeholder={step.link.mode === "resource" ? "resource alias" : "parameter / variable name"}
                   value={step.link.key ?? ""}
-                  onChange={(e) => onChange({ link: { mode: step.link!.mode, key: e.target.value } })} />
+                  onChange={(e) => onChange({ link: { ...step.link!, key: e.target.value } })} />
                 <datalist id={`linkkeys-${step.id}`}>
                   {linkKeySuggestions.map((k) => <option key={k} value={k} />)}
                 </datalist>

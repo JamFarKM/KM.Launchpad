@@ -75,7 +75,7 @@ public class ConfigService(AppDbContext db)
                     TemplateParameters = KvBag(st.Element("templateParameters")),
                     Variables = KvBag(st.Element("variables")),
                     Link = st.Element("link") is { } l
-                        ? new StepLinkDto(Attr(l, "mode", "none"), Attr(l, "key"))
+                        ? new StepLinkDto(Attr(l, "mode", "none"), Attr(l, "key"), Attr(l, "source"))
                         : null,
                 });
             }

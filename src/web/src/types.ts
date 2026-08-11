@@ -104,6 +104,7 @@ export type LinkMode = "none" | "resource" | "parameter" | "variable";
 export interface StepLink {
   mode: LinkMode;
   key?: string | null;
+  source?: string | null; // parameter/variable value: "runId" | "buildNumber" | "tag" | "branch"
 }
 
 export interface ParamBinding {

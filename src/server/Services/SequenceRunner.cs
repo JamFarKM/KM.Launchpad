@@ -221,16 +221,29 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
         Dictionary<string, string> tps, Dictionary<string, string> vars, Dictionary<string, string> resources)
     {
         if (link is null || previous is null || string.IsNullOrWhiteSpace(link.Key)) return;
+
+        // The value passed for parameter/variable modes. "tag" composes the image tag the
+        // way the build does: <SourceBranchName>.<BuildNumber> (last branch segment + build number).
+        static string LastSeg(string? b) => string.IsNullOrEmpty(b) ? "" : b.Split('/')[^1];
+        var value = link.Source switch
+        {
+            "buildNumber" => previous.BuildNumber ?? previous.Id.ToString(),
+            "tag" => $"{LastSeg(previous.Branch)}.{previous.BuildNumber}",
+            "branch" => previous.Branch ?? "",
+            _ => previous.Id.ToString(), // runId (default)
+        };
+
         switch (link.Mode)
         {
             case "resource":
+                // ADO pipeline resources are versioned by the run's name (build number).
                 resources[link.Key!] = previous.BuildNumber ?? previous.Id.ToString();
                 break;
             case "parameter":
-                tps[link.Key!] = previous.Id.ToString();
+                tps[link.Key!] = value;
                 break;
             case "variable":
-                vars[link.Key!] = previous.Id.ToString();
+                vars[link.Key!] = value;
                 break;
         }
     }

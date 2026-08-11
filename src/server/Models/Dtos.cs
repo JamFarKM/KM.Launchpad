@@ -62,8 +62,9 @@ public record LogContentDto(int Id, string Name, string Content);
 
 /// <summary>How a step injects the previous step's run into its own trigger.</summary>
 public record StepLinkDto(
-    string Mode,   // "none" | "resource" | "parameter" | "variable"
-    string? Key);  // resource alias, or template-parameter / variable name
+    string Mode,      // "none" | "resource" | "parameter" | "variable"
+    string? Key,      // resource alias, or template-parameter / variable name
+    string? Source);  // value to pass (parameter/variable): "runId" | "buildNumber" | "tag" | "branch"
 
 /// <summary>Binds a step's template parameter / variable to a pre-run input's value.</summary>
 public record ParamBindingDto(
