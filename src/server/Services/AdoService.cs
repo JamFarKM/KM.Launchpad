@@ -152,21 +152,72 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
 
     public async Task<List<BranchDto>> GetBranchesAsync(string project, string repoId, string? defaultBranch, CancellationToken ct)
     {
-        using var doc = await SendJsonAsync(
+        var def = defaultBranch?.Replace("refs/heads/", "");
+        var me = ctx.UniqueName;
+
+        // Preferred: branch stats give each branch's tip-commit author/date, so we can
+        // surface the branches the current user most recently worked on.
+        try
+        {
+            using var doc = await SendJsonAsync(
+                HttpMethod.Get,
+                $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{repoId}/stats/branches" +
+                $"?api-version={ApiVersion}",
+                null, null, null, ct);
+
+            var list = new List<BranchDto>();
+            foreach (var b in doc.RootElement.GetProperty("value").EnumerateArray())
+            {
+                var name = b.GetProperty("name").GetString() ?? "";
+                if (name.Length == 0) continue;
+
+                string? authorEmail = null, committerEmail = null;
+                DateTime? date = null;
+                if (b.TryGetProperty("commit", out var commit))
+                {
+                    if (commit.TryGetProperty("author", out var au))
+                    {
+                        authorEmail = au.TryGetProperty("email", out var ae) ? ae.GetString() : null;
+                        date = GetDate(au, "date");
+                    }
+                    if (commit.TryGetProperty("committer", out var co))
+                    {
+                        committerEmail = co.TryGetProperty("email", out var ce) ? ce.GetString() : null;
+                        date ??= GetDate(co, "date");
+                    }
+                }
+
+                var mine = me is not null &&
+                    (string.Equals(authorEmail, me, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(committerEmail, me, StringComparison.OrdinalIgnoreCase));
+
+                list.Add(new BranchDto(name, name == def, mine, date));
+            }
+
+            if (list.Count > 0)
+                return list
+                    .OrderByDescending(b => b.Mine)
+                    .ThenByDescending(b => b.LastCommit ?? DateTime.MinValue)
+                    .ThenByDescending(b => b.IsDefault)
+                    .ThenBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+        }
+        catch (AdoException) { /* fall back to the plain ref list below */ }
+
+        using var refsDoc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{repoId}/refs" +
             $"?filter=heads/&api-version={ApiVersion}&$top=1000",
             null, null, null, ct);
 
-        var def = defaultBranch?.Replace("refs/heads/", "");
-        var list = new List<BranchDto>();
-        foreach (var r in doc.RootElement.GetProperty("value").EnumerateArray())
+        var refs = new List<BranchDto>();
+        foreach (var r in refsDoc.RootElement.GetProperty("value").EnumerateArray())
         {
             var name = (r.GetProperty("name").GetString() ?? "").Replace("refs/heads/", "");
             if (name.Length == 0) continue;
-            list.Add(new BranchDto(name, name == def));
+            refs.Add(new BranchDto(name, name == def, false, null));
         }
-        return list
+        return refs
             .OrderByDescending(b => b.IsDefault)
             .ThenBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();

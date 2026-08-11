@@ -32,10 +32,18 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
 
   const initialBranch = useMemo(() => {
     if (!detail) return "";
-    return detail.branches.find((b) => b.isDefault)?.name ?? detail.branches[0]?.name ?? "";
+    // Prefer the branch the user most recently worked on (branches are returned
+    // yours-first, most-recent-first), then the pipeline default, then anything.
+    return (
+      detail.branches.find((b) => b.mine)?.name ??
+      detail.branches.find((b) => b.isDefault)?.name ??
+      detail.branches[0]?.name ??
+      ""
+    );
   }, [detail]);
 
   const effectiveBranch = branch || initialBranch;
+  const autoPickedYours = !branch && !!detail?.branches.find((b) => b.mine && b.name === effectiveBranch);
 
   const templateParams = detail?.parameters.filter((p) => p.kind === "parameter") ?? [];
   const variableParams = detail?.parameters.filter((p) => p.kind === "variable" && p.allowOverride) ?? [];
@@ -111,10 +119,17 @@ export function RunDialog({ item, onClose, onLaunched }: Props) {
                   {detail.branches.length === 0 && <option value="">(no branches found)</option>}
                   {detail.branches.map((b) => (
                     <option key={b.name} value={b.name}>
-                      {b.name}{b.isDefault ? "  (default)" : ""}
+                      {b.name}
+                      {b.mine ? "  — yours" : ""}
+                      {b.isDefault ? "  (default)" : ""}
                     </option>
                   ))}
                 </select>
+                {autoPickedYours && (
+                  <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                    Defaulted to your most recently updated branch.
+                  </div>
+                )}
               </div>
 
               {templateParams.length > 0 && (

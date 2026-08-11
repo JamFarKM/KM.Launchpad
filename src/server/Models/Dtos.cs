@@ -16,7 +16,7 @@ public record PipelineDto(
     string? DefaultBranch,
     bool Enabled);
 
-public record BranchDto(string Name, bool IsDefault);
+public record BranchDto(string Name, bool IsDefault, bool Mine, DateTime? LastCommit);
 
 public record PipelineParamDto(
     string Name,

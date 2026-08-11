@@ -24,6 +24,7 @@ public class SessionMiddleware(RequestDelegate next)
                     if (user is not null)
                     {
                         ctx.UserId = user.Id;
+                        ctx.UniqueName = user.UniqueName;
                         ctx.Org = user.Org;
                         try { ctx.Pat = protector.Unprotect(user.EncryptedPat); }
                         catch { /* key rotated / corrupt — treat as unauthenticated */ }

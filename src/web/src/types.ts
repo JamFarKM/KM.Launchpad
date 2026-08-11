@@ -26,6 +26,8 @@ export interface Pipeline {
 export interface Branch {
   name: string;
   isDefault: boolean;
+  mine: boolean;
+  lastCommit?: string | null;
 }
 
 export interface PipelineParam {
