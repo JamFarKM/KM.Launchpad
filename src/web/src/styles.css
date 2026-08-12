@@ -2020,10 +2020,29 @@ a {
   background: var(--code-bg);
 }
 
+/* The editor is never unmounted between files — only its models are swapped — so the
+   transition here is what the eye sees instead of a rebuild. It's held hidden from the
+   model swap until Monaco reports the diff is computed, then fades in fully decorated. */
 .monaco-host {
   flex: 1;
   min-height: 0;
   width: 100%;
+  opacity: 1;
+  transition: opacity 0.16s ease;
+}
+
+.monaco-host.is-swapping {
+  opacity: 0;
+  transition: none; /* hide instantly; only the reveal animates */
+}
+
+/* Previous file still on screen while the next one is fetched. */
+.monaco-host.is-stale {
+  opacity: 0.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monaco-host { transition: none; }
 }
 
 /* Segmented side-by-side / inline switch. */

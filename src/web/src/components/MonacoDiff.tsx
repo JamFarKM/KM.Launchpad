@@ -136,17 +136,21 @@ interface Props {
   after: string;
   /** Inline (unified) rather than side-by-side. */
   inline?: boolean;
+  /** Content on screen is for a previous file while a new one loads — dim it. */
+  stale?: boolean;
   /** Line counts, reported once Monaco has computed the diff. */
   onStats?: (stats: DiffStats) => void;
 }
 
-export function MonacoDiff({ path, before, after, inline, onStats }: Props) {
+export function MonacoDiff({ path, before, after, inline, stale, onStats }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const modelsRef = useRef<{ original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel } | null>(null);
   // Held in a ref so the editor is created once and never torn down just to swap the callback.
   const statsRef = useRef(onStats);
   statsRef.current = onStats;
+  /** Set when models change; cleared by the first diff update, which triggers the fade in. */
+  const pendingReveal = useRef(true);
 
   // Create once; the models and options are updated in place afterwards.
   useEffect(() => {
@@ -177,8 +181,8 @@ export function MonacoDiff({ path, before, after, inline, onStats }: Props) {
     });
     editorRef.current = editor;
 
-    // Line counts come from Monaco's own diff rather than a second algorithm on our side.
     const statsSub = editor.onDidUpdateDiff(() => {
+      // Line counts come from Monaco's own diff rather than a second algorithm on our side.
       const changes = editor.getLineChanges() ?? [];
       let added = 0;
       let removed = 0;
@@ -187,6 +191,14 @@ export function MonacoDiff({ path, before, after, inline, onStats }: Props) {
         if (c.modifiedEndLineNumber > 0) added += c.modifiedEndLineNumber - c.modifiedStartLineNumber + 1;
       }
       statsRef.current?.({ added, removed });
+
+      // Reveal only once the diff is computed. Showing the models the moment they're set
+      // means a frame of undiffed text, then decorations and the collapsed regions landing
+      // on top — which is the jitter. Waiting one update and fading in hides all of it.
+      if (pendingReveal.current) {
+        pendingReveal.current = false;
+        requestAnimationFrame(() => hostRef.current?.classList.remove("is-swapping"));
+      }
     });
 
     // Re-theme when the app's palette flips (settings dispatches this).
@@ -214,6 +226,9 @@ export function MonacoDiff({ path, before, after, inline, onStats }: Props) {
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
+    // Hide before swapping, and let the diff-update handler fade it back in.
+    pendingReveal.current = true;
+    hostRef.current?.classList.add("is-swapping");
     const lang = languageOf(path);
     const original = monaco.editor.createModel(before, lang);
     const modified = monaco.editor.createModel(after, lang);
@@ -224,5 +239,5 @@ export function MonacoDiff({ path, before, after, inline, onStats }: Props) {
     previous?.modified.dispose();
   }, [path, before, after]);
 
-  return <div className="monaco-host" ref={hostRef} />;
+  return <div className={`monaco-host is-swapping ${stale ? "is-stale" : ""}`} ref={hostRef} />;
 }

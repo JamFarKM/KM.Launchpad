@@ -91,7 +91,16 @@ export function ReviewPage() {
     queryKey: ["pr-diff", project, repoId, path, pr?.targetCommit, pr?.sourceCommit],
     queryFn: () => api.prFileDiff(project, repoId, path!, pr!.targetCommit!, pr!.sourceCommit!),
     enabled: !!project && !!repoId && !!path && !!pr?.targetCommit && !!pr?.sourceCommit,
+    // Hold the previous file on screen while the next loads. Without this the editor is
+    // swapped for a spinner, which tears down and rebuilds the whole Monaco instance on
+    // every file click — expensive, and the source of the jitter.
+    placeholderData: (prev) => prev,
   });
+
+  // The editor always renders the diff it actually has; the header follows the selection,
+  // so the two only disagree for the moment a new file is in flight (and it's dimmed).
+  const shown = diffQ.data;
+  const isStale = !!shown && shown.path !== path;
 
   return (
     <div className="body">
@@ -185,7 +194,8 @@ export function ReviewPage() {
               {path ? fileName(path) : "No file selected"}
               {path && <span className="detail-dir">{fileDir(path)}</span>}
             </span>
-            {stats && path && (
+            {path && isStale && <span className="spin" title="Loading…" />}
+            {stats && path && !isStale && (
               <span className="diff-stats" title={`${stats.added} added, ${stats.removed} removed`}>
                 <span className="st-add">+{stats.added}</span>
                 <span className="st-del">−{stats.removed}</span>
@@ -206,19 +216,22 @@ export function ReviewPage() {
                   : "Choose a pull request on the left to review the files it touches."}</p>
               </div>
             )}
-            {path && diffQ.isLoading && <div className="center-note"><span className="spin" /> loading diff…</div>}
-            {path && diffQ.error && (
+            {path && !shown && diffQ.isFetching && (
+              <div className="center-note"><span className="spin" /> loading diff…</div>
+            )}
+            {path && diffQ.error && !shown && (
               <div className="error cfg-note">
                 {diffQ.error instanceof ApiError ? diffQ.error.message : "Could not load this file."}
               </div>
             )}
-            {path && diffQ.data && (
+            {path && shown && (
               <Suspense fallback={<div className="center-note"><span className="spin" /> loading editor…</div>}>
                 <MonacoDiff
-                  path={path}
-                  before={diffQ.data.before ?? ""}
-                  after={diffQ.data.after ?? ""}
+                  path={shown.path}
+                  before={shown.before ?? ""}
+                  after={shown.after ?? ""}
                   inline={inline}
+                  stale={isStale}
                   onStats={onStats}
                 />
               </Suspense>
