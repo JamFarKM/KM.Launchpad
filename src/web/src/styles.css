@@ -1990,19 +1990,72 @@ a {
    Same three-pane discipline as Configurations: one scroll context per pane, no modal.
    The file pane only appears once a PR is selected, so the list gets the full width first. */
 /* PRs on the left, diff in the middle, file list on the right — so the code sits centred
-   in the window rather than shunted right by two stacked lists. */
+   in the window rather than shunted right by two stacked lists. Both side panels collapse,
+   driven by data-left/data-right so it's a single grid-template-columns animation (§5).
+   Collapsing both is the intended way to read a wide side-by-side diff. */
 .review {
   display: grid;
-  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 0;
+  grid-template-columns: var(--w-left, var(--w-sidebar)) minmax(0, 1fr) var(--w-right, 280px);
   flex: 1;
   min-height: 0;
   width: 100%;
   overflow: hidden;
-  transition: grid-template-columns 0.18s ease;
+  transition: grid-template-columns 0.16s ease;
 }
 
-.review.has-files {
-  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 280px;
+.review[data-left="off"] { --w-left: 0px; }
+.review[data-right="off"] { --w-right: 0px; }
+
+/* Icon button in the diff toolbar; takes the accent-tint "on" state while its panel is
+   visible, which is the sanctioned selection use of --accent (A1). */
+.iconbtn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--r-small);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+}
+
+.iconbtn:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.iconbtn.on {
+  background: var(--accent-tint);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  padding: 7px 8px;
+  border-radius: var(--r-small);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-check:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.review-empty svg {
+  color: var(--ink-muted);
+  margin-bottom: 10px;
 }
 
 .review-pickers {
@@ -2505,10 +2558,17 @@ a {
   color: var(--ink-primary);
 }
 
+/* The selected state has to be visible — the previous version was nearly invisible (§5).
+   A raised surface pill with a hairline shadow in light; a --border-strong fill in dark. */
 .seg-opt.active {
   background: var(--bg-surface);
   color: var(--ink-primary);
-  box-shadow: inset 0 0 0 1px var(--border-hairline);
+  box-shadow: 0 1px 2px rgba(16, 24, 32, 0.12), inset 0 0 0 1px var(--border-strong);
+}
+
+:root[data-theme="dark"] .seg-opt.active {
+  background: var(--border-strong);
+  box-shadow: none;
 }
 
 /* ---------- key vault ----------

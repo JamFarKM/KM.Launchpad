@@ -357,7 +357,8 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
                 p.TryGetProperty("creationDate", out var cd) && cd.TryGetDateTime(out var when) ? when : null,
                 p.TryGetProperty("lastMergeSourceCommit", out var sc) ? Str(sc, "commitId") : null,
                 p.TryGetProperty("lastMergeTargetCommit", out var tc) ? Str(tc, "commitId") : null,
-                myVote);
+                myVote,
+                Str(p, "mergeStatus"));
         }).ToList();
     }
 

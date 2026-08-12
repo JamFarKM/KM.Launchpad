@@ -72,7 +72,8 @@ public record PullRequestDto(
     DateTime? CreatedAt,
     string? SourceCommit,   // the PR's head — the "after" side of a diff
     string? TargetCommit,   // the branch it merges into — the "before" side
-    int MyVote);            // 10 approved · 5 with suggestions · 0 none · -5 waiting · -10 rejected
+    int MyVote,             // 10 approved · 5 with suggestions · 0 none · -5 waiting · -10 rejected
+    string? MergeStatus);   // "conflicts" when the branch no longer merges cleanly
 
 public record VoteRequest(int Vote);
 

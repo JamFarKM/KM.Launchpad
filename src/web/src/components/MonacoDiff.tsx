@@ -167,6 +167,10 @@ interface Props {
   inline?: boolean;
   /** Content on screen is for a previous file while a new one loads — dim it. */
   stale?: boolean;
+  /** Wrap long lines rather than clipping them (§5). */
+  wrap?: boolean;
+  /** Code font size in px, from --code-size (§5). */
+  fontSize?: number;
   /** Line counts, reported once Monaco has computed the diff. */
   onStats?: (stats: DiffStats) => void;
   /** Threads anchored to this file. Rendered inline as view zones. */
@@ -177,7 +181,7 @@ interface Props {
 }
 
 export function MonacoDiff({
-  path, before, after, inline, stale, onStats,
+  path, before, after, inline, stale, wrap, fontSize, onStats,
   threads, onReply, onSetStatus, onNewThread,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -263,8 +267,13 @@ export function MonacoDiff({
   }, []);
 
   useEffect(() => {
-    editorRef.current?.updateOptions({ renderSideBySide: !inline });
-  }, [inline]);
+    editorRef.current?.updateOptions({
+      renderSideBySide: !inline,
+      wordWrap: wrap ? "on" : "off",
+      fontSize: fontSize ?? 12,
+      lineHeight: Math.round((fontSize ?? 12) * 1.58),
+    });
+  }, [inline, wrap, fontSize]);
 
   // Swap models when the selected file changes. Old models must be disposed explicitly —
   // Monaco keeps them alive otherwise and the memory adds up over a review session.

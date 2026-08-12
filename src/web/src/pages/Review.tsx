@@ -60,6 +60,21 @@ export function ReviewPage() {
      auto-selection stops. Reset when the selected file changes (§4). */
   const [viewLocked, setViewLocked] = useState(false);
 
+  /* Toolbar view options (§5). Panels collapse so a wide side-by-side diff can use the whole
+     window; wrap and code size are persisted so they survive file selection and reloads. */
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  const [viewMenu, setViewMenu] = useState(false);
+  const [wrap, setWrap] = useState(() => localStorage.getItem("pl-diff-wrap") === "1");
+  const [codeSize, setCodeSize] = useState(() => Number(localStorage.getItem("pl-code-size")) || 12);
+
+  useEffect(() => { localStorage.setItem("pl-diff-wrap", wrap ? "1" : "0"); }, [wrap]);
+  useEffect(() => {
+    localStorage.setItem("pl-code-size", String(codeSize));
+    // --code-size is the token of record, even though Monaco is driven by the option.
+    document.documentElement.style.setProperty("--code-size", `${codeSize}px`);
+  }, [codeSize]);
+
   useEffect(() => {
     if (!project && projectsQ.data?.length) setProject(projectsQ.data[0].name);
   }, [projectsQ.data, project]);
@@ -245,7 +260,11 @@ export function ReviewPage() {
         </div>
       )}
 
-      <div className={`review ${prId ? "has-files" : ""}`}>
+      <div
+        className="review"
+        data-left={leftOpen ? "on" : "off"}
+        data-right={prId && rightOpen ? "on" : "off"}
+      >
         {/* ---------- pull requests ---------- */}
         <div className="cfg-col">
           <div className="cfg-head">
@@ -345,7 +364,24 @@ export function ReviewPage() {
 
         {/* ---------- diff ---------- */}
         <div className="cfg-col review-diff" style={{ order: 2 }}>
+          {/* §9: the toolbar is hidden entirely when there's no PR, so the empty state below is
+              the only message on screen. */}
+          {pr && (
           <div className="detail-head">
+            {/* Both collapse toggles live in the toolbar, left-most and right-most, so they stay
+                reachable no matter which panel is hidden (§5). */}
+            <button
+              className={`iconbtn ${leftOpen ? "on" : ""}`}
+              title={leftOpen ? "Hide pull request list" : "Show pull request list"}
+              aria-pressed={leftOpen}
+              onClick={() => setLeftOpen((v) => !v)}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+                <path d="M6 2.5v11" />
+              </svg>
+            </button>
+
             <span className="detail-title" title={path ?? ""}>
               {path ? fileName(path) : "No file selected"}
               {path && <span className="detail-dir">{fileDir(path)}</span>}
@@ -381,11 +417,66 @@ export function ReviewPage() {
                 Inline
               </button>
             </div>
+
+            {/* View options: wrap and code size. Long lines clipped with no indication that
+                anything was missing, which is what wrap fixes (§5). */}
+            <div className="menu-anchor">
+              <button
+                className={`iconbtn ${viewMenu ? "on" : ""}`}
+                title="View options"
+                onClick={() => setViewMenu((v) => !v)}
+              >
+                ⋯
+              </button>
+              {viewMenu && (
+                <div className="dropdown" onMouseLeave={() => setViewMenu(false)}>
+                  <label className="menu-check">
+                    <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
+                    Wrap long lines
+                  </label>
+                  <div className="dropdown-sep" />
+                  <div className="dropdown-label">Code size</div>
+                  <div className="theme-switch">
+                    {[11, 12, 13].map((n) => (
+                      <button
+                        key={n}
+                        className={`theme-opt ${codeSize === n ? "active" : ""}`}
+                        onClick={() => setCodeSize(n)}
+                      >
+                        {n}px
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              className={`iconbtn ${rightOpen ? "on" : ""}`}
+              title={rightOpen ? "Hide file list" : "Show file list"}
+              aria-pressed={rightOpen}
+              onClick={() => setRightOpen((v) => !v)}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+                <path d="M10 2.5v11" />
+              </svg>
+            </button>
           </div>
+          )}
 
           <div className="diff-body">
+            {/* §9: exactly one message. With no PR the toolbar, vote bar and right rail are all
+                hidden, so this is the only thing on screen; the PR list stays, since that's what
+                the user needs to act on. */}
             {!path && (
-              <div className="empty">
+              <div className="empty review-empty">
+                <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor"
+                  strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+                  <path d="M8 3.5h9.2a1.8 1.8 0 0 1 1.8 1.8v13.4a1.8 1.8 0 0 1-1.8 1.8H8" />
+                  <path d="M4.5 7.5v9" />
+                  <path d="M9.5 9h6M9.5 13h4" />
+                </svg>
                 <h3>{prId ? "No file selected" : "No pull request selected"}</h3>
                 <p>{prId
                   ? "Pick a file from the list to see what changed in it."
@@ -408,6 +499,8 @@ export function ReviewPage() {
                   after={shown.after ?? ""}
                   inline={effectiveInline}
                   stale={isStale}
+                  wrap={wrap}
+                  fontSize={codeSize}
                   onStats={onStats}
                   threads={fileThreads}
                   onReply={onReply}
