@@ -8,7 +8,7 @@ import {
 } from "../lib/settings";
 import type { User } from "../types";
 
-export type Page = "views" | "sequences" | "review" | "configurations" | "keyvault";
+export type Page = "views" | "review" | "configurations" | "keyvault";
 
 interface Props {
   user: User;

@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./api/client";
 import { ConnectPage } from "./pages/ConnectPage";
 import { Dashboard } from "./pages/Dashboard";
-import { SequencesPage, type SequenceIntent } from "./pages/Sequences";
 import { ConfigurationsPage } from "./pages/Configurations";
 import { KeyVaultPage } from "./pages/KeyVault";
 import { ReviewPage } from "./pages/Review";
@@ -58,9 +57,6 @@ export function App() {
 function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void }) {
   const qc = useQueryClient();
   const [page, setPage] = useState<Page>("views");
-  /** What the Sequences page should open with, when we arrive there from the library drawer. */
-  const [seqIntent, setSeqIntent] = useState<SequenceIntent>(null);
-
   /* Configurations and Key Vault are only useful once a store is registered, and an empty page
      behind a nav tab reads as a broken feature rather than an unconfigured one. Both queries are
      cheap and cached, so the tabs appear the moment the first registry is added. Nothing is
@@ -73,8 +69,6 @@ function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void
 
   // Never strand the user on a tab that just disappeared (deleting your last registry).
   useEffect(() => { if (hidden.has(page)) setPage("views"); }, [hidden, page]);
-
-  const openSequence = (intent: SequenceIntent) => { setSeqIntent(intent); setPage("sequences"); };
 
   return (
     <div className="app">
@@ -90,13 +84,9 @@ function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void
           setPage("views");
         }}
       />
-      {page === "views" && (
-        <Dashboard
-          onEditSequence={(id) => openSequence({ kind: "edit", id })}
-          onNewSequence={() => openSequence({ kind: "new" })}
-        />
-      )}
-      {page === "sequences" && <SequencesPage intent={seqIntent} onIntentUsed={() => setSeqIntent(null)} />}
+      {page === "views" && <Dashboard />}
+      {/* Sequences are authored in the board's editor panel now (SEQUENCES §5). The old page is
+          no longer routed to: nav dropped it in §1, and the drawer opens the panel instead. */}
       {page === "configurations" && <ConfigurationsPage />}
       {page === "review" && <ReviewPage />}
       {page === "keyvault" && <KeyVaultPage />}

@@ -10,6 +10,8 @@ import type { GridPos, Pipeline, Project, Run, SavedView, Sequence, SequenceRun,
 import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
 import { SequenceCard } from "../components/SequenceCard";
+import { SequenceEditor } from "../components/SequenceEditor";
+import { SequenceRunDialog } from "../components/SequenceRunDialog";
 import { RunDialog } from "../components/RunDialog";
 import { RunDetailModal } from "../components/RunDetailModal";
 import { ensureNotifyPermission } from "../lib/notify";
@@ -72,14 +74,7 @@ function buildRglLayout(view: SavedView, cols: number): Layout[] {
   });
 }
 
-interface DashboardProps {
-  /** Open a sequence for editing. Until the editor panel lands (SEQUENCES §5) this hands off to
-   *  the Sequences page, so the drawer's pencil has a real destination now rather than later. */
-  onEditSequence: (id: string) => void;
-  onNewSequence: () => void;
-}
-
-export function Dashboard({ onEditSequence, onNewSequence }: DashboardProps) {
+export function Dashboard() {
   const qc = useQueryClient();
 
   useEffect(() => { ensureNotifyPermission(); }, []);
@@ -97,6 +92,53 @@ export function Dashboard({ onEditSequence, onNewSequence }: DashboardProps) {
   const sequencesQ = useQuery<Sequence[]>({ queryKey: ["sequences"], queryFn: api.sequences });
   const [activeProject, setActiveProject] = useState("");
   const [search, setSearch] = useState("");
+
+  /* ---- sequence editor (SEQUENCES §5) ----
+     The draft lives here, not in the panel, because the board is the panel's preview: the cards
+     have to render from the draft so a renamed step moves before you save. */
+  const [editDraft, setEditDraft] = useState<Sequence | null>(null);
+  const [editDirty, setEditDirty] = useState(false);
+
+  function openEditor(id: string) {
+    const seq = (sequencesQ.data ?? []).find((s) => s.id === id);
+    if (!seq) return;
+    // Both attributes in the same commit, so drawer-out and panel-in read as one transition
+    // rather than two things fighting (§5). Drawer + board + editor is one pane too many.
+    setPoolCollapsed(true);
+    setEditDraft(structuredClone(seq));
+    setEditDirty(false);
+  }
+  /* A new sequence is an unsaved draft with no id, not a record created up front — cancelling
+     out of it should leave nothing behind. Save routes to create rather than update. */
+  function newSequence() {
+    setPoolCollapsed(true);
+    setEditDraft({ id: "", name: "", inputs: [], steps: [] });
+    setEditDirty(true);
+  }
+  function closeEditor() { setEditDraft(null); setEditDirty(false); }
+
+  /* Running from the editor goes through the same dialog the card uses, so pre-run inputs are
+     collected the same way rather than a second time in a second style. */
+  const [editorRunSeq, setEditorRunSeq] = useState<Sequence | null>(null);
+  const runFromEditor = useMutation({
+    mutationFn: ({ id, inputs }: { id: string; inputs: Record<string, string> }) =>
+      api.runSequence(id, inputs),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["seq-latest"] });
+      setEditorRunSeq(null);
+    },
+  });
+
+  const saveEdit = useMutation({
+    mutationFn: (d: Sequence) =>
+      d.id ? api.updateSequence(d.id, d.name, d.inputs, d.steps)
+           : api.createSequence(d.name, d.inputs, d.steps),
+    onSuccess: (saved) => {
+      qc.invalidateQueries({ queryKey: ["sequences"] });
+      setEditDraft(structuredClone(saved));
+      setEditDirty(false);
+    },
+  });
 
   useEffect(() => {
     if (!activeProject && projectsQ.data && projectsQ.data.length > 0) {
@@ -356,6 +398,20 @@ export function Dashboard({ onEditSequence, onNewSequence }: DashboardProps) {
     })),
   });
 
+  /* Cards read through the draft, which is what makes the board the editor's live preview.
+     Nothing else changes: the card still receives a Sequence and doesn't know it's a draft. */
+  const sequenceFor = (id?: string | null) =>
+    (editDraft && editDraft.id === id ? editDraft : sequences.find((s) => s.id === id));
+
+  /* §8.3: usedIn is derived by scanning views for references, never stored on the sequence —
+     a stored copy drifts the moment someone removes a card. */
+  const usedIn = useMemo(() => {
+    if (!editDraft) return [];
+    return (viewsQ.data ?? [])
+      .filter((v) => v.items.some((i) => i.kind === "sequence" && i.sequenceId === editDraft.id))
+      .map((v) => v.name);
+  }, [viewsQ.data, editDraft]);
+
   // Dismissals live in localStorage, so the board has to be told when one happens.
   const [, bumpCleared] = useState(0);
   useEffect(() => onCleared(() => bumpCleared((n) => n + 1)), []);
@@ -419,8 +475,8 @@ export function Dashboard({ onEditSequence, onNewSequence }: DashboardProps) {
             pinnedSequenceIds={pinnedSequenceIds}
             onAddSequence={(s) => addSequence(s)}
             onDragStartSequence={(s) => { seqDrag.current = s; poolDrag.current = null; cardDrag.current = null; }}
-            onEditSequence={onEditSequence}
-            onNewSequence={onNewSequence}
+            onEditSequence={openEditor}
+            onNewSequence={newSequence}
         />
 
         <div className="main">
@@ -600,7 +656,11 @@ export function Dashboard({ onEditSequence, onNewSequence }: DashboardProps) {
                                   {item.kind === "sequence" ? (
                                     <SequenceCard
                                       item={item}
-                                      sequence={sequences.find((s) => s.id === item.sequenceId)}
+                                      sequence={sequenceFor(item.sequenceId)}
+                                      /* §5: accent the card the panel is pointed at, so which
+                                         sequence is under edit is never ambiguous. */
+                                      editing={editDraft?.id === item.sequenceId}
+                                      onEdit={() => openEditor(item.sequenceId!)}
                                       onRemove={removeItem}
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
@@ -647,7 +707,39 @@ export function Dashboard({ onEditSequence, onNewSequence }: DashboardProps) {
             </div>
           </div>
         </div>
+
+        {/* Third column of the same row as drawer and board (§2), so opening it narrows the
+            board rather than covering it — the board is this panel's preview. */}
+        {editDraft && (
+          <SequenceEditor
+            draft={editDraft}
+            usedIn={usedIn}
+            dirty={editDirty}
+            saving={saveEdit.isPending}
+            onChange={(next) => { setEditDraft(next); setEditDirty(true); }}
+            onSave={() => saveEdit.mutate(editDraft)}
+            onDiscard={() => { if (editDraft.id) openEditor(editDraft.id); else closeEditor(); }}
+            onClose={closeEditor}
+            onRun={() => {
+              if (editDraft.inputs.length > 0) setEditorRunSeq(editDraft);
+              else runFromEditor.mutate({ id: editDraft.id, inputs: {} });
+            }}
+            onGoToView={(name) => {
+              const v = views.find((x) => x.name === name);
+              if (v) setActiveViewId(v.id);
+            }}
+          />
+        )}
       </div>
+
+      {editorRunSeq && (
+        <SequenceRunDialog
+          sequence={editorRunSeq}
+          busy={runFromEditor.isPending}
+          onClose={() => setEditorRunSeq(null)}
+          onRun={(inputs) => runFromEditor.mutate({ id: editorRunSeq.id, inputs })}
+        />
+      )}
 
       {runItem && (
         <RunDialog

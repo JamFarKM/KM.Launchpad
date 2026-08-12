@@ -18,6 +18,9 @@ interface Props {
   onToggleLabel: (item: ViewItem, show: boolean) => void;
   /** Shelf-level health, shown in the footer of the shelf's first card only. */
   shelfHealth?: { failing: number; running: number };
+  /** This card's sequence is the one the editor panel is pointed at (§5). */
+  editing?: boolean;
+  onEdit: () => void;
   onOpenRun: (project: string, buildId: number) => void;
   onDragCard: (item: ViewItem) => void;
   onReorder: (target: ViewItem) => void;
@@ -49,7 +52,8 @@ const isTerminal = (r?: SequenceRun | null) =>
   !!r && (r.status === "succeeded" || r.status === "failed" || r.status === "canceled");
 
 export function SequenceCard({
-  item, sequence, onRemove, onRename, onToggleLabel, shelfHealth, onOpenRun, onDragCard, onReorder,
+  item, sequence, onRemove, onRename, onToggleLabel, shelfHealth, editing, onEdit,
+  onOpenRun, onDragCard, onReorder,
 }: Props) {
   const seqId = item.sequenceId!;
   const qc = useQueryClient();
@@ -146,7 +150,7 @@ export function SequenceCard({
 
   return (
     <>
-    <div className={`card seq-card ${item.showLabel ? "show-label" : ""}`} draggable
+    <div className={`card seq-card ${item.showLabel ? "show-label" : ""} ${editing ? "is-editing" : ""}`} draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onReorder(item); }}>
@@ -225,6 +229,11 @@ export function SequenceCard({
           <button className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
           {menu && (
             <div className="card-menu" onMouseLeave={() => setMenu(false)}>
+              {/* First item (§5): the panel is where a sequence is authored, and this is the
+                  path you take when you're looking at the card rather than the library. */}
+              <button className="card-menu-item" onClick={() => { onEdit(); setMenu(false); }}>
+                Edit sequence…
+              </button>
               <label>
                 <input
                   type="checkbox"
