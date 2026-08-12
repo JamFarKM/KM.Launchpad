@@ -17,14 +17,31 @@ interface Props {
   pinnedSequenceIds: Set<string>;
   onAddSequence: (s: Sequence) => void;
   onDragStartSequence: (s: Sequence) => void;
+  onEditSequence: (id: string) => void;
+  onNewSequence: () => void;
   /** Stays mounted while collapsed so the panel can slide out instead of popping. */
   collapsed?: boolean;
 }
 
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M11.2 2.6l2.2 2.2L6 12.2l-3 .8.8-3z" />
+    </svg>
+  );
+}
+
+/**
+ * The library drawer (SEQUENCES §4). Not pipelines-only: a pipeline and a sequence are both
+ * "a thing you put on a shelf", so both lists live here and both are draggable. The search
+ * field filters whichever tab is active.
+ */
 export function PipelinePool({
   projects, activeProject, onProject, pipelines, loading, search, onSearch,
   pinnedIds, onAdd, onDragStart,
-  sequences, pinnedSequenceIds, onAddSequence, onDragStartSequence, collapsed,
+  sequences, pinnedSequenceIds, onAddSequence, onDragStartSequence,
+  onEditSequence, onNewSequence, collapsed,
 }: Props) {
   const [source, setSource] = useState<"pipelines" | "sequences">("pipelines");
 
@@ -48,15 +65,25 @@ export function PipelinePool({
 
   return (
     <aside className={`sidebar ${collapsed ? "is-collapsed" : ""}`} aria-hidden={collapsed}>
+      {/* Counts are on the tabs so you can see there are sequences at all without switching. */}
+      <div className="dtabs" role="tablist">
+        <button
+          className={`dtab ${source === "pipelines" ? "on" : ""}`}
+          role="tab" aria-selected={source === "pipelines"}
+          onClick={() => setSource("pipelines")}
+        >
+          Pipelines <span className="n">{pipelines.length}</span>
+        </button>
+        <button
+          className={`dtab ${source === "sequences" ? "on" : ""}`}
+          role="tab" aria-selected={source === "sequences"}
+          onClick={() => setSource("sequences")}
+        >
+          Sequences <span className="n">{sequences.length}</span>
+        </button>
+      </div>
+
       <div className="pool-head">
-        <div className="nav" style={{ margin: 0 }}>
-          <button className={`nav-btn ${source === "pipelines" ? "active" : ""}`} onClick={() => setSource("pipelines")}>
-            Pipelines
-          </button>
-          <button className={`nav-btn ${source === "sequences" ? "active" : ""}`} onClick={() => setSource("sequences")}>
-            Sequences
-          </button>
-        </div>
         {source === "pipelines" && (
           <select className="select" value={activeProject} onChange={(e) => onProject(e.target.value)}>
             {projects.length === 0 && <option value="">No projects</option>}
@@ -96,19 +123,34 @@ export function PipelinePool({
 
         {source === "sequences" && (
           <div className="pool-group">
-            {filteredSeqs.length === 0 && (
-              <div className="center-note">No sequences. Create them on the Sequences page.</div>
+            {filteredSeqs.length === 0 && sequences.length === 0 && (
+              <div className="center-note">No sequences yet. Create one below.</div>
+            )}
+            {filteredSeqs.length === 0 && sequences.length > 0 && (
+              <div className="center-note">No sequences match.</div>
             )}
             {filteredSeqs.map((s) => (
               <div
                 key={s.id}
-                className="pool-item"
+                className="pool-item seq-row"
                 draggable
                 onDragStart={(e) => { e.dataTransfer.effectAllowed = "copy"; onDragStartSequence(s); }}
-                title="Drag into a shelf, or click +"
+                title="Drag onto a shelf, or click +"
               >
-                <span className="seq-badge">SEQ</span>
+                <span className="grab" aria-hidden="true">⠿</span>
                 <span className="name">{s.name}</span>
+                <span className="steps" title={`${s.steps.length} step${s.steps.length === 1 ? "" : "s"}`}>
+                  {s.steps.length}
+                </span>
+                {/* Hover-only, so a list you're only dragging from stays quiet. */}
+                <button
+                  className="pencil"
+                  title="Edit sequence"
+                  aria-label={`Edit ${s.name}`}
+                  onClick={(e) => { e.stopPropagation(); onEditSequence(s.id); }}
+                >
+                  <PencilIcon />
+                </button>
                 <button className="btn ghost small" disabled={pinnedSequenceIds.has(s.id)} onClick={() => onAddSequence(s)}
                   title={pinnedSequenceIds.has(s.id) ? "Already in this view" : "Add to current shelf"}>
                   {pinnedSequenceIds.has(s.id) ? "✓" : "+"}
@@ -118,6 +160,13 @@ export function PipelinePool({
           </div>
         )}
       </div>
+
+      {/* Footer button belongs to the Sequences tab only — there's no "new pipeline" here. */}
+      {source === "sequences" && (
+        <div className="pool-foot">
+          <button className="btn outline wide" onClick={onNewSequence}>+ New sequence</button>
+        </div>
+      )}
     </aside>
   );
 }

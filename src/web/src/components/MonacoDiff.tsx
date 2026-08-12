@@ -198,6 +198,8 @@ export function MonacoDiff({
   const [hoverLine, setHoverLine] = useState<number | null>(null);
   /** Pixel offset of the composer's anchor line within the editor viewport; null = off-screen. */
   const [anchorTop, setAnchorTop] = useState<number | null>(null);
+  /** Left edge of the modified pane, so the card sits over the side it's anchored to. */
+  const [anchorLeft, setAnchorLeft] = useState(0);
 
   // Create once; the models and options are updated in place afterwards.
   useEffect(() => {
@@ -436,6 +438,14 @@ export function MonacoDiff({
       // Scrolled out of view: drop the overlay rather than pinning it to an edge, where it
       // would point at a line that isn't there.
       setAnchorTop(top < 0 || top > height - 40 ? null : top);
+
+      /* Comments anchor to the modified side, so the card has to sit over that pane. Side by
+         side, a fixed left offset put it over the original pane instead — pointing at a line
+         in the pane it wasn't covering. Inline, the modified editor fills the host and this
+         resolves to zero, which is the old behaviour. */
+      const hostBox = hostRef.current?.getBoundingClientRect();
+      const paneBox = right.getContainerDomNode().getBoundingClientRect();
+      setAnchorLeft(hostBox ? Math.max(0, paneBox.left - hostBox.left) : 0);
     };
     sync();
     const subs = [right.onDidScrollChange(sync), right.onDidLayoutChange(sync), right.onDidContentSizeChange(sync)];
@@ -458,6 +468,7 @@ export function MonacoDiff({
           <DiffComposer
             line={composerLine}
             top={anchorTop}
+            left={anchorLeft}
             onCancel={() => setComposerLine(null)}
             onSubmit={async (content) => { await onNewThread!(composerLine, content); setComposerLine(null); }}
           />

@@ -5,6 +5,7 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { api } from "../api/client";
 import { runTone } from "../lib/format";
+import { isCleared, onCleared } from "../lib/seqDismiss";
 import type { GridPos, Pipeline, Project, Run, SavedView, Sequence, SequenceRun, ViewItem } from "../types";
 import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
@@ -71,7 +72,14 @@ function buildRglLayout(view: SavedView, cols: number): Layout[] {
   });
 }
 
-export function Dashboard() {
+interface DashboardProps {
+  /** Open a sequence for editing. Until the editor panel lands (SEQUENCES §5) this hands off to
+   *  the Sequences page, so the drawer's pencil has a real destination now rather than later. */
+  onEditSequence: (id: string) => void;
+  onNewSequence: () => void;
+}
+
+export function Dashboard({ onEditSequence, onNewSequence }: DashboardProps) {
   const qc = useQueryClient();
 
   useEffect(() => { ensureNotifyPermission(); }, []);
@@ -348,6 +356,10 @@ export function Dashboard() {
     })),
   });
 
+  // Dismissals live in localStorage, so the board has to be told when one happens.
+  const [, bumpCleared] = useState(0);
+  useEffect(() => onCleared(() => bumpCleared((n) => n + 1)), []);
+
   // shelf name → non-passing counts. An all-green shelf gets no pill at all.
   const health: Record<string, { failing: number; running: number }> = {};
   const bump = (shelf: string, key: "failing" | "running") => {
@@ -363,6 +375,9 @@ export function Dashboard() {
     });
     seqItems.forEach((it, idx) => {
       const run = seqStatuses[idx]?.data as SequenceRun | null | undefined;
+      // A result cleared from the card's menu must not keep colouring the shelf pill — that
+      // disagreement is exactly what "clear last result" exists to resolve.
+      if (isCleared(it.sequenceId!, run?.id)) return;
       if (run?.status === "failed") bump(shelfOfItem(activeView, it), "failing");
       else if (run?.status === "running") bump(shelfOfItem(activeView, it), "running");
     });
@@ -404,6 +419,8 @@ export function Dashboard() {
             pinnedSequenceIds={pinnedSequenceIds}
             onAddSequence={(s) => addSequence(s)}
             onDragStartSequence={(s) => { seqDrag.current = s; poolDrag.current = null; cardDrag.current = null; }}
+            onEditSequence={onEditSequence}
+            onNewSequence={onNewSequence}
         />
 
         <div className="main">

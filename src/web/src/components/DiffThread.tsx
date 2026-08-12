@@ -94,10 +94,12 @@ const POST_HINT = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⏎" : "Ctrl+
  * elevation, the pointer at its anchor line and the scrim behind it are what make it read as
  * deliberately floating instead of as a rendering fault.
  */
-export function DiffComposer({ line, top, onCancel, onSubmit }: {
+export function DiffComposer({ line, top, left, onCancel, onSubmit }: {
   line: number;
   /** Pixel offset of the anchor line within the editor viewport. */
   top: number;
+  /** Left edge of the pane the comment is anchored to — the modified side. */
+  left: number;
   onCancel: () => void;
   onSubmit: (content: string) => Promise<void>;
 }) {
@@ -112,7 +114,7 @@ export function DiffComposer({ line, top, onCancel, onSubmit }: {
   }
 
   return (
-    <div className="diff-composer" style={{ top: top + 6 }}>
+    <div className="diff-composer" style={{ top: top + 6, left: left + 52 }}>
       <div className="dc-head">
         <span className="dc-badge">New comment</span>
         <span className="dc-line">line {line}</span>

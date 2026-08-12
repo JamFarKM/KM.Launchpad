@@ -13,6 +13,9 @@ export type Page = "views" | "sequences" | "review" | "configurations" | "keyvau
 interface Props {
   user: User;
   page: Page;
+  /** Pages with nothing behind them: Configurations and Key Vault with no store registered.
+   *  An empty page behind a nav tab reads as a broken feature, not an unconfigured one. */
+  hidden?: Set<Page>;
   onNav: (p: Page) => void;
   onDisconnect: () => void;
   onImported: () => void;
@@ -78,7 +81,7 @@ const THEMES: Theme[] = ["light", "dark", "system"];
 const SHELF_STYLES: ShelfStyle[] = ["rail", "tint", "both", "none"];
 const TEXTURES: Texture[] = ["off", "dots", "hatch", "both"];
 
-export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
+export function TopBar({ user, page, hidden, onNav, onDisconnect, onImported }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -154,7 +157,7 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
       <span className="muted">{user.org}</span>
 
       <nav className="nav">
-        {NAV.map((n) => (
+        {NAV.filter((n) => !hidden?.has(n.id)).map((n) => (
           <button
             key={n.id}
             className={`nav-btn ${page === n.id ? "active" : ""}`}

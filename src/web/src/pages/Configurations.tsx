@@ -284,7 +284,7 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
               missing is the tail of the alphabet — which looks identical to a store that simply
               doesn't hold those keys. */}
           {settingsQ.data?.truncated && (
-            <div className="warn cfg-note">
+            <div className="notice-warn cfg-note">
               Only the first {settingsQ.data.limit.toLocaleString()} settings were read, in key
               order — keys later in the alphabet are missing from this page.
             </div>

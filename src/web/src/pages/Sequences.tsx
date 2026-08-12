@@ -21,7 +21,13 @@ const emptyStep = (): SequenceStep => ({
   templateParameters: {}, variables: {}, bindings: [], link: { mode: "none", key: "" },
 });
 
-export function SequencesPage() {
+/** What to open with when the library drawer sends us here. */
+export type SequenceIntent = { kind: "edit"; id: string } | { kind: "new" } | null;
+
+export function SequencesPage({ intent, onIntentUsed }: {
+  intent?: SequenceIntent;
+  onIntentUsed?: () => void;
+} = {}) {
   const qc = useQueryClient();
   const seqsQ = useQuery<Sequence[]>({ queryKey: ["sequences"], queryFn: api.sequences });
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
@@ -38,6 +44,16 @@ export function SequencesPage() {
   function newSequence() {
     setDraft({ id: null, name: "", inputs: [], steps: [emptyStep()] });
   }
+
+  /* Arriving from the drawer's pencil or "+ New sequence". An edit intent has to wait for the
+     list, since the id alone isn't enough to build a draft. Cleared once consumed so coming
+     back to this page later doesn't re-open the same sequence. */
+  useEffect(() => {
+    if (!intent) return;
+    if (intent.kind === "new") { newSequence(); onIntentUsed?.(); return; }
+    const seq = seqs.find((s) => s.id === intent.id);
+    if (seq) { edit(seq); onIntentUsed?.(); }
+  }, [intent, seqs, onIntentUsed]);
 
   const save = useMutation({
     mutationFn: (d: Draft) =>

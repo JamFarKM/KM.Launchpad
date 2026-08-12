@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import type { Sequence, SequenceRun, SequenceRunStep, ViewItem } from "../types";
 import { notify } from "../lib/notify";
 import { commonPrefix, stepShort, timeAgo } from "../lib/format";
+import { clearLastResult, isCleared, onCleared } from "../lib/seqDismiss";
 import { SequenceRunDialog } from "./SequenceRunDialog";
 import { SequenceLogModal } from "./SequenceLogModal";
 import { CloseIcon, LogsIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
@@ -51,6 +52,7 @@ export function SequenceCard({
   item, sequence, onRemove, onRename, onToggleLabel, shelfHealth, onOpenRun, onDragCard, onReorder,
 }: Props) {
   const seqId = item.sequenceId!;
+  const qc = useQueryClient();
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,7 +75,23 @@ export function SequenceCard({
     refetchInterval: (q) => (isTerminal(q.state.data) ? false : 3000),
   });
 
-  const run = (activeRunId ? runQ.data : latestQ.data) ?? null;
+  const latest = (activeRunId ? runQ.data : latestQ.data) ?? null;
+
+  /* A cleared result must survive a refetch, so it's recorded by run id rather than by wiping
+     the cache. Re-render on the event so a second card for the same sequence — on another shelf
+     or another view — clears at the same moment. */
+  const [, bumpCleared] = useState(0);
+  useEffect(() => onCleared(() => bumpCleared((n) => n + 1)), []);
+  const run = isCleared(seqId, latest?.id) ? null : latest;
+
+  /* Running from this card switches it to ["seq-run", activeRunId] and disables ["seq-latest"],
+     which is what the board's shelf-health pill reads. That left the pill holding the previous
+     run indefinitely: the card could show green while the pill still said "1 failing".
+     Invalidating on the start and on each status change keeps both readers on the same run. */
+  useEffect(() => {
+    if (!activeRunId) return;
+    qc.invalidateQueries({ queryKey: ["seq-latest", seqId] });
+  }, [activeRunId, runQ.data?.status, seqId, qc]);
 
   // Notify once when the active run reaches a terminal state.
   const notified = useRef<string | null>(null);
@@ -215,6 +233,17 @@ export function SequenceCard({
                 />
                 Show project label
               </label>
+              {/* Acknowledges a result you've dealt with, so a stale failure stops colouring the
+                  card and the shelf pill. Only the run in hand is cleared — the next one shows
+                  normally. Nothing is deleted; the run stays in the logs. */}
+              {run && isTerminal(run) && (
+                <button
+                  className="card-menu-item"
+                  onClick={() => { clearLastResult(seqId, run.id); setActiveRunId(null); setMenu(false); }}
+                >
+                  Clear last result
+                </button>
+              )}
             </div>
           )}
         </div>
