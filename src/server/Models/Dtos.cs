@@ -58,6 +58,26 @@ public record RunDto(
 public record LogEntryDto(int Id, string Name, string State, string? Result, int? LineCount, string? Group);
 public record LogContentDto(int Id, string Name, string Content);
 
+// ----- pull requests (code review) -----
+public record RepoDto(string Id, string Name, string? DefaultBranch);
+
+public record PullRequestDto(
+    int Id,
+    string Title,
+    string? Author,
+    string? SourceRef,
+    string? TargetRef,
+    string? Status,
+    bool IsDraft,
+    DateTime? CreatedAt,
+    string? SourceCommit,   // the PR's head — the "after" side of a diff
+    string? TargetCommit);  // the branch it merges into — the "before" side
+
+public record PrChangeDto(string Path, string ChangeType, string? OriginalPath);
+
+/// <summary>Both sides of one file, ready to hand to a diff editor. Null = absent at that commit.</summary>
+public record PrFileDiffDto(string Path, string? Before, string? After);
+
 // ----- sequences -----
 
 /// <summary>How a step injects the previous step's run into its own trigger.</summary>

@@ -123,6 +123,34 @@ public static class ApiEndpoints
             string project, int buildId, int logId, AdoContext ctx, AdoService ado, CancellationToken ct) =>
             Guarded(ctx, () => ado.GetLogContentAsync(project, buildId, logId, ct)));
 
+        // --------------------------------------------------- pull requests
+        api.MapGet("/projects/{project}/repos", (string project, AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetRepositoriesAsync(project, ct)));
+
+        api.MapGet("/projects/{project}/repos/{repoId}/pullrequests", (
+            string project, string repoId, string? status, int? top,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetPullRequestsAsync(
+                project, repoId, string.IsNullOrWhiteSpace(status) ? "active" : status,
+                Math.Clamp(top ?? 30, 1, 100), ct)));
+
+        api.MapGet("/projects/{project}/repos/{repoId}/pullrequests/{prId:int}/changes", (
+            string project, string repoId, int prId, AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetPullRequestChangesAsync(project, repoId, prId, ct)));
+
+        // Both sides of one file. Fetched in parallel; a missing side means the file was
+        // added or deleted, and comes back as null for the diff to render as empty.
+        api.MapGet("/projects/{project}/repos/{repoId}/filediff", async (
+            string project, string repoId, string path, string beforeCommit, string afterCommit,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            await Guarded(ctx, async () =>
+            {
+                var before = ado.GetFileAtCommitAsync(project, repoId, path, beforeCommit, ct);
+                var after = ado.GetFileAtCommitAsync(project, repoId, path, afterCommit, ct);
+                await Task.WhenAll(before, after);
+                return new PrFileDiffDto(path, before.Result, after.Result);
+            }));
+
         // ----------------------------------------------------------- views
         api.MapGet("/views", async (AdoContext ctx, AppDbContext db, CancellationToken ct) =>
         {

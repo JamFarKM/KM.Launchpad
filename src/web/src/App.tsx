@@ -6,6 +6,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { SequencesPage } from "./pages/Sequences";
 import { ConfigurationsPage } from "./pages/Configurations";
 import { KeyVaultPage } from "./pages/KeyVault";
+import { ReviewPage } from "./pages/Review";
 import { TopBar, type Page } from "./components/TopBar";
 import type { User } from "./types";
 
@@ -73,6 +74,7 @@ function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void
       {page === "views" && <Dashboard />}
       {page === "sequences" && <SequencesPage />}
       {page === "configurations" && <ConfigurationsPage />}
+      {page === "review" && <ReviewPage />}
       {page === "keyvault" && <KeyVaultPage />}
       <footer className="app-footer">
         Pipeline Launchpad · by James Farrugia

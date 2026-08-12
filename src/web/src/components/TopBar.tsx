@@ -8,7 +8,7 @@ import {
 } from "../lib/settings";
 import type { User } from "../types";
 
-export type Page = "views" | "sequences" | "configurations" | "keyvault";
+export type Page = "views" | "sequences" | "review" | "configurations" | "keyvault";
 
 interface Props {
   user: User;
@@ -39,6 +39,16 @@ const NAV: { id: Page; label: string; icon: JSX.Element }[] = [
         <circle cx="3" cy="8" r="1.4" strokeWidth="1.3" />
         <circle cx="3" cy="12.5" r="1.4" strokeWidth="1.3" />
         <path d="M6.5 3.5H14M6.5 8H14M6.5 12.5H14" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    id: "review", label: "Review",
+    icon: (
+      <svg className="nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M5.5 2.5h6.2a1.3 1.3 0 0 1 1.3 1.3v8.4a1.3 1.3 0 0 1-1.3 1.3H5.5" strokeWidth="1.3" strokeLinecap="round" />
+        <path d="M3 5.2v5.6" strokeWidth="1.3" strokeLinecap="round" />
+        <path d="M6.4 6.4h4M6.4 9.6h2.6" strokeWidth="1.3" strokeLinecap="round" />
       </svg>
     ),
   },

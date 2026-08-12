@@ -10,6 +10,10 @@ import type {
   Pipeline,
   PipelineDetail,
   Project,
+  PrChange,
+  PrFileDiff,
+  PullRequest,
+  Repo,
   Run,
   RunRequest,
   GridPos,
@@ -111,6 +115,23 @@ export const api = {
   logContent: (project: string, buildId: number, logId: number) =>
     req<LogContent>(
       `/api/projects/${encodeURIComponent(project)}/runs/${buildId}/logs/${logId}`,
+    ),
+
+  // pull requests
+  repos: (project: string) =>
+    req<Repo[]>(`/api/projects/${encodeURIComponent(project)}/repos`),
+  pullRequests: (project: string, repoId: string, status = "active", top = 30) =>
+    req<PullRequest[]>(
+      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/pullrequests?status=${status}&top=${top}`,
+    ),
+  prChanges: (project: string, repoId: string, prId: number) =>
+    req<PrChange[]>(
+      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/pullrequests/${prId}/changes`,
+    ),
+  prFileDiff: (project: string, repoId: string, path: string, beforeCommit: string, afterCommit: string) =>
+    req<PrFileDiff>(
+      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/filediff` +
+        `?path=${encodeURIComponent(path)}&beforeCommit=${encodeURIComponent(beforeCommit)}&afterCommit=${encodeURIComponent(afterCommit)}`,
     ),
 
   // views

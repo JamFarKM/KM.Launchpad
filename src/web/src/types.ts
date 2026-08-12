@@ -99,6 +99,38 @@ export interface ViewItem {
   showLabel?: boolean | null; // per-card "Show project label" opt-in (§2.3)
 }
 
+// ----- pull requests (code review) -----
+export interface Repo {
+  id: string;
+  name: string;
+  defaultBranch?: string | null;
+}
+
+export interface PullRequest {
+  id: number;
+  title: string;
+  author?: string | null;
+  sourceRef?: string | null;
+  targetRef?: string | null;
+  status?: string | null;
+  isDraft: boolean;
+  createdAt?: string | null;
+  sourceCommit?: string | null;
+  targetCommit?: string | null;
+}
+
+export interface PrChange {
+  path: string;
+  changeType: string;
+  originalPath?: string | null;
+}
+
+export interface PrFileDiff {
+  path: string;
+  before?: string | null;
+  after?: string | null;
+}
+
 // ----- sequences -----
 export type LinkMode = "none" | "resource" | "container" | "parameter" | "variable";
 

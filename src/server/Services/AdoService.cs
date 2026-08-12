@@ -303,6 +303,93 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         return list;
     }
 
+    // ---------------------------------------------------------------- pull requests
+
+    /// <summary>Optional string property, or null when absent/not a string.</summary>
+    private static string? Str(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    public async Task<List<RepoDto>> GetRepositoriesAsync(string project, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(HttpMethod.Get,
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories?api-version={ApiVersion}", null, null, null, ct);
+        return doc.RootElement.GetProperty("value").EnumerateArray()
+            .Select(r => new RepoDto(
+                Str(r, "id") ?? "",
+                Str(r, "name") ?? "",
+                Str(r, "defaultBranch")))
+            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task<List<PullRequestDto>> GetPullRequestsAsync(
+        string project, string repoId, string status, int top, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(HttpMethod.Get,
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}/pullrequests" +
+            $"?searchCriteria.status={Uri.EscapeDataString(status)}&$top={top}&api-version={ApiVersion}", null, null, null, ct);
+
+        return doc.RootElement.GetProperty("value").EnumerateArray().Select(p =>
+        {
+            var author = p.TryGetProperty("createdBy", out var cb) ? Str(cb, "displayName") : null;
+            return new PullRequestDto(
+                p.TryGetProperty("pullRequestId", out var id) ? id.GetInt32() : 0,
+                Str(p, "title") ?? "",
+                author,
+                Str(p, "sourceRefName"),
+                Str(p, "targetRefName"),
+                Str(p, "status"),
+                p.TryGetProperty("isDraft", out var dr) && dr.ValueKind == JsonValueKind.True,
+                p.TryGetProperty("creationDate", out var cd) && cd.TryGetDateTime(out var when) ? when : null,
+                p.TryGetProperty("lastMergeSourceCommit", out var sc) ? Str(sc, "commitId") : null,
+                p.TryGetProperty("lastMergeTargetCommit", out var tc) ? Str(tc, "commitId") : null);
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Files touched by a PR. Uses the latest iteration's change entries, which is what
+    /// reviewers actually mean by "what changed" (ADO recomputes these per push).
+    /// </summary>
+    public async Task<List<PrChangeDto>> GetPullRequestChangesAsync(
+        string project, string repoId, int prId, CancellationToken ct)
+    {
+        var basePr = $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}" +
+                     $"/pullRequests/{prId}";
+
+        using var iters = await SendJsonAsync(HttpMethod.Get, $"{basePr}/iterations?api-version={ApiVersion}", null, null, null, ct);
+        var last = iters.RootElement.GetProperty("value").EnumerateArray().LastOrDefault();
+        if (last.ValueKind != JsonValueKind.Object) return new();
+        var iterationId = last.TryGetProperty("id", out var iid) ? iid.GetInt32() : 1;
+
+        using var doc = await SendJsonAsync(HttpMethod.Get,
+            $"{basePr}/iterations/{iterationId}/changes?api-version={ApiVersion}&$top=1000", null, null, null, ct);
+
+        var list = new List<PrChangeDto>();
+        if (!doc.RootElement.TryGetProperty("changeEntries", out var entries)) return list;
+        foreach (var e in entries.EnumerateArray())
+        {
+            if (!e.TryGetProperty("item", out var item)) continue;
+            // Folders come through as changes too; only files have content to diff.
+            if (item.TryGetProperty("isFolder", out var f) && f.ValueKind == JsonValueKind.True) continue;
+            var path = Str(item, "path");
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            list.Add(new PrChangeDto(path!, Str(e, "changeType") ?? "edit", Str(item, "originalPath")));
+        }
+        return list.OrderBy(c => c.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>One side of a file at a specific commit. Null when the file doesn't exist there
+    /// (an add has no "before", a delete has no "after"), which the diff renders as empty.</summary>
+    public async Task<string?> GetFileAtCommitAsync(
+        string project, string repoId, string path, string commitId, CancellationToken ct)
+    {
+        var url = $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}/items" +
+                  $"?path={Uri.EscapeDataString(path)}&versionDescriptor.version={Uri.EscapeDataString(commitId)}" +
+                  $"&versionDescriptor.versionType=commit&includeContent=true&$format=text&api-version={ApiVersion}";
+        try { return await SendTextAsync(HttpMethod.Get, url, ct); }
+        catch (AdoException) { return null; }
+    }
+
     private async Task<string?> GetRepoFileTextAsync(
         string project, string repoId, string path, string branch, CancellationToken ct)
     {
