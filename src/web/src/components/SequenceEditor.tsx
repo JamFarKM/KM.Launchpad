@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import type { Sequence, SequenceInput, SequenceStep } from "../types";
+import { STEP_OUTPUTS } from "../types";
 import { commonPrefix, stepShort } from "../lib/format";
+import { applyParams, paramsOf, remapAfterReorder, resolve, type Param, type Src } from "../lib/bindings";
 import { PlayIcon } from "./StatusGlyph";
 
 /**
@@ -40,6 +42,15 @@ function PlusIcon() {
     <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" aria-hidden="true">
       <path d="M6 2.5v7M2.5 6h7" />
+    </svg>
+  );
+}
+
+function WarnIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M8 2.5l6 11H2z" strokeLinejoin="round" />
+      <path d="M8 6.5v3.2M8 11.4v.1" strokeLinecap="round" />
     </svg>
   );
 }
@@ -87,22 +98,78 @@ export function SequenceEditor({
       inputs: [...draft.inputs, { id: crypto.randomUUID(), name: "newInput", kind: "value", default: "" }],
     });
 
-  /* Deleting an input is the destructive edit §7 cares about: any step bound to it breaks. The
-     count is named here rather than left for the user to discover after saving. */
+  /** How many steps would break if this input went away. */
+  const referenceCount = (inputId: string) =>
+    draft.steps.filter((s) =>
+      s.branchInputId === inputId
+      || (s.bindings ?? []).some((b) => (b.kind ? b.kind === "input" && b.ref === inputId : b.inputId === inputId)),
+    ).length;
+
+  /* Deleting an input is the destructive edit §7 cares about: every step bound to it breaks. The
+     confirmation is inline rather than a window.confirm — a native modal blocks the whole page,
+     and this app has no other native dialogs to match. */
+  const [confirmInput, setConfirmInput] = useState<string | null>(null);
   const removeInput = (i: number) => {
     const input = draft.inputs[i];
-    const bound = draft.steps.filter(
-      (s) => s.branchInputId === input.id || (s.bindings ?? []).some((b) => b.inputId === input.id),
-    ).length;
-    if (bound > 0) {
-      const where = usedIn.length > 0 ? ` This sequence is on: ${usedIn.join(", ")}.` : "";
-      const ok = window.confirm(
-        `${bound} step${bound === 1 ? "" : "s"} reference "${input.name}". Removing it will leave `
-        + `${bound === 1 ? "that binding" : "those bindings"} unresolved.${where}`,
-      );
-      if (!ok) return;
-    }
+    if (referenceCount(input.id) > 0 && confirmInput !== input.id) { setConfirmInput(input.id); return; }
+    setConfirmInput(null);
     onChange({ ...draft, inputs: draft.inputs.filter((_, j) => j !== i) });
+  };
+
+  // ---- parameters + bindings (§6) ----
+  const setParams = (i: number, params: Param[]) =>
+    patchStep(i, applyParams(draft.steps[i], params));
+
+  const addParam = (i: number) => {
+    const params = paramsOf(draft.steps[i]);
+    let name = "newParam";
+    for (let n = 2; params.some((p) => p.name === name); n++) name = `newParam${n}`;
+    setParams(i, [...params, { target: "parameter", name, src: { kind: "literal", ref: "" } }]);
+  };
+
+  /** Which chip's picker is open, and where to anchor it. */
+  const [picker, setPicker] = useState<{ step: number; param: number; x: number; y: number } | null>(null);
+  /** Draft text for the picker's two inline fields, seeded from the parameter it opened on. */
+  const [literal, setLiteral] = useState("");
+  const [rename, setRename] = useState("");
+
+  const openPicker = (e: React.MouseEvent, step: number, param: number) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const p = paramsOf(draft.steps[step])[param];
+    setLiteral(p?.src.kind === "literal" ? p.src.ref : "");
+    setRename(p?.name ?? "");
+    setPicker({ step, param, x: r.right - 264, y: r.bottom + 4 });
+  };
+  const setSrc = (src: Src) => {
+    if (!picker) return;
+    const params = paramsOf(draft.steps[picker.step]);
+    setParams(picker.step, params.map((p, j) => (j === picker.param ? { ...p, src } : p)));
+    setPicker(null);
+  };
+  const renameParam = (name: string) => {
+    if (!picker || !name.trim()) return;
+    const params = paramsOf(draft.steps[picker.step]);
+    setParams(picker.step, params.map((p, j) => (j === picker.param ? { ...p, name: name.trim() } : p)));
+  };
+  const setTarget = (target: "parameter" | "variable") => {
+    if (!picker) return;
+    const params = paramsOf(draft.steps[picker.step]);
+    setParams(picker.step, params.map((p, j) => (j === picker.param ? { ...p, target } : p)));
+    setPicker(null);
+  };
+
+  // ---- reorder (§10) ----
+  const dragStep = useRef<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+
+  /* Bindings are repointed at the step they always meant, so moving a step never silently
+     changes what a parameter reads. A reference that now lands at or after its own step is left
+     where it is and shows as broken, rather than being quietly redirected at a different step. */
+  const moveStep = (from: number | null, to: number) => {
+    if (from === null || from === to) return;
+    const order = draft.steps.map((_, i) => i);
+    order.splice(to, 0, ...order.splice(from, 1));
+    onChange({ ...draft, steps: remapAfterReorder(draft.steps, order) });
   };
 
   return (
@@ -162,7 +229,21 @@ export function SequenceEditor({
             <>
               <div className="inrow head"><span>Key</span><span>Type</span><span>Default</span><span /></div>
               {draft.inputs.map((input, i) => (
-                <div className="inrow" key={input.id}>
+                <Fragment key={input.id}>
+                {/* Names the step count and the views, per §7, without a native dialog. */}
+                {confirmInput === input.id && (
+                  <div className="inrow-confirm">
+                    <WarnIcon />
+                    <span>
+                      <b>{referenceCount(input.id)}</b> step{referenceCount(input.id) === 1 ? "" : "s"} reference{" "}
+                      <b>{input.name}</b> and will break.
+                      {usedIn.length > 0 && <> On: {usedIn.join(", ")}.</>}
+                    </span>
+                    <button className="minibtn is-bad" onClick={() => removeInput(i)}>Remove anyway</button>
+                    <button className="minibtn" onClick={() => setConfirmInput(null)}>Keep</button>
+                  </div>
+                )}
+                <div className="inrow">
                   <input
                     className="fld" value={input.name} aria-label={`Input ${i + 1} key`}
                     onChange={(e) => patchInput(i, { name: e.target.value })}
@@ -185,6 +266,7 @@ export function SequenceEditor({
                   <button className="xbtn" title="Remove input" aria-label={`Remove input ${input.name}`}
                     onClick={() => removeInput(i)}>✕</button>
                 </div>
+                </Fragment>
               ))}
             </>
           )}
@@ -205,10 +287,25 @@ export function SequenceEditor({
 
           {draft.steps.map((step, i) => {
             const isOpen = open.has(step.id);
+            const params = paramsOf(step);
+            const broken = params.some((p) => !resolve(p.src, draft, i).ok);
             return (
-              <div className={`step ${isOpen ? "" : "shut"}`} key={step.id}>
+              <div
+                className={`step ${isOpen ? "" : "shut"} ${broken ? "is-broken" : ""} ${dragOver === i ? "drop-here" : ""}`}
+                key={step.id}
+                onDragOver={(e) => { if (dragStep.current !== null) { e.preventDefault(); setDragOver(i); } }}
+                onDragLeave={() => setDragOver((d) => (d === i ? null : d))}
+                onDrop={(e) => { e.preventDefault(); moveStep(dragStep.current, i); dragStep.current = null; setDragOver(null); }}
+              >
                 <div className="step-h" onClick={() => toggle(step.id)}>
-                  <span className="grip" title="Drag to reorder" onClick={(e) => e.stopPropagation()}>⠿</span>
+                  <span
+                    className="grip"
+                    title="Drag to reorder"
+                    draggable
+                    onClick={(e) => e.stopPropagation()}
+                    onDragStart={(e) => { e.stopPropagation(); dragStep.current = i; e.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnd={() => { dragStep.current = null; setDragOver(null); }}
+                  >⠿</span>
                   <span className="idx">{i + 1}</span>
                   <span className="names">
                     <input
@@ -224,6 +321,16 @@ export function SequenceEditor({
                   <span className="chev"><ChevronIcon /></span>
                 </div>
 
+                {/* Live, not save-time (§6). Deleting an input breaks every step that referenced
+                    it the instant you do it — that immediate feedback is the whole point of the
+                    panel over the old form. */}
+                {broken && (
+                  <div className="warnrow">
+                    <WarnIcon />
+                    A parameter points at something that no longer exists.
+                  </div>
+                )}
+
                 <div className="step-b">
                   <div className="prow">
                     <span className="pname">project</span>
@@ -233,12 +340,100 @@ export function SequenceEditor({
                     <span className="pname">branch</span>
                     <span className="pval">{branchSummary(step, draft)}</span>
                   </div>
+
+                  {params.map((p, pi) => {
+                    const r = resolve(p.src, draft, i);
+                    return (
+                      <div className="prow" key={`${p.target}:${p.name}`}>
+                        <span className="pname" title={`${p.name} (${p.target})`}>{p.name}</span>
+                        <span className="pactions">
+                          <button
+                            className={`bind ${r.cls}`}
+                            title={r.ok ? r.label : `Unresolved: ${r.label}`}
+                            onClick={(e) => openPicker(e, i, pi)}
+                          >
+                            <span className="kind" />
+                            <span className="val">{r.label}</span>
+                            <ChevronIcon />
+                          </button>
+                          <button className="xbtn" title="Remove parameter"
+                            aria-label={`Remove parameter ${p.name}`}
+                            onClick={() => setParams(i, params.filter((_, j) => j !== pi))}>✕</button>
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                  <div className="prow prow-add">
+                    <button className="minibtn" onClick={() => addParam(i)}><PlusIcon />Add parameter</button>
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* The picker only ever offers steps strictly earlier than this one. That is the entire
+          cycle-prevention mechanism: a cycle is not expressible, so nothing has to validate for
+          one afterwards. Do not "helpfully" list all steps here. */}
+      {picker && (
+        <>
+          <div className="bmenu-scrim" onClick={() => setPicker(null)} />
+          <div className="bmenu" style={{ left: Math.max(8, picker.x), top: picker.y }}>
+            <div className="menu-lbl">Pre-run inputs</div>
+            {draft.inputs.length === 0 ? (
+              <div className="bmi is-none">none defined</div>
+            ) : draft.inputs.map((inp) => (
+              <button key={inp.id} className="bmi" onClick={() => setSrc({ kind: "input", ref: inp.id })}>
+                <span className="kind" style={{ background: "var(--src-input)" }} />
+                inputs.{inp.name}
+              </button>
+            ))}
+
+            <div className="menu-lbl">Outputs from earlier steps</div>
+            {picker.step === 0 ? (
+              <div className="bmi is-none">this is the first step</div>
+            ) : draft.steps.slice(0, picker.step).flatMap((st, si) =>
+              STEP_OUTPUTS.map((out) => (
+                <button
+                  key={`${si}.${out}`}
+                  className="bmi"
+                  onClick={() => setSrc({ kind: "step", ref: `${si}.${out}` })}
+                >
+                  <span className="kind" style={{ background: "var(--src-step)" }} />
+                  {(st.alias?.trim() || st.name || `step${si + 1}`)}.{out}
+                </button>
+              )))}
+
+            {/* Typed in place rather than through window.prompt — a native dialog blocks the
+                page and this app has none elsewhere. */}
+            <div className="menu-lbl">Literal</div>
+            <form
+              className="bmi-form"
+              onSubmit={(e) => { e.preventDefault(); setSrc({ kind: "literal", ref: literal }); }}
+            >
+              <span className="kind" style={{ background: "var(--src-literal)" }} />
+              <input
+                className="fld" value={literal} placeholder="type a value…" aria-label="Literal value"
+                onChange={(e) => setLiteral(e.target.value)}
+              />
+              <button className="minibtn" type="submit">Use</button>
+            </form>
+
+            <div className="menu-lbl">This parameter</div>
+            <form className="bmi-form" onSubmit={(e) => { e.preventDefault(); renameParam(rename); setPicker(null); }}>
+              <input
+                className="fld" value={rename} placeholder="name on the pipeline" aria-label="Parameter name"
+                onChange={(e) => setRename(e.target.value)}
+              />
+              <button className="minibtn" type="submit">Rename</button>
+            </form>
+            <button className="bmi is-plain" onClick={() => setTarget("parameter")}>Send as template parameter</button>
+            <button className="bmi is-plain" onClick={() => setTarget("variable")}>Send as variable</button>
+          </div>
+        </>
+      )}
 
       <div className="efoot">
         <button className="btn primary small" disabled={!dirty || saving} onClick={onSave}>

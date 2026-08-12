@@ -786,6 +786,146 @@ a {
 .pname { color: var(--ink-muted); }
 .pval { color: var(--ink-secondary); }
 
+.pactions { display: inline-flex; align-items: center; gap: 4px; }
+.prow-add { border-bottom: none; padding-top: 8px; }
+
+/* A step whose parameters no longer resolve. The border is one of three carriers — the warning
+   row and the raw reference in the chip carry it too — so it survives greyscale (§10). */
+.step.is-broken { border-color: color-mix(in oklab, var(--status-warn) 45%, transparent); }
+
+.warnrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--status-warn);
+  padding: 0 9px 8px 36px;
+}
+
+.warnrow svg { width: 12px; height: 12px; flex-shrink: 0; }
+.step.shut .warnrow { padding-bottom: 8px; }
+
+/* ---- binding chips (§6) ----
+   A 5px colour square plus the reference in monospace: the colour groups the chips into kinds at
+   a glance, and the mono text is the thing you actually read. */
+.bind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 230px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: var(--r-small);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.bind:hover { border-color: var(--border-strong); }
+.bind .kind { width: 5px; height: 5px; border-radius: 2px; flex-shrink: 0; }
+.bind .val { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bind svg { width: 8px; height: 8px; color: var(--ink-muted); flex-shrink: 0; }
+
+.k-input .kind { background: var(--src-input); }
+.k-input .val { color: var(--src-input); }
+.k-step .kind { background: var(--src-step); }
+.k-step .val { color: var(--src-step); }
+.k-lit .kind { background: var(--src-literal); }
+.k-lit .val { color: var(--ink-secondary); }
+
+/* Warn, not an identity — an unresolvable reference is a genuine warning state, so this isn't
+   an A2 violation. */
+.k-bad .kind { background: var(--status-warn); }
+.k-bad .val { color: var(--status-warn); }
+.k-bad { border-color: color-mix(in oklab, var(--status-warn) 45%, transparent); }
+
+.bmenu-scrim { position: fixed; inset: 0; z-index: 170; }
+
+.bmenu {
+  position: fixed;
+  width: 264px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: 9px;
+  box-shadow: var(--shadow-pop);
+  padding: 6px;
+  z-index: 180;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.menu-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  font-weight: 600;
+  padding: 7px 7px 3px;
+}
+
+.bmi {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 6px 7px;
+  border: none;
+  border-radius: var(--r-small);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ink-primary);
+}
+
+.bmi:hover { background: var(--hover-wash); }
+.bmi .kind { width: 5px; height: 5px; border-radius: 2px; flex-shrink: 0; }
+.bmi.is-none { color: var(--ink-muted); cursor: default; }
+.bmi.is-none:hover { background: transparent; }
+.bmi.is-plain { font-family: inherit; color: var(--ink-secondary); }
+
+/* Inline fields inside the picker, replacing what used to be window.prompt. A native dialog
+   blocks the whole page, and this app has none elsewhere in the editor. */
+.bmi-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+}
+
+.bmi-form .fld { flex: 1; min-width: 0; height: 26px; }
+.bmi-form .kind { width: 5px; height: 5px; border-radius: 2px; flex-shrink: 0; }
+
+/* Destructive confirmation, inline above the row it concerns rather than in a native modal. */
+.inrow-confirm {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 2px;
+  padding: 7px 9px;
+  border-radius: var(--r-small);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-secondary);
+  background: color-mix(in oklab, var(--status-warn) 11%, transparent);
+  border-left: 2px solid var(--status-warn);
+}
+
+.inrow-confirm svg { width: 13px; height: 13px; color: var(--status-warn); flex-shrink: 0; }
+.inrow-confirm span { flex: 1; min-width: 0; }
+.inrow-confirm b { color: var(--ink-primary); }
+
+.minibtn.is-bad { color: var(--status-bad); border-color: color-mix(in oklab, var(--status-bad) 40%, transparent); }
+.minibtn.is-bad:hover { background: color-mix(in oklab, var(--status-bad) 12%, transparent); color: var(--status-bad); }
+
+/* Reorder drop target (§10). */
+.step.drop-here { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
 .efoot {
   display: flex;
   align-items: center;

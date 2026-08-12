@@ -172,10 +172,26 @@ export interface StepLink {
   source?: string | null; // parameter/variable value: "runId" | "buildNumber" | "tag" | "branch"
 }
 
+/** What an earlier step supplies. Run properties, not named pipeline outputs — ADO exposes no
+ *  queryable output contract, so there is nothing else that could be resolved. */
+export const STEP_OUTPUTS = ["runId", "buildNumber", "tag", "branch"] as const;
+export type StepOutput = (typeof STEP_OUTPUTS)[number];
+
+export type BindingKind = "input" | "step" | "literal";
+
+/**
+ * One source per step parameter (SEQUENCES §6). `kind` is absent on bindings written before that
+ * change, which are input bindings by definition — `inputId` is the source there.
+ *
+ * Step references are stored by **index**, as `"<stepIndex>.<output>"`, never by display name, so
+ * renaming a step cannot break a binding that points at it.
+ */
 export interface ParamBinding {
   target: "parameter" | "variable";
   name: string;
-  inputId: string;
+  inputId?: string | null;
+  kind?: BindingKind | null;
+  ref?: string | null;
 }
 
 export interface SequenceInput {

@@ -106,11 +106,35 @@ public record StepLinkDto(
     string? Key,      // resource alias, or template-parameter / variable name
     string? Source);  // value to pass (parameter/variable): "runId" | "buildNumber" | "tag" | "branch"
 
-/// <summary>Binds a step's template parameter / variable to a pre-run input's value.</summary>
+/// <summary>
+/// Binds a step's template parameter / variable to exactly one source (SEQUENCES §6).
+///
+/// Originally this could only name a pre-run input, and step-to-step values went through
+/// <see cref="StepLinkDto"/> — one link per step, always reading the immediately previous one.
+/// Kind/Ref generalises that: a binding can now name any earlier step, per parameter.
+///
+/// Kind is null on bindings written before this change, which are input bindings by definition;
+/// the runner falls back to InputId there rather than needing a migration.
+/// </summary>
 public record ParamBindingDto(
-    string Target,   // "parameter" | "variable"
-    string Name,     // the parameter / variable name on the pipeline
-    string InputId); // which pre-run input supplies the value
+    string Target,    // "parameter" | "variable"
+    string Name,      // the parameter / variable name on the pipeline
+    string? InputId,  // legacy input binding (Kind == null)
+    string? Kind,     // "input" | "step" | "literal"
+    string? Ref);     // input id | "<stepIndex>.<output>" | the literal value
+
+/// <summary>
+/// What an earlier step can supply. These are properties of its run, not named pipeline outputs:
+/// ADO exposes no queryable output contract, so there is nothing else that could be resolved.
+/// </summary>
+public static class StepOutputs
+{
+    public const string RunId = "runId";
+    public const string BuildNumber = "buildNumber";
+    public const string Tag = "tag";
+    public const string Branch = "branch";
+    public static readonly string[] All = [RunId, BuildNumber, Tag, Branch];
+}
 
 /// <summary>A value collected before the sequence runs (branch, environment, …).</summary>
 public class SequenceInputDto
