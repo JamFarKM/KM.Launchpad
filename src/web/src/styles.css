@@ -1030,7 +1030,7 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-/* Hover-only so a list you're only dragging from stays quiet. */
+/* Always present, so an editable row looks editable before you hover it. */
 .pool-item .pencil {
   width: 22px;
   height: 22px;
@@ -1038,14 +1038,15 @@ a {
   border: none;
   background: transparent;
   color: var(--ink-muted);
-  display: none;
+  display: inline-flex;
+  opacity: 0.5;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.pool-item:hover .pencil { display: inline-flex; }
+.pool-item:hover .pencil { opacity: 1; }
 .pool-item .pencil:hover { background: var(--border-hairline); color: var(--ink-primary); }
 .pool-item .pencil svg { width: 12px; height: 12px; }
 
@@ -1094,6 +1095,16 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pool-item.seq-row .name {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .pool-item.disabled .name {

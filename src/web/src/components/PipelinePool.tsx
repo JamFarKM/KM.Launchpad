@@ -135,14 +135,14 @@ export function PipelinePool({
                 className="pool-item seq-row"
                 draggable
                 onDragStart={(e) => { e.dataTransfer.effectAllowed = "copy"; onDragStartSequence(s); }}
-                title="Drag onto a shelf, or click +"
+                onClick={() => onEditSequence(s.id)}
+                title="Click to edit, drag onto a shelf, or click +"
               >
                 <span className="grab" aria-hidden="true">⠿</span>
-                <span className="name">{s.name}</span>
+                <button className="name" onClick={() => onEditSequence(s.id)}>{s.name}</button>
                 <span className="steps" title={`${s.steps.length} step${s.steps.length === 1 ? "" : "s"}`}>
                   {s.steps.length}
                 </span>
-                {/* Hover-only, so a list you're only dragging from stays quiet. */}
                 <button
                   className="pencil"
                   title="Edit sequence"
@@ -151,7 +151,8 @@ export function PipelinePool({
                 >
                   <PencilIcon />
                 </button>
-                <button className="btn ghost small" disabled={pinnedSequenceIds.has(s.id)} onClick={() => onAddSequence(s)}
+                <button className="btn ghost small" disabled={pinnedSequenceIds.has(s.id)}
+                  onClick={(e) => { e.stopPropagation(); onAddSequence(s); }}
                   title={pinnedSequenceIds.has(s.id) ? "Already in this view" : "Add to current shelf"}>
                   {pinnedSequenceIds.has(s.id) ? "✓" : "+"}
                 </button>
