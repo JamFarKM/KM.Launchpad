@@ -8,16 +8,20 @@
       href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E%F0%9F%9A%80%3C/text%3E%3C/svg%3E"
     />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#0d1117" />
+    <meta name="theme-color" content="#0d0d0d" />
     <script>
-      // Set the theme before first paint to avoid a flash of the wrong palette.
+      // Set the theme + presentation prefs before first paint to avoid a flash of
+      // the wrong palette. Keep the defaults in sync with lib/settings.ts.
       try {
         var s = JSON.parse(localStorage.getItem("pl-settings") || "{}");
         var t = s.theme || "system";
         var r = t === "system"
           ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
           : t;
-        document.documentElement.setAttribute("data-theme", r);
+        var d = document.documentElement;
+        d.setAttribute("data-theme", r);
+        d.setAttribute("data-shelfstyle", s.shelfStyle || "both");
+        d.setAttribute("data-texture", s.texture || "both");
       } catch (e) {}
     </script>
     <title>Pipeline Launchpad</title>

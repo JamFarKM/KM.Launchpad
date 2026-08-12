@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import GridLayout, { type Layout } from "react-grid-layout";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
 import { api } from "../api/client";
-import type { Pipeline, Project, SavedView, Sequence, ViewItem } from "../types";
+import { runTone } from "../lib/format";
+import type { GridPos, Pipeline, Project, Run, SavedView, Sequence, SequenceRun, ViewItem } from "../types";
 import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
 import { SequenceCard } from "../components/SequenceCard";
@@ -10,7 +14,26 @@ import { RunDetailModal } from "../components/RunDetailModal";
 import { ensureNotifyPermission } from "../lib/notify";
 
 const DEFAULT_SHELF = "Pipelines";
-const SHELF_COLOR_FAMILIES = ["red", "orange", "amber", "green", "teal", "blue", "violet", "pink"];
+
+// Shelf accent hues (§2.2). No green and no red — a themed shelf must never be
+// mistakable for a passing or failing one (invariant A2).
+const SHELF_COLOR_FAMILIES = ["blue", "violet", "aqua", "orange", "magenta", "slate"];
+
+// Colours stored before the redesign mapped onto the new palette; green and red are
+// deliberately retired rather than carried over.
+const LEGACY_COLORS: Record<string, string> = {
+  red: "magenta", pink: "magenta", green: "aqua", teal: "aqua", amber: "orange",
+};
+
+// Grid geometry: a cell is exactly one SQUARE card. The column COUNT scales to the monitor
+// width, so the card side is screen-derived and constant — it never depends on a shelf's span
+// or live size, which is what keeps cards from resizing mid-drag. A shelf is a user-sized
+// rectangle of w×h cells. --gutter (20px) is the ONE gutter: it separates shelves from each
+// other; cards inside a shelf have none, they're divided by hairlines (A3).
+const TARGET_CARD = 224;           // preferred square card side; actual side is fitted per screen
+const MARGIN = 20;
+const DEF_W = 2, DEF_H = 1, MIN_W = 1, MIN_H = 1;
+const HEAD_H = 42;                 // .shelf-head height
 
 const shelvesOf = (v: SavedView): string[] => (v.shelves.length ? v.shelves : [DEFAULT_SHELF]);
 const shelfOfItem = (v: SavedView, i: ViewItem): string => {
@@ -20,6 +43,33 @@ const shelfOfItem = (v: SavedView, i: ViewItem): string => {
 const itemKey = (i: ViewItem): string =>
   i.kind === "sequence" ? `seq:${i.sequenceId}` : `pipe:${i.project}:${i.pipelineId}`;
 const sameItem = (a: ViewItem, b: ViewItem) => itemKey(a) === itemKey(b);
+
+// Merge stored shelf placements with auto-placement for any shelf that has none yet.
+// Placements saved under an earlier fine-grained (30px) row model are scaled back to whole
+// card-rows so old dashboards don't explode to enormous heights after this change.
+function buildRglLayout(view: SavedView, cols: number): Layout[] {
+  const stored = view.shelfLayout ?? {};
+  const shelves = shelvesOf(view);
+  const legacy = Object.values(stored).some((p) => p.h > 4); // old fine rows were 8, 21, …
+  const f = legacy ? 30 / 300 : 1; // scale legacy y/h down to card-rows
+  const defW = Math.min(cols, DEF_W);
+  const conv = (p: GridPos) => ({ y: Math.round(p.y * f), h: Math.max(MIN_H, Math.round(p.h * f)) });
+  let maxBottom = 0;
+  for (const s of shelves) { const p = stored[s]; if (p) { const c = conv(p); maxBottom = Math.max(maxBottom, c.y + c.h); } }
+  let ax = 0, ay = maxBottom;
+  return shelves.map((s) => {
+    const p = stored[s];
+    if (p) {
+      const w = Math.max(MIN_W, Math.min(p.w, cols));
+      const { y, h } = conv(p);
+      return { i: s, x: Math.max(0, Math.min(p.x, cols - w)), y, w, h, minW: MIN_W, minH: MIN_H };
+    }
+    if (ax + defW > cols) { ax = 0; ay += DEF_H; }
+    const item = { i: s, x: ax, y: ay, w: defW, h: DEF_H, minW: MIN_W, minH: MIN_H };
+    ax += defW;
+    return item;
+  });
+}
 
 export function Dashboard() {
   const qc = useQueryClient();
@@ -71,13 +121,13 @@ export function Dashboard() {
     onSuccess: (v) => { qc.invalidateQueries({ queryKey: ["views"] }); setActiveViewId(v.id); },
   });
   const saveLayout = useMutation({
-    mutationFn: (a: { view: SavedView; shelves: string[]; items: ViewItem[]; shelfWidths: Record<string, number>; shelfColors: Record<string, string> }) =>
-      api.updateView(a.view.id, a.view.name, a.view.sortOrder, a.shelves, a.shelfWidths, a.shelfColors, a.items),
+    mutationFn: (a: { view: SavedView; shelves: string[]; items: ViewItem[]; shelfColors: Record<string, string>; shelfLayout: Record<string, GridPos> }) =>
+      api.updateView(a.view.id, a.view.name, a.view.sortOrder, a.shelves, a.shelfColors, a.shelfLayout, a.items),
     onError: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
   const renameView = useMutation({
     mutationFn: (a: { view: SavedView; name: string }) =>
-      api.updateView(a.view.id, a.name, a.view.sortOrder, a.view.shelves, a.view.shelfWidths ?? {}, a.view.shelfColors ?? {}, a.view.items),
+      api.updateView(a.view.id, a.name, a.view.sortOrder, a.view.shelves, a.view.shelfColors ?? {}, a.view.shelfLayout ?? {}, a.view.items),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["views"] }),
   });
   const deleteView = useMutation({
@@ -88,12 +138,12 @@ export function Dashboard() {
   const freshest = (id: string): SavedView | undefined =>
     (qc.getQueryData<SavedView[]>(["views"]) ?? []).find((v) => v.id === id);
 
-  function commit(view: SavedView, shelves: string[], items: ViewItem[], shelfWidths?: Record<string, number>, shelfColors?: Record<string, string>) {
-    const widths = shelfWidths ?? view.shelfWidths ?? {};
+  function commit(view: SavedView, shelves: string[], items: ViewItem[], shelfColors?: Record<string, string>, shelfLayout?: Record<string, GridPos>) {
     const colors = shelfColors ?? view.shelfColors ?? {};
+    const layout = shelfLayout ?? view.shelfLayout ?? {};
     qc.setQueryData<SavedView[]>(["views"], (prev) =>
-      (prev ?? []).map((v) => (v.id === view.id ? { ...v, shelves, items, shelfWidths: widths, shelfColors: colors } : v)));
-    saveLayout.mutate({ view, shelves, items, shelfWidths: widths, shelfColors: colors });
+      (prev ?? []).map((v) => (v.id === view.id ? { ...v, shelves, items, shelfColors: colors, shelfLayout: layout } : v)));
+    saveLayout.mutate({ view, shelves, items, shelfColors: colors, shelfLayout: layout });
   }
 
   async function ensureView(): Promise<SavedView> {
@@ -146,6 +196,13 @@ export function Dashboard() {
     commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, name } : i)));
   }
 
+  // Per-card "Show project label" opt-in, persisted in the view (§2.3).
+  function toggleItemLabel(item: ViewItem, showLabel: boolean) {
+    if (!activeView) return;
+    const view = freshest(activeView.id) ?? activeView;
+    commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, showLabel } : i)));
+  }
+
   // Reorder a dragged card to sit before `target` (landing on target's shelf).
   function reorderItem(dragged: ViewItem, target: ViewItem) {
     if (!activeView || sameItem(dragged, target)) return;
@@ -173,14 +230,14 @@ export function Dashboard() {
     if (!name || !name.trim() || name.trim() === oldName) return;
     const view = freshest(activeView.id) ?? activeView;
     const nn = name.trim();
-    const widths = { ...(view.shelfWidths ?? {}) };
-    if (oldName in widths) { widths[nn] = widths[oldName]; delete widths[oldName]; }
     const colors = { ...(view.shelfColors ?? {}) };
     if (oldName in colors) { colors[nn] = colors[oldName]; delete colors[oldName]; }
+    const layout = { ...(view.shelfLayout ?? {}) };
+    if (oldName in layout) { layout[nn] = layout[oldName]; delete layout[oldName]; }
     commit(view,
       shelvesOf(view).map((s) => (s === oldName ? nn : s)),
       view.items.map((i) => (shelfOfItem(view, i) === oldName ? { ...i, shelf: nn } : i)),
-      widths, colors);
+      colors, layout);
   }
 
   function deleteShelf(name: string) {
@@ -189,84 +246,64 @@ export function Dashboard() {
     const shelves = shelvesOf(view);
     if (shelves.length <= 1) return;
     const remaining = shelves.filter((s) => s !== name);
-    const widths = { ...(view.shelfWidths ?? {}) };
-    delete widths[name];
     const colors = { ...(view.shelfColors ?? {}) };
     delete colors[name];
+    const layout = { ...(view.shelfLayout ?? {}) };
+    delete layout[name];
     commit(view, remaining,
       view.items.map((i) => (shelfOfItem(view, i) === name ? { ...i, shelf: remaining[0] } : i)),
-      widths, colors);
+      colors, layout);
   }
 
-  // Drag a shelf to sit before `target` — combined with widths, lets shelves sit side by side.
-  function reorderShelves(dragged: string, target: string) {
-    if (!activeView || dragged === target) return;
-    const view = freshest(activeView.id) ?? activeView;
-    const shelves = shelvesOf(view).filter((s) => s !== dragged);
-    const ti = shelves.indexOf(target);
-    if (ti < 0) return;
-    shelves.splice(ti, 0, dragged);
-    commit(view, shelves, view.items);
-  }
-
-  // Per-shelf width in card-width units (0 = full width).
-  const shelfUnits = (view: SavedView, name: string): number => view.shelfWidths?.[name] ?? 0;
-
-  function setShelfWidth(name: string, units: number) {
+  // Persist the grid whenever the user finishes dragging or resizing a shelf.
+  function persistLayout(rgl: Layout[]) {
     if (!activeView) return;
     const view = freshest(activeView.id) ?? activeView;
-    const widths = { ...(view.shelfWidths ?? {}) };
-    if (units <= 0) delete widths[name]; else widths[name] = units;
-    commit(view, shelvesOf(view), view.items, widths);
+    const map: Record<string, GridPos> = {};
+    for (const l of rgl) map[l.i] = { x: l.x, y: l.y, w: l.w, h: l.h };
+    commit(view, shelvesOf(view), view.items, undefined, map);
   }
 
-  // Per-shelf colour family ("" = none).
-  const shelfColor = (view: SavedView, name: string): string => view.shelfColors?.[name] ?? "";
+  // Per-shelf colour family ("" = none), migrating any pre-redesign value (A2).
+  const shelfColor = (view: SavedView, name: string): string => {
+    const raw = view.shelfColors?.[name] ?? "";
+    return LEGACY_COLORS[raw] ?? raw;
+  };
 
   function setShelfColor(name: string, family: string) {
     if (!activeView) return;
     const view = freshest(activeView.id) ?? activeView;
     const colors = { ...(view.shelfColors ?? {}) };
     if (!family) delete colors[name]; else colors[name] = family;
-    commit(view, shelvesOf(view), view.items, view.shelfWidths ?? {}, colors);
+    commit(view, shelvesOf(view), view.items, colors);
   }
 
   const [colorMenu, setColorMenu] = useState<string | null>(null);
 
-  // Live drag-resize: snap the shelf width to the nearest whole card-width.
-  const CARD_W = 320, CARD_GAP = 12, SHELF_PAD = 26;
-  const shelfPx = (units: number) => units * CARD_W + (units - 1) * CARD_GAP + SHELF_PAD;
-  const [resizing, setResizing] = useState<{ name: string; units: number } | null>(null);
+  // --- grid width measurement (drives the column count so cells stay ~card-sized) ---
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [gridW, setGridW] = useState(0);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => setGridW(entries[0].contentRect.width));
+    ro.observe(el);
+    setGridW(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
+  // Pick the column count that best fills the monitor (round, not floor, so we don't leave a
+  // near-empty strip on the right), then divide the width evenly between those columns.
+  const cols = Math.max(1, Math.round((gridW + MARGIN) / (TARGET_CARD + MARGIN)));
+  const baseCol = Math.max(160, Math.floor((gridW - MARGIN * (cols - 1)) / cols));
+  // Row pitch = one card + the header band, so a 1-tall shelf fits its card exactly.
+  const rowHeight = baseCol + HEAD_H;
 
-  function startResize(e: React.PointerEvent, name: string) {
-    e.preventDefault();
-    e.stopPropagation();
-    const shelfEl = (e.currentTarget as HTMLElement).closest(".shelf") as HTMLElement | null;
-    if (!shelfEl) return;
-    const left = shelfEl.getBoundingClientRect().left;
-    const unitsAt = (clientX: number) =>
-      Math.max(1, Math.min(8, Math.round((clientX - left - SHELF_PAD + CARD_GAP) / (CARD_W + CARD_GAP))));
-    const onMove = (ev: PointerEvent) => setResizing({ name, units: unitsAt(ev.clientX) });
-    const onUp = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      const units = unitsAt(ev.clientX);
-      setResizing(null);
-      setShelfWidth(name, units);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }
-
-  // --- drag & drop ---
+  // --- drag & drop (pool → shelf, card → shelf) ---
   const poolDrag = useRef<Pipeline | null>(null);
   const seqDrag = useRef<Sequence | null>(null);
   const cardDrag = useRef<ViewItem | null>(null);
-  const shelfDrag = useRef<string | null>(null);
   const [hintShelf, setHintShelf] = useState<string | null>(null);
 
-  // Any drag ending (drop, cancel, or a card-to-card drop that stopped propagation)
-  // must clear the shelf drop-outline and drag state.
   useEffect(() => {
     const clear = () => {
       setHintShelf(null);
@@ -274,8 +311,14 @@ export function Dashboard() {
       seqDrag.current = null;
       cardDrag.current = null;
     };
+    // "drop" as well as "dragend": dropping a card onto another shelf re-renders it, so the
+    // dragged node can be gone before its own dragend fires and the outline would stick.
     window.addEventListener("dragend", clear);
-    return () => window.removeEventListener("dragend", clear);
+    window.addEventListener("drop", clear);
+    return () => {
+      window.removeEventListener("dragend", clear);
+      window.removeEventListener("drop", clear);
+    };
   }, []);
 
   function handleShelfDrop(shelf: string) {
@@ -283,6 +326,46 @@ export function Dashboard() {
     if (poolDrag.current) { addPipeline(poolDrag.current, shelf); poolDrag.current = null; }
     else if (seqDrag.current) { addSequence(seqDrag.current, shelf); seqDrag.current = null; }
     else if (cardDrag.current) { moveItemToShelf(cardDrag.current, shelf); cardDrag.current = null; }
+  }
+
+  // --- shelf health (§2.2) ---
+  // These reuse the exact query keys the cards use, so they share one cache entry and
+  // add no extra requests; they exist only to make the header pill reactive.
+  const items = activeView?.items ?? [];
+  const pipeItems = items.filter((i) => i.kind !== "sequence");
+  const seqItems = items.filter((i) => i.kind === "sequence" && i.sequenceId);
+
+  const pipeStatuses = useQueries({
+    queries: pipeItems.map((i) => ({
+      queryKey: ["runs", i.project, i.pipelineId],
+      queryFn: () => api.runs(i.project, i.pipelineId, 4),
+    })),
+  });
+  const seqStatuses = useQueries({
+    queries: seqItems.map((i) => ({
+      queryKey: ["seq-latest", i.sequenceId],
+      queryFn: () => api.sequenceRuns(i.sequenceId!, 1).then((r) => r[0] ?? null),
+    })),
+  });
+
+  // shelf name → non-passing counts. An all-green shelf gets no pill at all.
+  const health: Record<string, { failing: number; running: number }> = {};
+  const bump = (shelf: string, key: "failing" | "running") => {
+    health[shelf] ??= { failing: 0, running: 0 };
+    health[shelf][key]++;
+  };
+  if (activeView) {
+    pipeItems.forEach((it, idx) => {
+      const latest = (pipeStatuses[idx]?.data as Run[] | undefined)?.[0];
+      const tone = runTone(latest);
+      if (tone === "failed") bump(shelfOfItem(activeView, it), "failing");
+      else if (tone === "running") bump(shelfOfItem(activeView, it), "running");
+    });
+    seqItems.forEach((it, idx) => {
+      const run = seqStatuses[idx]?.data as SequenceRun | null | undefined;
+      if (run?.status === "failed") bump(shelfOfItem(activeView, it), "failing");
+      else if (run?.status === "running") bump(shelfOfItem(activeView, it), "running");
+    });
   }
 
   const pinnedIds = useMemo(() => {
@@ -304,8 +387,9 @@ export function Dashboard() {
   return (
     <>
       <div className="body">
-        {!poolCollapsed && (
-          <PipelinePool
+        {/* Always mounted so it can slide out; see .sidebar.is-collapsed. */}
+        <PipelinePool
+            collapsed={poolCollapsed}
             projects={projectsQ.data ?? []}
             activeProject={activeProject}
             onProject={setActiveProject}
@@ -320,8 +404,7 @@ export function Dashboard() {
             pinnedSequenceIds={pinnedSequenceIds}
             onAddSequence={(s) => addSequence(s)}
             onDragStartSequence={(s) => { seqDrag.current = s; poolDrag.current = null; cardDrag.current = null; }}
-          />
-        )}
+        />
 
         <div className="main">
           <div className="tabs">
@@ -365,9 +448,12 @@ export function Dashboard() {
                 </svg>
               </button>
             )}
+            {activeView && (
+              <button className="btn ghost small" title="Add a shelf to this view" onClick={addShelf}>+ Add shelf</button>
+            )}
           </div>
 
-          <div className="view-area">
+          <div className="view-area board">
             {viewsQ.isLoading && <div className="center-note"><span className="spin" /> Loading views…</div>}
 
             {!viewsQ.isLoading && views.length === 0 && (
@@ -378,94 +464,173 @@ export function Dashboard() {
               </div>
             )}
 
-            {activeView && (
-              <div className="shelves-wrap">
-                {shelvesOf(activeView).map((shelf) => {
-                  const items = activeView.items.filter((i) => shelfOfItem(activeView, i) === shelf);
-                  const canDelete = shelvesOf(activeView).length > 1;
-                  const units = resizing?.name === shelf ? resizing.units : shelfUnits(activeView, shelf);
-                  const style: React.CSSProperties = units > 0 ? { width: shelfPx(units), flex: "0 0 auto" } : { width: "100%" };
-                  return (
-                    <section
-                      key={shelf}
-                      className="shelf"
-                      style={style}
-                      data-color={shelfColor(activeView, shelf) || undefined}
-                      onDragOver={(e) => { e.preventDefault(); if (!shelfDrag.current) setHintShelf(shelf); }}
-                      onDragLeave={(e) => { if (e.currentTarget === e.target) setHintShelf(null); }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (shelfDrag.current) { reorderShelves(shelfDrag.current, shelf); shelfDrag.current = null; }
-                        else handleShelfDrop(shelf);
-                      }}
-                    >
+            <div className="grid-canvas-wrap" ref={gridRef}>
+              {activeView && (() => {
+                if (gridW <= 0) return null;
+                const layout = buildRglLayout(activeView, cols);
+                const spans: Record<string, { w: number; h: number }> =
+                  Object.fromEntries(layout.map((l) => [l.i, { w: l.w, h: l.h }]));
+                /* The grid is authoritative for SHELVES, and the cards take up the slack.
+                   A shelf spanning w×h cells also swallows the gutters between them (and, going
+                   down, its one header band), so its cards share that out and tile it exactly —
+                   no shoulder on the right, no blank strip along the bottom.
+
+                   The cost is a little size variation between shelves of different spans: cards
+                   are square on a 1-tall shelf and up to ~40px taller on a 3-tall one. Within any
+                   one shelf they're identical, so rows and columns still line up. Both are derived
+                   from the INTEGER span, so a card only resizes on a snap, never mid-drag. */
+                const cardW = (w: number) => (baseCol * w + MARGIN * (w - 1)) / w;
+                const cardH = (h: number) => (rowHeight * h + MARGIN * (h - 1) - HEAD_H) / h;
+                return (
+                <GridLayout
+                  className="grid-canvas"
+                  cols={cols}
+                  rowHeight={rowHeight}
+                  width={gridW}
+                  margin={[MARGIN, MARGIN]}
+                  containerPadding={[0, 0]}
+                  layout={layout}
+                  draggableHandle=".shelf-head"
+                  draggableCancel=".btn,button,.shelf-menu,.shelf-menu-wrap"
+                  onDragStop={persistLayout}
+                  onResizeStop={persistLayout}
+                  compactType={null}
+                  preventCollision
+                  allowOverlap={false}
+                  isBounded={false}
+                  resizeHandles={["se"]}
+                >
+                  {shelvesOf(activeView).map((shelf) => {
+                    const all = activeView.items.filter((i) => shelfOfItem(activeView, i) === shelf);
+                    const canDelete = shelvesOf(activeView).length > 1;
+                    const hp = health[shelf];
+                    const sw = spans[shelf]?.w ?? DEF_W;
+                    const sh = spans[shelf]?.h ?? DEF_H;
+                    // Only render what the shelf actually has cells for. Anything beyond that is
+                    // reported in the header rather than half-drawn, spilling past the bottom edge.
+                    const items = all.slice(0, Math.max(1, sw * sh));
+                    const hiddenCount = all.length - items.length;
+                    return (
                       <div
-                        className="shelf-head"
-                        draggable
-                        title="Drag to reorder / place shelves side by side"
-                        onDragStart={(e) => { shelfDrag.current = shelf; poolDrag.current = null; seqDrag.current = null; cardDrag.current = null; e.dataTransfer.effectAllowed = "move"; }}
+                        className="shelf-slot"
+                        key={shelf}
                       >
-                        <span className="shelf-grip">⠿</span>
-                        <span className="shelf-title">{shelf}</span>
-                        <span className="shelf-count">{items.length}</span>
-                        <span style={{ flex: 1 }} />
-                        <div className="shelf-color-wrap">
-                          <button className="btn ghost small icon-btn" title="Shelf colour" onClick={() => setColorMenu(colorMenu === shelf ? null : shelf)}>
-                            <span className="shelf-color-dot" data-color={shelfColor(activeView, shelf) || undefined} />
-                          </button>
-                          {colorMenu === shelf && (
-                            <div className="color-menu" onMouseLeave={() => setColorMenu(null)}>
-                              <button className="swatch swatch-none" title="none" onClick={() => { setShelfColor(shelf, ""); setColorMenu(null); }} />
-                              {SHELF_COLOR_FAMILIES.map((f) => (
-                                <button key={f} className="swatch" data-color={f} title={f} onClick={() => { setShelfColor(shelf, f); setColorMenu(null); }} />
-                              ))}
-                            </div>
+                      <section
+                        className="shelf"
+                        data-color={shelfColor(activeView, shelf) || undefined}
+                        onDragOver={(e) => { e.preventDefault(); setHintShelf(shelf); }}
+                        onDragLeave={(e) => { if (e.currentTarget === e.target) setHintShelf(null); }}
+                        onDrop={(e) => { e.preventDefault(); handleShelfDrop(shelf); }}
+                      >
+                        <div className="shelf-head" title="Drag to move this shelf around the grid">
+                          <span className="shelf-grip">⠿</span>
+                          <span className="shelf-title" title={shelf}>{shelf}</span>
+                          {/* Health pill only when something isn't passing — an all-clear shelf stays quiet (§2.2). */}
+                          {hp && hp.failing > 0 && (
+                            <span className="shelf-health fail">{hp.failing} failing</span>
+                          )}
+                          {hp && hp.failing === 0 && hp.running > 0 && (
+                            <span className="shelf-health running">{hp.running} running</span>
+                          )}
+                          {hiddenCount > 0 && (
+                            <span
+                              className="shelf-hidden"
+                              title={`${hiddenCount} card${hiddenCount === 1 ? "" : "s"} don't fit — make the shelf bigger to show them`}
+                            >
+                              +{hiddenCount}
+                            </span>
+                          )}
+                          <span style={{ flex: 1 }} />
+                          <div className="shelf-menu-wrap">
+                            <button className="btn ghost small icon-btn" title="Shelf options" onClick={() => setColorMenu(colorMenu === shelf ? null : shelf)}>⋯</button>
+                            {colorMenu === shelf && (
+                              <div className="shelf-menu" onMouseLeave={() => setColorMenu(null)}>
+                                <button className="menu-item" onClick={() => { setColorMenu(null); renameShelf(shelf); }}>Rename…</button>
+                                <div className="menu-sep" />
+                                <div className="menu-colors">
+                                  <button className="swatch swatch-none" title="No colour" onClick={() => { setShelfColor(shelf, ""); setColorMenu(null); }} />
+                                  {SHELF_COLOR_FAMILIES.map((f) => (
+                                    <button key={f} className="swatch" data-color={f} title={f} onClick={() => { setShelfColor(shelf, f); setColorMenu(null); }} />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {canDelete && (
+                            <button className="btn ghost small icon-btn" title="Remove shelf" onClick={() => deleteShelf(shelf)}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            </button>
                           )}
                         </div>
-                        <button className="btn ghost small" onClick={() => renameShelf(shelf)}>rename</button>
-                        {units > 0 && <button className="btn ghost small" title="Reset to full width" onClick={() => setShelfWidth(shelf, 0)}>full</button>}
-                        {canDelete && <button className="btn ghost small" onClick={() => deleteShelf(shelf)}>remove</button>}
+
+                        <div
+                          className="shelf-body"
+                          style={{
+                            ["--card-w" as string]: `${cardW(sw)}px`,
+                            ["--card-h" as string]: `${cardH(sh)}px`,
+                            ["--rows" as string]: String(sh),
+                          }}
+                        >
+                          <div className={`shelf-cards ${hintShelf === shelf ? "drop-hint" : ""}`}>
+                            {items.map((item, i) => {
+                              // A card draws a divider against any neighbour inside the shelf,
+                              // card or empty slot alike — only empty-to-empty seams stay open,
+                              // so the hatched area reads as one continuous region.
+                              const divRight = (i + 1) % sw !== 0;
+                              const divBottom = i + sw < sw * sh;
+                              return (
+                                <div
+                                  className="card-cell"
+                                  key={itemKey(item)}
+                                  data-div-right={divRight ? "" : undefined}
+                                  data-div-bottom={divBottom ? "" : undefined}
+                                >
+                                  {item.kind === "sequence" ? (
+                                    <SequenceCard
+                                      item={item}
+                                      sequence={sequences.find((s) => s.id === item.sequenceId)}
+                                      onRemove={removeItem}
+                                      onRename={renameItem}
+                                      onToggleLabel={toggleItemLabel}
+                                      onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
+                                      onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
+                                      onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
+                                    />
+                                  ) : (
+                                    <PipelineCard
+                                      item={item}
+                                      onRun={setRunItem}
+                                      onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
+                                      onRemove={removeItem}
+                                      onRename={renameItem}
+                                      onToggleLabel={toggleItemLabel}
+                                      onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
+                                      onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                            {/* Unused cells are hatched, so it's obvious at a glance which slots
+                                are free to drop into and how much room the shelf still has. */}
+                            {Array.from({ length: Math.max(0, sw * sh - items.length) }, (_, k) => (
+                              <div
+                                key={`empty-${items.length + k}`}
+                                className="card-cell is-empty"
+                                title="Empty slot — drop a pipeline or sequence here"
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </section>
                       </div>
-
-                      <div className={`shelf-cards ${hintShelf === shelf ? "drop-hint" : ""}`}>
-                        {items.length === 0 && (
-                          <div className="shelf-empty">Drop pipelines or sequences here from the left.</div>
-                        )}
-                        {items.map((item) =>
-                          item.kind === "sequence" ? (
-                            <SequenceCard
-                              key={itemKey(item)}
-                              item={item}
-                              sequence={sequences.find((s) => s.id === item.sequenceId)}
-                              onRemove={removeItem}
-                              onRename={renameItem}
-                              onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
-                              onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
-                              onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
-                            />
-                          ) : (
-                            <PipelineCard
-                              key={itemKey(item)}
-                              item={item}
-                              onRun={setRunItem}
-                              onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
-                              onRemove={removeItem}
-                              onRename={renameItem}
-                              onDragCard={(i) => { cardDrag.current = i; poolDrag.current = null; seqDrag.current = null; }}
-                              onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
-                            />
-                          ),
-                        )}
-                      </div>
-
-                      <div className="shelf-resize" title="Drag to resize (snaps to card widths)" onPointerDown={(e) => startResize(e, shelf)} />
-                    </section>
-                  );
-                })}
-              </div>
-            )}
-
-            {activeView && <button className="btn small add-shelf" onClick={addShelf}>+ Add shelf</button>}
+                    );
+                  })}
+                </GridLayout>
+                );
+              })()}
+            </div>
           </div>
         </div>
       </div>

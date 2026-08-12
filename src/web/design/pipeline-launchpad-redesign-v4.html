@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Launchpad — Redesign Mockup v4</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #eef0f2; color: #0b0b0b; }
+  button, input { font-family: inherit; }
+
+  /* ============================================================
+     HARNESS
+     ============================================================ */
+  .harness-bar { position: sticky; top: 0; z-index: 90; display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; background: #1a1a19; color: #fff; padding: 9px 18px; font-size: 12.5px; flex-wrap: wrap; }
+  .harness-left, .harness-right { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+  .harness-bar .label { color: #898781; font-size: 11.5px; }
+  .toggle-group { display: inline-flex; background: rgba(255,255,255,.08); border-radius: 8px; padding: 3px; gap: 2px; }
+  .toggle-group button { border: none; background: transparent; color: #c3c2b7; font-size: 12px; font-weight: 600;
+    padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  .toggle-group button.active { background: #fff; color: #0b0b0b; }
+  .whatchanged-btn { border: 1px solid rgba(255,255,255,.2); background: transparent; color: #fff; font-size: 12px;
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+  .whatchanged-btn:hover { background: rgba(255,255,255,.1); }
+  .whatchanged-panel { display: none; background: #fcfcfb; border-bottom: 1px solid #e1e0d9; padding: 16px 24px; font-size: 13px; color: #52514e; }
+  .whatchanged-panel.open { display: block; }
+  .whatchanged-panel ul { margin: 8px 0 0; padding-left: 18px; columns: 2; column-gap: 32px; }
+  .whatchanged-panel li { margin-bottom: 7px; break-inside: avoid; }
+  .whatchanged-panel strong { color: #0b0b0b; }
+
+  /* ============================================================
+     TOKENS
+     ============================================================ */
+  .app {
+    --bg-page: #f7f7f5;
+    --bg-surface: #ffffff;
+    --bg-surface-2: #fbfbf9;
+    --border-hairline: rgba(11,11,11,.09);
+    --border-strong: rgba(11,11,11,.14);
+    --ink-primary: #0b0b0b;
+    --ink-secondary: #52514e;
+    --ink-muted: #8b8a84;
+    --accent: #2a78d6;
+    --accent-hover: #1c5cab;
+    --accent-tint: #eaf1fc;
+    --status-good: #0ca30c;
+    --status-bad: #d03b3b;
+    --status-warn: #e59400;
+    --shadow-card: 0 1px 2px rgba(16,24,32,.05), 0 5px 14px rgba(16,24,32,.045);
+    --hover-wash: #f2f1ec;
+    --code-bg: #fafaf8;
+    --dot: rgba(11,11,11,.055);
+    --hatch: rgba(11,11,11,.05);
+    /* shelf accent hues — no green, no red: those belong to status only */
+    --hue-blue: #2a78d6; --hue-violet: #6b5bd6; --hue-aqua: #1097a8;
+    --hue-orange: #d9722b; --hue-magenta: #c14d80; --hue-slate: #5c6672;
+    /* config value-type hues */
+    --t-json: #2a78d6; --t-bool: #6b5bd6; --t-int: #1097a8; --t-str: #5c6672;
+    --env-dev: #2a78d6; --env-test: #6b5bd6; --env-prod: #d9722b;
+    background: var(--bg-page); color: var(--ink-primary);
+  }
+  body[data-theme="dark"] .app {
+    --bg-page: #0d0d0d;
+    --bg-surface: #1a1a19;
+    --bg-surface-2: #212120;
+    --border-hairline: rgba(255,255,255,.11);
+    --border-strong: rgba(255,255,255,.18);
+    --ink-primary: #ffffff;
+    --ink-secondary: #c3c2b7;
+    --ink-muted: #8b8a84;
+    --accent: #3987e5;
+    --accent-hover: #5aa2ee;
+    --accent-tint: rgba(57,135,229,.16);
+    --status-good: #1abd1a;
+    --status-bad: #e66767;
+    --status-warn: #fab219;
+    --shadow-card: none;
+    --hover-wash: rgba(255,255,255,.06);
+    --code-bg: #131312;
+    --dot: rgba(255,255,255,.06);
+    --hatch: rgba(255,255,255,.05);
+    --hue-blue: #4a90e8; --hue-violet: #9085e9; --hue-aqua: #35b3c4;
+    --hue-orange: #e08a4a; --hue-magenta: #d97aa6; --hue-slate: #8b95a3;
+    --t-json: #6da7ec; --t-bool: #9085e9; --t-int: #35b3c4; --t-str: #8b95a3;
+    --env-dev: #4a90e8; --env-test: #9085e9; --env-prod: #e08a4a;
+  }
+
+  /* ============================================================
+     SHELL
+     ============================================================ */
+  .app { min-height: 100vh; position: relative; }
+
+  .topnav { display: flex; align-items: center; justify-content: space-between; padding: 0 22px;
+    background: var(--bg-surface); border-bottom: 1px solid var(--border-hairline); height: 56px; }
+  .topnav-left { display: flex; align-items: center; gap: 16px; }
+  .brand { font-weight: 700; font-size: 14.5px; color: var(--ink-primary); }
+  .brand .accent { color: var(--accent); }
+  .brand-sep { color: var(--ink-muted); }
+  .org-name { color: var(--ink-secondary); font-size: 13.5px; font-weight: 500; }
+  .topnav-tabs { display: flex; gap: 2px; margin-left: 6px; }
+  .topnav-tabs a { font-size: 13.5px; color: var(--ink-secondary); text-decoration: none; padding: 17px 11px;
+    border-bottom: 2px solid transparent; font-weight: 500; display: flex; align-items: center; gap: 7px; cursor: pointer; }
+  .topnav-tabs a:hover { color: var(--ink-primary); }
+  .topnav-tabs a.active { color: var(--ink-primary); border-bottom-color: var(--ink-primary); font-weight: 600; }
+  .nav-icon { width: 14px; height: 14px; flex-shrink: 0; }
+  .nav-icon path, .nav-icon circle, .nav-icon rect { stroke: currentColor; }
+
+  .topnav-right { display: flex; align-items: center; gap: 10px; }
+  .icon-btn { width: 30px; height: 30px; border-radius: 7px; border: none; background: transparent;
+    color: var(--ink-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .icon-btn:hover { background: var(--hover-wash); color: var(--ink-primary); }
+  .icon-btn svg { width: 17px; height: 17px; }
+  .ghost-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 7px;
+    border: 1px solid var(--border-hairline); background: transparent; color: var(--ink-secondary);
+    font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .ghost-btn:hover { background: var(--hover-wash); color: var(--ink-primary); }
+  .ghost-btn svg { width: 13px; height: 13px; }
+  .user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-primary); font-weight: 500; }
+  .avatar { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 10.5px;
+    font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .signout { color: var(--ink-secondary); font-size: 13px; text-decoration: none; }
+
+  .menu-anchor { position: relative; }
+  .dropdown { position: absolute; top: 38px; right: 0; min-width: 212px; background: var(--bg-surface);
+    border: 1px solid var(--border-hairline); border-radius: 10px; box-shadow: 0 10px 28px rgba(16,24,32,.16);
+    padding: 7px; display: none; z-index: 120; }
+  .dropdown.open { display: block; }
+  .dropdown-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-muted); padding: 7px 8px 4px; }
+  .menu-item { font-size: 13px; color: var(--ink-primary); padding: 8px; border-radius: 6px; cursor: pointer;
+    display: flex; align-items: center; gap: 9px; }
+  .menu-item:hover { background: var(--hover-wash); }
+  .menu-item svg { width: 14px; height: 14px; color: var(--ink-muted); }
+  .menu-item.disabled { color: var(--ink-muted); cursor: default; }
+  .menu-item.disabled:hover { background: transparent; }
+  .menu-item.danger { color: var(--status-bad); }
+  .menu-item.danger svg { color: var(--status-bad); }
+  .dropdown-sep { height: 1px; background: var(--border-hairline); margin: 5px 0; }
+  .theme-switch { display: flex; gap: 4px; padding: 2px 8px 6px; }
+  .theme-opt { flex: 1; text-align: center; font-size: 12.5px; font-weight: 600; padding: 6px 0; border-radius: 6px;
+    cursor: pointer; border: 1px solid var(--border-hairline); color: var(--ink-secondary); background: var(--bg-surface-2); }
+  .theme-opt.active { background: var(--ink-primary); color: var(--bg-surface); border-color: var(--ink-primary); }
+
+  /* ---- View sub-bar ---- */
+  .viewbar { display: flex; align-items: center; gap: 7px; padding: 0 22px; height: 46px;
+    background: var(--bg-surface); border-bottom: 1px solid var(--border-hairline); }
+  .sidebar-toggle { width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
+    color: var(--ink-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; margin-right: 3px; }
+  .sidebar-toggle:hover { background: var(--hover-wash); color: var(--ink-primary); }
+  .sidebar-toggle.on { background: var(--accent-tint); color: var(--accent); }
+  .sidebar-toggle svg { width: 15px; height: 15px; }
+  .viewbar .pill { font-size: 13px; color: var(--ink-secondary); padding: 6px 12px; border-radius: 7px; cursor: pointer; font-weight: 500; }
+  .viewbar .pill:hover { background: var(--hover-wash); }
+  .viewbar .pill.active { background: var(--hover-wash); color: var(--ink-primary); font-weight: 600; }
+  .viewbar .add { font-size: 13px; color: var(--ink-secondary); cursor: pointer; font-weight: 500; padding: 6px 8px; border-radius: 6px; }
+  .viewbar .add:hover { color: var(--ink-primary); background: var(--hover-wash); }
+  .viewbar .sep { width: 1px; height: 18px; background: var(--border-hairline); margin: 0 4px; }
+
+  /* ============================================================
+     DRAWER
+     ============================================================ */
+  .drawer { position: fixed; top: 102px; left: 0; bottom: 0; width: 258px; background: var(--bg-surface);
+    border-right: 1px solid var(--border-hairline); box-shadow: 4px 0 18px rgba(16,24,32,.09);
+    transform: translateX(-100%); transition: transform .18s ease; z-index: 70; display: flex; flex-direction: column; }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px;
+    font-size: 13px; font-weight: 700; border-bottom: 1px solid var(--border-hairline); color: var(--ink-primary); }
+  .drawer-hint { font-size: 11.5px; color: var(--ink-muted); padding: 9px 14px 2px; }
+  .drawer-search { margin: 9px 12px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border-hairline);
+    font-size: 12.5px; background: var(--bg-surface-2); color: var(--ink-primary); }
+  .drawer-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .drawer-list { overflow-y: auto; padding: 0 8px 12px; flex: 1; }
+  .drawer-group { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-muted); padding: 11px 8px 4px; }
+  .drawer-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px; font-size: 12.5px;
+    color: var(--ink-primary); cursor: grab; user-select: none; }
+  .drawer-item:hover { background: var(--hover-wash); }
+  .drawer-item .grab { color: var(--ink-muted); font-size: 11px; }
+
+  /* ============================================================
+     BOARD
+     ============================================================ */
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .board { padding: 26px 28px; display: flex; flex-direction: column; gap: var(--gutter, 20px); transition: padding-left .18s; }
+  .board.pushed { padding-left: 290px; }
+  /* canvas texture — a faint dot grid, on by default. It reinforces the
+     drag-and-drop-canvas metaphor and never sits behind body text. */
+  body[data-texture="on"] .board, body[data-texture="both"] .board {
+    background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+    background-size: 22px 22px; background-position: -1px -1px;
+  }
+
+  .shelf-row { display: flex; flex-wrap: wrap; gap: var(--gutter, 20px); align-items: stretch; }
+
+  .shelf { display: flex; flex-direction: column; border-radius: 12px; position: relative; overflow: hidden;
+    min-width: 0; background: var(--bg-surface); border: 1px solid var(--border-hairline); box-shadow: var(--shadow-card); }
+
+  /* ---- shelf accent treatments (rail / tint / both / none) ---- */
+  body[data-shelfstyle="rail"] .shelf::before,
+  body[data-shelfstyle="both"] .shelf::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--shelf-accent, var(--border-strong)); z-index: 2;
+  }
+  body[data-shelfstyle="rail"] .shelf-header,
+  body[data-shelfstyle="both"] .shelf-header { padding-top: 14px; }
+  body[data-shelfstyle="tint"] .shelf-header,
+  body[data-shelfstyle="both"] .shelf-header {
+    background: color-mix(in oklab, var(--shelf-accent, var(--ink-muted)) 8%, var(--bg-surface));
+  }
+  body[data-shelfstyle="tint"] .shelf-header .title,
+  body[data-shelfstyle="both"] .shelf-header .title {
+    color: color-mix(in oklab, var(--shelf-accent, var(--ink-primary)) 55%, var(--ink-primary));
+  }
+
+  .shelf-header { display: flex; align-items: center; gap: 8px; padding: 12px 14px 11px;
+    border-bottom: 1px solid var(--border-hairline); font-size: 13.5px; font-weight: 600;
+    color: var(--ink-primary); flex-shrink: 0; position: relative; }
+  .shelf-header .handle { color: var(--ink-muted); font-size: 12px; cursor: grab; }
+  .shelf-header .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .shelf-header .health { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 100px;
+    display: none; align-items: center; gap: 4px; flex-shrink: 0; }
+  .shelf-header .health.show { display: inline-flex; }
+  .health.fail { background: color-mix(in oklab, var(--status-bad) 14%, transparent); color: var(--status-bad); }
+  .health.running { background: color-mix(in oklab, var(--status-warn) 16%, transparent); color: var(--status-warn); }
+  .shelf-header .more, .shelf-header .close { color: var(--ink-muted); font-size: 14px; cursor: pointer;
+    padding: 3px 5px; border-radius: 5px; flex-shrink: 0; }
+  .shelf-header .more:hover, .shelf-header .close:hover { background: var(--hover-wash); color: var(--ink-secondary); }
+
+  /* ---- shelf body: borderless cards divided by hairlines, wrapping ---- */
+  .shelf-body { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start;
+    margin: 0 -1px -1px 0; overflow: auto; }
+
+  .card { background: var(--bg-surface); padding: 13px 15px; flex: 1 1 236px; min-width: 236px;
+    display: flex; flex-direction: column; min-height: 0;
+    border-right: 1px solid var(--border-hairline); border-bottom: 1px solid var(--border-hairline); }
+
+  /* slim "add pipeline" rail at the end of each shelf — the one place a hatch
+     texture earns its keep: it marks a non-content plane / drop target. */
+  .dropzone { flex: 0 0 46px; min-width: 46px; display: flex; align-items: center; justify-content: center;
+    color: var(--ink-muted); cursor: pointer; border-right: 1px solid var(--border-hairline);
+    border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface); }
+  body[data-texture="hatch"] .dropzone, body[data-texture="both"] .dropzone {
+    background-image: repeating-linear-gradient(45deg, transparent 0 5px, var(--hatch) 5px 6px);
+  }
+  .dropzone:hover { color: var(--accent); background-color: var(--accent-tint); }
+  .dropzone svg { width: 15px; height: 15px; }
+
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; position: relative; margin-bottom: 3px; }
+  .card-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .seq-tag { font-size: 9px; font-weight: 700; color: var(--ink-secondary); background: var(--hover-wash);
+    border-radius: 4px; padding: 2px 5px; letter-spacing: .04em; flex-shrink: 0; }
+  .card-title { font-size: 14.5px; font-weight: 600; color: var(--ink-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-top-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+  /* status glyph — shape switchable (rounded square / circle) */
+  .status-glyph { width: 17px; height: 17px; display: inline-flex; cursor: default; }
+  .status-glyph svg { width: 17px; height: 17px; }
+  .status-glyph rect { rx: 4.5px; ry: 4.5px; }
+  body[data-glyph="circle"] .status-glyph rect { rx: 8px; ry: 8px; }
+
+  /* ✕ now lives top-right beside the status glyph */
+  .card-close { width: 20px; height: 20px; border-radius: 5px; border: none; background: transparent;
+    color: var(--ink-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; }
+  .card-close:hover { background: color-mix(in oklab, var(--status-bad) 12%, transparent); color: var(--status-bad); }
+
+  /* ⋯ now lives in the footer, where ✕ used to be */
+  .card-menu-btn { width: 30px; height: 30px; border-radius: 7px; border: none; background: transparent;
+    color: var(--ink-muted); display: flex; align-items: center; justify-content: center; cursor: pointer;
+    font-size: 14px; flex-shrink: 0; margin-left: auto; }
+  .card-menu-btn:hover { background: var(--hover-wash); color: var(--ink-primary); }
+  .card-menu { position: absolute; bottom: 34px; right: 0; width: 200px; background: var(--bg-surface);
+    border: 1px solid var(--border-hairline); border-radius: 9px; box-shadow: 0 10px 24px rgba(16,24,32,.16);
+    padding: 6px; z-index: 50; display: none; }
+  .card-menu.open { display: block; }
+  .card-menu label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 7px 6px;
+    border-radius: 6px; cursor: pointer; color: var(--ink-primary); }
+  .card-menu label:hover { background: var(--hover-wash); }
+  .card-menu .stub { font-size: 12.5px; padding: 7px 6px; color: var(--ink-muted); }
+
+  .card-sub { display: none; font-size: 11.5px; color: var(--ink-muted); margin-bottom: 8px; }
+  .card.show-label .card-sub { display: block; }
+
+  .seq-steps { list-style: none; margin: 4px 0 10px; padding: 0; font-size: 12.5px; color: var(--ink-secondary); }
+  .seq-steps li { position: relative; padding-left: 14px; margin-bottom: 5px; line-height: 1.35;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seq-steps li::before { content: ""; position: absolute; width: 5px; height: 5px; border-radius: 2px;
+    background: var(--border-strong); left: 1px; top: 6px; }
+  .seq-steps li.overflow { display: none; }
+  .seq-steps.expanded li.overflow { display: block; }
+  .seq-more { font-size: 11.5px; color: var(--accent); cursor: pointer; font-weight: 600; margin: -2px 0 10px; display: inline-block; }
+  .step-long { display: none; } .step-short { display: inline; }
+  body[data-steps="verbose"] .step-long { display: inline; } body[data-steps="verbose"] .step-short { display: none; }
+
+  .runs { margin: 2px 0 11px; flex: 1; }
+  .run-row { display: flex; align-items: center; gap: 8px; padding: 5px; margin: 0 -5px; border-radius: 6px; }
+  .run-row:hover { background: var(--hover-wash); }
+  .run-row .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .dot.good { background: var(--status-good); } .dot.bad { background: var(--status-bad); } .dot.progress { background: var(--status-warn); }
+  .run-row .b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12.5px; color: var(--ink-primary); }
+  .run-row .m { flex-shrink: 0; font-size: 11px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+
+  .card-meta { font-size: 11px; color: var(--ink-muted); margin-bottom: 11px; font-style: italic; }
+  .card-actions { display: flex; align-items: center; gap: 6px; margin-top: auto; position: relative; }
+
+  .btn { font-size: 12.5px; font-weight: 600; cursor: pointer; border-radius: 7px; border: none; height: 30px;
+    padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+  .btn.secondary { background: var(--hover-wash); color: var(--ink-secondary); }
+  .btn.secondary:hover { color: var(--ink-primary); }
+
+  .run-btn { width: 30px; height: 30px; border-radius: 7px; display: inline-flex; align-items: center;
+    justify-content: center; border: none; cursor: pointer; flex-shrink: 0; }
+  .run-btn svg { width: 11px; height: 11px; }
+  .run-btn.solid { background: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(42,120,214,.32); }
+  .run-btn.solid:hover { background: var(--accent-hover); }
+  .run-btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border-hairline); }
+  .run-btn.ghost:hover { background: var(--accent-tint); border-color: var(--accent); }
+
+  .shelf-menu { position: absolute; top: 34px; right: 10px; width: 208px; background: var(--bg-surface);
+    border: 1px solid var(--border-hairline); border-radius: 9px; box-shadow: 0 10px 24px rgba(16,24,32,.16);
+    padding: 9px; z-index: 55; display: none; }
+  .shelf-menu.open { display: block; }
+  .swatches { display: flex; gap: 6px; padding: 4px 2px 2px; }
+  .swatch { width: 22px; height: 22px; border-radius: 7px; cursor: pointer; border: 2px solid transparent; }
+  .swatch.none { background: var(--bg-surface-2); border: 1px dashed var(--border-strong); }
+  .swatch.sel { outline: 2px solid var(--ink-primary); outline-offset: 1px; }
+
+  .resize-grip { position: absolute; right: 3px; bottom: 3px; width: 14px; height: 14px; cursor: nwse-resize;
+    color: var(--ink-muted); opacity: .6; z-index: 3; }
+  .resize-grip svg { width: 14px; height: 14px; }
+
+  /* ============================================================
+     CONFIGURATIONS
+     ============================================================ */
+  .cfg { display: grid; grid-template-columns: 258px minmax(0,1fr) 0px; width: 100%; overflow: hidden;
+    height: calc(100vh - 56px); transition: grid-template-columns .18s ease; }
+  .cfg.detail-open { grid-template-columns: 258px minmax(0,1fr) 470px; }
+
+  .cfg-col { border-right: 1px solid var(--border-hairline); display: flex; flex-direction: column;
+    min-width: 0; overflow: hidden; background: var(--bg-surface); }
+  .cfg-col:last-child { border-right: none; border-left: 1px solid var(--border-hairline); }
+  .cfg:not(.detail-open) .cfg-col:last-child { border-left: none; }
+
+  .cfg-head { padding: 12px 14px; border-bottom: 1px solid var(--border-hairline); flex-shrink: 0; }
+  .cfg-envrow { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .env-pill { font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 7px; cursor: pointer;
+    color: var(--ink-secondary); border: 1px solid var(--border-hairline); background: var(--bg-surface-2);
+    display: inline-flex; align-items: center; gap: 6px; }
+  .env-pill::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: var(--env-c); }
+  .env-pill.active { color: #fff; border-color: transparent; background: var(--env-c); }
+  .env-pill.active::before { background: rgba(255,255,255,.85); }
+
+  /* environment identity band — the endpoint strip carries the env colour so
+     "which environment am I editing?" is answerable without reading */
+  .cfg-endpoint { font-size: 10.5px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 5px 9px; border-radius: 6px;
+    background: color-mix(in oklab, var(--env-active) 12%, transparent);
+    color: color-mix(in oklab, var(--env-active) 70%, var(--ink-primary));
+    border-left: 3px solid var(--env-active); }
+
+  .cfg-search { width: 100%; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border-hairline);
+    font-size: 12.5px; background: var(--bg-surface-2); color: var(--ink-primary); }
+  .cfg-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  .cfg-scroll { overflow-y: auto; flex: 1; }
+  .ns-item { display: flex; align-items: center; gap: 9px; padding: 8px 14px; font-size: 13px;
+    color: var(--ink-primary); cursor: pointer; border-left: 2px solid transparent; }
+  .ns-item:hover { background: var(--hover-wash); }
+  .ns-item.active { background: var(--accent-tint); border-left-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .ns-item .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* count badge doubles as a magnitude cue: a single-hue ramp step by key count */
+  .ns-count { font-size: 10.5px; font-variant-numeric: tabular-nums; border-radius: 100px;
+    padding: 1px 7px; flex-shrink: 0; font-weight: 600; }
+  .sz1 { background: #eef4fd; color: #4a7cb5; } .sz2 { background: #dbe9fb; color: #2a6cbd; }
+  .sz3 { background: #c3daf8; color: #1f5ca8; } .sz4 { background: #a8c9f4; color: #17498a; }
+  body[data-theme="dark"] .sz1 { background: rgba(57,135,229,.10); color: #7fb0ee; }
+  body[data-theme="dark"] .sz2 { background: rgba(57,135,229,.18); color: #94bef2; }
+  body[data-theme="dark"] .sz3 { background: rgba(57,135,229,.28); color: #b3d2f7; }
+  body[data-theme="dark"] .sz4 { background: rgba(57,135,229,.40); color: #d5e6fb; }
+
+  .keys-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border-hairline); flex-shrink: 0; }
+  .keys-title { font-size: 15px; font-weight: 700; color: var(--ink-primary); }
+  .keys-sub { font-size: 12px; color: var(--ink-muted); }
+  .keys-table { overflow-y: auto; flex: 1; }
+  .keys-colhead { display: grid; grid-template-columns: 200px 96px minmax(0,1fr) 62px; gap: 12px;
+    padding: 7px 16px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--ink-muted); border-bottom: 1px solid var(--border-hairline); background: var(--bg-surface-2);
+    position: sticky; top: 0; z-index: 2; }
+  .key-row { display: grid; grid-template-columns: 200px 96px minmax(0,1fr) 62px; align-items: center; gap: 12px;
+    padding: 9px 16px; border-bottom: 1px solid var(--border-hairline); cursor: pointer; font-size: 12.5px;
+    border-left: 2px solid transparent; }
+  .key-row:hover { background: var(--hover-wash); }
+  .key-row.sel { background: var(--accent-tint); border-left-color: var(--accent); }
+  .key-name { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--ink-primary);
+    font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .key-label { font-size: 11px; color: var(--ink-muted); }
+  .key-label .tag { border-radius: 5px; padding: 2px 8px; font-weight: 600; font-size: 10.5px;
+    background: color-mix(in oklab, var(--hue-violet) 14%, transparent); color: var(--hue-violet); }
+  .key-preview { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; color: var(--ink-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .key-type { font-size: 9.5px; font-weight: 700; letter-spacing: .04em; padding: 2px 6px; border-radius: 5px;
+    text-align: center; }
+  .ty-JSON { background: color-mix(in oklab, var(--t-json) 13%, transparent); color: var(--t-json); }
+  .ty-BOOL { background: color-mix(in oklab, var(--t-bool) 13%, transparent); color: var(--t-bool); }
+  .ty-INT  { background: color-mix(in oklab, var(--t-int) 15%, transparent);  color: var(--t-int); }
+  .ty-STR  { background: color-mix(in oklab, var(--t-str) 14%, transparent);  color: var(--t-str); }
+
+  .detail-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+    border-bottom: 1px solid var(--border-hairline); flex-shrink: 0; }
+  .detail-title { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
+    font-weight: 700; color: var(--ink-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .json-view { flex: 1; overflow: auto; padding: 14px 16px; background: var(--code-bg);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.65; white-space: pre; }
+  .jk { color: #1c5cab; } .jn { color: #9a6a00; } .js { color: #0a7d0a; } .jp { color: var(--ink-muted); }
+  body[data-theme="dark"] .jk { color: #6da7ec; }
+  body[data-theme="dark"] .jn { color: #eda100; }
+  body[data-theme="dark"] .js { color: #4fc94f; }
+  .cfg-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--ink-muted);
+    font-size: 13px; padding: 30px; text-align: center; }
+
+  code { background: var(--hover-wash); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+</style>
+</head>
+<body data-theme="light" data-shelfstyle="both" data-steps="short" data-glyph="square" data-texture="both">
+
+  <div class="harness-bar">
+    <div class="harness-left">
+      <span class="label">Shelf accent:</span>
+      <div class="toggle-group">
+        <button onclick="setShelfStyle('rail')"  id="ss-rail">Rail</button>
+        <button onclick="setShelfStyle('tint')"  id="ss-tint">Tint</button>
+        <button onclick="setShelfStyle('both')"  id="ss-both" class="active">Both</button>
+        <button onclick="setShelfStyle('none')"  id="ss-none">None</button>
+      </div>
+      <span class="label">Glyph:</span>
+      <div class="toggle-group">
+        <button onclick="setGlyph('square')" id="gl-square" class="active">Square</button>
+        <button onclick="setGlyph('circle')" id="gl-circle">Circle</button>
+      </div>
+      <span class="label">Texture:</span>
+      <div class="toggle-group">
+        <button onclick="setTexture('off')"   id="tx-off">Off</button>
+        <button onclick="setTexture('on')"    id="tx-on">Dots</button>
+        <button onclick="setTexture('hatch')" id="tx-hatch">Hatch</button>
+        <button onclick="setTexture('both')"  id="tx-both" class="active">Both</button>
+      </div>
+      <span class="label">Steps:</span>
+      <div class="toggle-group">
+        <button onclick="setSteps('short')" id="st-short" class="active">Short</button>
+        <button onclick="setSteps('verbose')" id="st-verbose">Verbose</button>
+      </div>
+    </div>
+    <div class="harness-right">
+      <button class="whatchanged-btn" onclick="toggleChanged()">What changed?</button>
+    </div>
+  </div>
+
+  <div class="whatchanged-panel" id="changed-panel">
+    <strong>v4 changes</strong>
+    <ul>
+      <li><strong>Card separation back to hairlines</strong> — cards have no border or gap, just a shared divider. It now works in both directions, so when a shelf narrows and cards stack, the divider becomes horizontal automatically.</li>
+      <li><strong>Rail and tint are both kept</strong> — the toggle now offers Rail / Tint / Both / None so you can ship it as a theme preference.</li>
+      <li><strong>✕ and ⋯ swapped</strong> — ✕ sits top-right next to the status glyph (same visual weight, red on hover), ⋯ moved down to the footer where ✕ used to be.</li>
+      <li><strong>Glyph shape toggle</strong> — square vs circle, so you can judge the swap now that ✕ is its neighbour rather than ⋯.</li>
+      <li><strong>Texture</strong> — a faint dot grid on the board canvas, and a 45° hatch on the slim "+ add pipeline" rail at the end of each shelf. Toggle above; see the note in my reply on where texture does and doesn't work.</li>
+      <li><strong>Configurations colour</strong> — environment identity colour (Dev/Test/Prod) carried on the endpoint strip, value-type badges coloured by type, key counts on a single-hue magnitude ramp, sticky column headers, richer JSON highlighting.</li>
+    </ul>
+  </div>
+
+  <div class="app">
+    <div class="topnav">
+      <div class="topnav-left">
+        <div class="brand">Pipeline <span class="accent">Launchpad</span></div>
+        <span class="brand-sep">·</span>
+        <span class="org-name">BetagyDevOps</span>
+        <div class="topnav-tabs">
+          <a class="active" id="tab-views" onclick="setPage('views')">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5" stroke-width="1.3"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.5" stroke-width="1.3"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.5" stroke-width="1.3"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.5" stroke-width="1.3"/></svg>
+            Views
+          </a>
+          <a id="tab-seq" onclick="setPage('seq')">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><circle cx="3" cy="3.5" r="1.4" stroke-width="1.3"/><circle cx="3" cy="8" r="1.4" stroke-width="1.3"/><circle cx="3" cy="12.5" r="1.4" stroke-width="1.3"/><path d="M6.5 3.5H14M6.5 8H14M6.5 12.5H14" stroke-width="1.3" stroke-linecap="round"/></svg>
+            Sequences
+          </a>
+          <a id="tab-cfg" onclick="setPage('cfg')">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke-width="1.3" stroke-linecap="round"/><circle cx="5.5" cy="4" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>
+            Configurations
+          </a>
+          <a id="tab-kv" onclick="setPage('kv')">
+            <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="7" rx="1.8" stroke-width="1.3"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2" stroke-width="1.3"/></svg>
+            Key Vault
+          </a>
+        </div>
+      </div>
+      <div class="topnav-right">
+        <div class="menu-anchor">
+          <button class="ghost-btn" onclick="openMenu(event,'transfer-menu')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7M5.2 6.8L8 9.6l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2"/></svg>
+            Transfer
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:10px;height:10px;"><path d="M4 6.5L8 10.5l4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="dropdown" id="transfer-menu">
+            <div class="menu-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10.5v-8M5.2 5.3L8 2.5l2.8 2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2"/></svg>Import configuration…</div>
+            <div class="menu-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M5.2 7.7L8 10.5l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2"/></svg>Export current view</div>
+            <div class="dropdown-sep"></div>
+            <div class="menu-item disabled">Export all views</div>
+          </div>
+        </div>
+        <div class="menu-anchor">
+          <button class="icon-btn" onclick="openMenu(event,'settings-menu')" title="Settings">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M4.6 15.4L6 14M14 6l1.4-1.4" stroke-linecap="round"/></svg>
+          </button>
+          <div class="dropdown" id="settings-menu">
+            <div class="dropdown-label">Appearance</div>
+            <div class="theme-switch">
+              <div class="theme-opt active" id="opt-light" onclick="setTheme('light')">☀ Light</div>
+              <div class="theme-opt" id="opt-dark" onclick="setTheme('dark')">☾ Dark</div>
+            </div>
+            <div class="dropdown-sep"></div>
+            <div class="menu-item disabled">Keyboard shortcuts</div>
+            <div class="menu-item disabled">Preferences</div>
+          </div>
+        </div>
+        <div class="user"><span class="avatar">JF</span> James Farrugia</div>
+        <a href="#" class="signout">Sign out</a>
+      </div>
+    </div>
+
+    <!-- ============ VIEWS ============ -->
+    <div class="page active" id="page-views">
+      <div class="viewbar">
+        <button class="sidebar-toggle" id="sidebar-btn" onclick="toggleDrawer()" title="Browse pipelines">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2" width="13" height="12" rx="2"/><path d="M6 2v12"/></svg>
+        </button>
+        <span class="pill active">DEV Deployment</span>
+        <span class="pill">DEV Infrastructure</span>
+        <span class="sep"></span>
+        <span class="add">+ New view</span>
+        <span class="add">+ Add shelf</span>
+      </div>
+
+      <div class="drawer" id="drawer">
+        <div class="drawer-header">Pipelines <button class="icon-btn" style="width:22px;height:22px;" onclick="toggleDrawer()">✕</button></div>
+        <div class="drawer-hint">Drag a pipeline onto a shelf to add it</div>
+        <input class="drawer-search" placeholder="Search pipelines…" oninput="filterDrawer(this.value)">
+        <div class="drawer-list" id="drawer-list">
+          <div class="drawer-group">Placement</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Ship (sequence)</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Build</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Deploy</div>
+          <div class="drawer-group">Settlement Engine</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Ship (sequence)</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Build</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Deploy</div>
+          <div class="drawer-group">Configuration Registry</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Build All (sequence)</div>
+          <div class="drawer-group">Betstore</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> UP Migration</div>
+          <div class="drawer-group">Betting</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Build</div>
+          <div class="drawer-item" draggable="true"><span class="grab">⠿</span> Deploy</div>
+        </div>
+      </div>
+
+      <div class="board" id="board">
+        <div class="shelf-row">
+
+          <!-- Placement (resizable) -->
+          <div class="shelf" id="shelf-placement" style="--shelf-accent: var(--hue-blue); resize: both; min-width: 300px; min-height: 250px;">
+            <div class="shelf-header">
+              <span class="handle">⠿</span>
+              <span class="title">Placement</span>
+              <span class="more" onclick="openMenu(event,'sm1')">⋯</span>
+              <span class="close">✕</span>
+              <div class="shelf-menu" id="sm1">
+                <div class="dropdown-label">Shelf accent</div>
+                <div class="swatches">
+                  <div class="swatch none" onclick="setAccent('shelf-placement',null,this)"></div>
+                  <div class="swatch sel" style="background:var(--hue-blue)" onclick="setAccent('shelf-placement','blue',this)"></div>
+                  <div class="swatch" style="background:var(--hue-violet)" onclick="setAccent('shelf-placement','violet',this)"></div>
+                  <div class="swatch" style="background:var(--hue-aqua)" onclick="setAccent('shelf-placement','aqua',this)"></div>
+                  <div class="swatch" style="background:var(--hue-orange)" onclick="setAccent('shelf-placement','orange',this)"></div>
+                  <div class="swatch" style="background:var(--hue-magenta)" onclick="setAccent('shelf-placement','magenta',this)"></div>
+                </div>
+                <div class="dropdown-sep"></div>
+                <div class="menu-item disabled">Rename shelf</div>
+                <div class="menu-item disabled">Collapse shelf</div>
+              </div>
+            </div>
+            <div class="shelf-body">
+
+              <div class="card" id="cd1">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="seq-tag">SEQ</span><span class="card-title">Ship</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <ul class="seq-steps">
+                  <li title="Placement - Dev Build and Push"><span class="step-short">Build &amp; Push</span><span class="step-long">Placement · Dev Build and Push</span></li>
+                  <li title="Placement - Dev Deployment"><span class="step-short">Deploy</span><span class="step-long">Placement · Dev Deployment</span></li>
+                </ul>
+                <div class="card-meta">last run 6h ago</div>
+                <div class="card-actions">
+                  <button class="run-btn solid" title="Run sequence"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm1')">⋯</button>
+                  <div class="card-menu" id="cm1">
+                    <label><input type="checkbox" onchange="toggleLabel(this,'cd1')"> Show project label</label>
+                    <div class="stub">Rename steps…</div>
+                    <div class="stub">Pin card</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" id="cd2">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="card-title">Build</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <div class="runs">
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 3s · 4h</span></div>
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 29s · 7h</span></div>
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 42s · 8h</span></div>
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 14s · 8h</span></div>
+                </div>
+                <div class="card-actions">
+                  <button class="run-btn ghost" title="Run"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm2')">⋯</button>
+                  <div class="card-menu" id="cm2"><label><input type="checkbox" onchange="toggleLabel(this,'cd2')"> Show project label</label><div class="stub">Pin card</div></div>
+                </div>
+              </div>
+
+              <div class="card" id="cd3">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="card-title">Deploy</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <div class="runs">
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 2s · 4h</span></div>
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 3s · 7h</span></div>
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">0s · 8h</span></div>
+                  <div class="run-row" title="feature/retail-vouchers"><span class="dot good"></span><span class="b">retail-vouchers</span><span class="m">43s · 4d</span></div>
+                </div>
+                <div class="card-actions">
+                  <button class="run-btn ghost" title="Run"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm3')">⋯</button>
+                  <div class="card-menu" id="cm3"><label><input type="checkbox" onchange="toggleLabel(this,'cd3')"> Show project label</label><div class="stub">Pin card</div></div>
+                </div>
+              </div>
+
+              <div class="dropzone" title="Add a pipeline to this shelf">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+              </div>
+            </div>
+            <span class="resize-grip" title="Resize — cards stack when it narrows">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M13 5L5 13M13 9.5L9.5 13"/></svg>
+            </span>
+          </div>
+
+          <!-- Settlement Engine -->
+          <div class="shelf" id="shelf-settlement" style="--shelf-accent: var(--hue-violet);">
+            <div class="shelf-header">
+              <span class="handle">⠿</span>
+              <span class="title">Settlement Engine</span>
+              <span class="health fail show">1 failing</span>
+              <span class="more" onclick="openMenu(event,'sm2')">⋯</span>
+              <span class="close">✕</span>
+              <div class="shelf-menu" id="sm2">
+                <div class="dropdown-label">Shelf accent</div>
+                <div class="swatches">
+                  <div class="swatch none" onclick="setAccent('shelf-settlement',null,this)"></div>
+                  <div class="swatch" style="background:var(--hue-blue)" onclick="setAccent('shelf-settlement','blue',this)"></div>
+                  <div class="swatch sel" style="background:var(--hue-violet)" onclick="setAccent('shelf-settlement','violet',this)"></div>
+                  <div class="swatch" style="background:var(--hue-aqua)" onclick="setAccent('shelf-settlement','aqua',this)"></div>
+                  <div class="swatch" style="background:var(--hue-orange)" onclick="setAccent('shelf-settlement','orange',this)"></div>
+                  <div class="swatch" style="background:var(--hue-magenta)" onclick="setAccent('shelf-settlement','magenta',this)"></div>
+                </div>
+                <div class="dropdown-sep"></div>
+                <div class="menu-item disabled">Rename shelf</div>
+              </div>
+            </div>
+            <div class="shelf-body">
+              <div class="card" id="cd4">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="seq-tag">SEQ</span><span class="card-title">Ship</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <ul class="seq-steps">
+                  <li title="Settlement Engine - Dev - Build and Push"><span class="step-short">Build &amp; Push</span><span class="step-long">Settlement Engine · Dev Build and Push</span></li>
+                  <li title="Settlement Engine - Dev - Deployment"><span class="step-short">Deploy</span><span class="step-long">Settlement Engine · Dev Deployment</span></li>
+                </ul>
+                <div class="card-meta">last run 7h ago</div>
+                <div class="card-actions">
+                  <button class="run-btn solid" title="Run sequence"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm4')">⋯</button>
+                  <div class="card-menu" id="cm4"><label><input type="checkbox" onchange="toggleLabel(this,'cd4')"> Show project label</label><div class="stub">Rename steps…</div></div>
+                </div>
+              </div>
+
+              <div class="card" id="cd5">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="card-title">Build</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <div class="runs">
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 14s · 5h</span></div>
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 34s · 5h</span></div>
+                  <div class="run-row" title="develop"><span class="dot good"></span><span class="b">develop</span><span class="m">3m 7s · 12d</span></div>
+                  <div class="run-row" title="develop"><span class="dot good"></span><span class="b">develop</span><span class="m">1m 23s · 13d</span></div>
+                </div>
+                <div class="card-actions">
+                  <button class="run-btn ghost" title="Run"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm5')">⋯</button>
+                  <div class="card-menu" id="cm5"><label><input type="checkbox" onchange="toggleLabel(this,'cd5')"> Show project label</label><div class="stub">Pin card</div></div>
+                </div>
+              </div>
+
+              <div class="card" id="cd6">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="card-title">Deploy</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Failed"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-bad)"/><path d="M5.4 5.4l5.2 5.2M10.6 5.4l-5.2 5.2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <div class="runs">
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">1m 2s · 5h</span></div>
+                  <div class="run-row" title="main"><span class="dot good"></span><span class="b">main</span><span class="m">51s · 14d</span></div>
+                  <div class="run-row" title="fix/ubo-auth-multi-scheme"><span class="dot bad"></span><span class="b">ubo-auth-multi-scheme</span><span class="m">1m 0s · 14d</span></div>
+                  <div class="run-row" title="fix/ubo-auth-multi-scheme"><span class="dot bad"></span><span class="b">ubo-auth-multi-scheme</span><span class="m">2m 28s · 14d</span></div>
+                </div>
+                <div class="card-actions">
+                  <button class="run-btn ghost" title="Run"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm6')">⋯</button>
+                  <div class="card-menu" id="cm6"><label><input type="checkbox" onchange="toggleLabel(this,'cd6')"> Show project label</label><div class="stub">Pin card</div></div>
+                </div>
+              </div>
+              <div class="dropzone" title="Add a pipeline to this shelf">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="shelf-row">
+          <!-- Configuration Registry -->
+          <div class="shelf" id="shelf-cfgreg" style="--shelf-accent: var(--hue-aqua);">
+            <div class="shelf-header">
+              <span class="handle">⠿</span>
+              <span class="title">Configuration Registry</span>
+              <span class="more" onclick="openMenu(event,'sm3')">⋯</span>
+              <span class="close">✕</span>
+              <div class="shelf-menu" id="sm3">
+                <div class="dropdown-label">Shelf accent</div>
+                <div class="swatches">
+                  <div class="swatch none" onclick="setAccent('shelf-cfgreg',null,this)"></div>
+                  <div class="swatch" style="background:var(--hue-blue)" onclick="setAccent('shelf-cfgreg','blue',this)"></div>
+                  <div class="swatch" style="background:var(--hue-violet)" onclick="setAccent('shelf-cfgreg','violet',this)"></div>
+                  <div class="swatch sel" style="background:var(--hue-aqua)" onclick="setAccent('shelf-cfgreg','aqua',this)"></div>
+                  <div class="swatch" style="background:var(--hue-orange)" onclick="setAccent('shelf-cfgreg','orange',this)"></div>
+                  <div class="swatch" style="background:var(--hue-magenta)" onclick="setAccent('shelf-cfgreg','magenta',this)"></div>
+                </div>
+              </div>
+            </div>
+            <div class="shelf-body">
+              <div class="card" id="cd7">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="seq-tag">SEQ</span><span class="card-title">Build All</span></div>
+                  <div class="card-top-right"><button class="card-close" title="Remove card">✕</button></div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <ul class="seq-steps" id="steps7">
+                  <li title="SB.ConfigRegistry - Build"><span class="step-short">Build</span><span class="step-long">SB.ConfigRegistry · Build</span></li>
+                  <li title="SB.ConfigRegistry.Tooling - Deploy"><span class="step-short">Tooling</span><span class="step-long">SB.ConfigRegistry.Tooling · Deploy</span></li>
+                  <li title="SB.ConfigRegistry.AccaBonus - Deploy"><span class="step-short">AccaBonus</span><span class="step-long">SB.ConfigRegistry.AccaBonus · Deploy</span></li>
+                  <li title="SB.ConfigRegistry.Flexicut - Deploy"><span class="step-short">Flexicut</span><span class="step-long">SB.ConfigRegistry.Flexicut · Deploy</span></li>
+                  <li class="overflow" title="SB.ConfigRegistry.Generosity"><span class="step-short">Generosity</span><span class="step-long">SB.ConfigRegistry.Generosity</span></li>
+                  <li class="overflow" title="SB.ConfigRegistry.MTS - Package"><span class="step-short">MTS</span><span class="step-long">SB.ConfigRegistry.MTS · Package</span></li>
+                  <li class="overflow" title="SB.ConfigRegistry.Taxation - Deploy"><span class="step-short">Taxation</span><span class="step-long">SB.ConfigRegistry.Taxation · Deploy</span></li>
+                  <li class="overflow" title="SB.ConfigRegistry.UserTypesMap - Deploy"><span class="step-short">UserTypesMap</span><span class="step-long">SB.ConfigRegistry.UserTypesMap · Deploy</span></li>
+                </ul>
+                <span class="seq-more" id="more7" onclick="toggleSteps('steps7','more7')">+4 more</span>
+                <div class="card-actions">
+                  <button class="run-btn solid" title="Run sequence"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm7')">⋯</button>
+                  <div class="card-menu" id="cm7"><label><input type="checkbox" onchange="toggleLabel(this,'cd7')"> Show project label</label><div class="stub">Rename steps…</div></div>
+                </div>
+              </div>
+              <div class="dropzone" title="Add a pipeline to this shelf">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Betstore -->
+          <div class="shelf" id="shelf-betstore" style="--shelf-accent: var(--hue-orange);">
+            <div class="shelf-header">
+              <span class="handle">⠿</span>
+              <span class="title">Betstore</span>
+              <span class="health fail show">1 failing</span>
+              <span class="more" onclick="openMenu(event,'sm4')">⋯</span>
+              <span class="close">✕</span>
+              <div class="shelf-menu" id="sm4">
+                <div class="dropdown-label">Shelf accent</div>
+                <div class="swatches">
+                  <div class="swatch none" onclick="setAccent('shelf-betstore',null,this)"></div>
+                  <div class="swatch" style="background:var(--hue-blue)" onclick="setAccent('shelf-betstore','blue',this)"></div>
+                  <div class="swatch" style="background:var(--hue-violet)" onclick="setAccent('shelf-betstore','violet',this)"></div>
+                  <div class="swatch" style="background:var(--hue-aqua)" onclick="setAccent('shelf-betstore','aqua',this)"></div>
+                  <div class="swatch sel" style="background:var(--hue-orange)" onclick="setAccent('shelf-betstore','orange',this)"></div>
+                  <div class="swatch" style="background:var(--hue-magenta)" onclick="setAccent('shelf-betstore','magenta',this)"></div>
+                </div>
+              </div>
+            </div>
+            <div class="shelf-body">
+              <div class="card" id="cd8">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="card-title">UP Migration</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Failed"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-bad)"/><path d="M5.4 5.4l5.2 5.2M10.6 5.4l-5.2 5.2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <div class="runs">
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">32s · 9h</span></div>
+                  <div class="run-row" title="feature/bonus-eligibility"><span class="dot good"></span><span class="b">bonus-eligibility</span><span class="m">32s · 10h</span></div>
+                  <div class="run-row" title="feature/BET-4142"><span class="dot good"></span><span class="b">BET-4142</span><span class="m">28s · 4d</span></div>
+                  <div class="run-row" title="feature/BET-4142"><span class="dot bad"></span><span class="b">BET-4142</span><span class="m">43s · 4d</span></div>
+                </div>
+                <div class="card-actions">
+                  <button class="run-btn ghost" title="Run"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm8')">⋯</button>
+                  <div class="card-menu" id="cm8"><label><input type="checkbox" onchange="toggleLabel(this,'cd8')"> Show project label</label><div class="stub">Pin card</div></div>
+                </div>
+              </div>
+              <div class="dropzone" title="Add a pipeline to this shelf">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Betting -->
+          <div class="shelf" id="shelf-betting" style="--shelf-accent: var(--hue-magenta);">
+            <div class="shelf-header">
+              <span class="handle">⠿</span>
+              <span class="title">Betting</span>
+              <span class="health running show">1 running</span>
+              <span class="more" onclick="openMenu(event,'sm5')">⋯</span>
+              <span class="close">✕</span>
+              <div class="shelf-menu" id="sm5">
+                <div class="dropdown-label">Shelf accent</div>
+                <div class="swatches">
+                  <div class="swatch none" onclick="setAccent('shelf-betting',null,this)"></div>
+                  <div class="swatch" style="background:var(--hue-blue)" onclick="setAccent('shelf-betting','blue',this)"></div>
+                  <div class="swatch" style="background:var(--hue-violet)" onclick="setAccent('shelf-betting','violet',this)"></div>
+                  <div class="swatch" style="background:var(--hue-aqua)" onclick="setAccent('shelf-betting','aqua',this)"></div>
+                  <div class="swatch" style="background:var(--hue-orange)" onclick="setAccent('shelf-betting','orange',this)"></div>
+                  <div class="swatch sel" style="background:var(--hue-magenta)" onclick="setAccent('shelf-betting','magenta',this)"></div>
+                </div>
+              </div>
+            </div>
+            <div class="shelf-body">
+              <div class="card" id="cd9">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="card-title">Build</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Running"><svg viewBox="0 0 16 16"><rect x=".8" y=".8" width="14.4" height="14.4" fill="none" stroke="var(--status-warn)" stroke-width="1.6"/><path d="M8 4.2a3.8 3.8 0 1 1-3.8 3.8" stroke="var(--status-warn)" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <div class="runs">
+                  <div class="run-row" title="feature/CO-3"><span class="dot progress"></span><span class="b">CO-3</span><span class="m">running</span></div>
+                  <div class="run-row" title="develop"><span class="dot good"></span><span class="b">develop</span><span class="m">1m 4s · 14d</span></div>
+                  <div class="run-row" title="feature/superboost-through-placement"><span class="dot good"></span><span class="b">superboost-through-placement</span><span class="m">1m 0s · 19d</span></div>
+                  <div class="run-row" title="develop"><span class="dot good"></span><span class="b">develop</span><span class="m">48s · 27d</span></div>
+                </div>
+                <div class="card-actions">
+                  <button class="run-btn ghost" title="Run"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm9')">⋯</button>
+                  <div class="card-menu" id="cm9"><label><input type="checkbox" onchange="toggleLabel(this,'cd9')"> Show project label</label><div class="stub">Pin card</div></div>
+                </div>
+              </div>
+
+              <div class="card" id="cd10">
+                <div class="card-top">
+                  <div class="card-title-wrap"><span class="card-title">Deploy</span></div>
+                  <div class="card-top-right">
+                    <span class="status-glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <button class="card-close" title="Remove card">✕</button>
+                  </div>
+                </div>
+                <div class="card-sub">Sportsteam</div>
+                <div class="runs">
+                  <div class="run-row" title="feature/CO-3"><span class="dot good"></span><span class="b">CO-3</span><span class="m">36s · 1d</span></div>
+                  <div class="run-row" title="develop"><span class="dot good"></span><span class="b">develop</span><span class="m">36s · 14d</span></div>
+                  <div class="run-row" title="feature/superboost-through-placement"><span class="dot good"></span><span class="b">superboost-through-placement</span><span class="m">42s · 19d</span></div>
+                  <div class="run-row" title="develop"><span class="dot good"></span><span class="b">develop</span><span class="m">35s · 27d</span></div>
+                </div>
+                <div class="card-actions">
+                  <button class="run-btn ghost" title="Run"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+                  <button class="btn secondary">Logs</button>
+                  <button class="card-menu-btn" onclick="openMenu(event,'cm10')">⋯</button>
+                  <div class="card-menu" id="cm10"><label><input type="checkbox" onchange="toggleLabel(this,'cd10')"> Show project label</label><div class="stub">Pin card</div></div>
+                </div>
+              </div>
+              <div class="dropzone" title="Add a pipeline to this shelf">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ CONFIGURATIONS ============ -->
+    <div class="page" id="page-cfg">
+      <div class="cfg" id="cfg-root" style="--env-active: var(--env-dev);">
+        <div class="cfg-col">
+          <div class="cfg-head">
+            <div class="cfg-envrow">
+              <span class="env-pill active" style="--env-c: var(--env-dev)"  onclick="setEnv('dev',this)">Dev</span>
+              <span class="env-pill"        style="--env-c: var(--env-test)" onclick="setEnv('test',this)">Test</span>
+              <span class="env-pill"        style="--env-c: var(--env-prod)" onclick="setEnv('prod',this)">Prod</span>
+            </div>
+            <div class="cfg-endpoint" id="cfg-endpoint" title="https://cfg-example-dev-weu-common.azconfig.io">cfg-example-dev-weu-common.azconfig.io</div>
+          </div>
+          <div style="padding:10px 12px; border-bottom:1px solid var(--border-hairline);">
+            <input class="cfg-search" placeholder="Filter namespaces…" oninput="filterNs(this.value)">
+          </div>
+          <div class="cfg-scroll" id="ns-list"></div>
+        </div>
+
+        <div class="cfg-col">
+          <div class="keys-head">
+            <div style="flex:1; min-width:0;">
+              <div class="keys-title" id="keys-title">AccaBonus</div>
+              <div class="keys-sub" id="keys-sub">3 keys · Dev</div>
+            </div>
+            <input class="cfg-search" style="width:230px;" placeholder="Filter keys…" oninput="filterKeys(this.value)">
+            <button class="icon-btn" title="Refresh">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/><path d="M13.6 1.8v2.6h-2.6"/></svg>
+            </button>
+          </div>
+          <div class="keys-table" id="keys-table"></div>
+        </div>
+
+        <div class="cfg-col">
+          <div class="detail-head">
+            <span class="detail-title" id="detail-title">AccaBonus:10000000</span>
+            <button class="btn secondary">Copy</button>
+            <button class="icon-btn" onclick="closeDetail()">✕</button>
+          </div>
+          <div class="json-view" id="json-view"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-seq"><div style="padding:60px; text-align:center; color:var(--ink-muted); font-size:14px;">Sequences — not part of this pass.</div></div>
+    <div class="page" id="page-kv"><div style="padding:60px; text-align:center; color:var(--ink-muted); font-size:14px;">Key Vault — not part of this pass.</div></div>
+  </div>
+
+<script>
+  function setShelfStyle(s){ document.body.setAttribute('data-shelfstyle',s);
+    ['rail','tint','both','none'].forEach(k=>document.getElementById('ss-'+k).classList.toggle('active',k===s)); }
+  function setGlyph(g){ document.body.setAttribute('data-glyph',g);
+    ['square','circle'].forEach(k=>document.getElementById('gl-'+k).classList.toggle('active',k===g)); }
+  function setTexture(t){ document.body.setAttribute('data-texture',t);
+    ['off','on','hatch','both'].forEach(k=>document.getElementById('tx-'+k).classList.toggle('active',k===t)); }
+  function setSteps(s){ document.body.setAttribute('data-steps',s);
+    ['short','verbose'].forEach(k=>document.getElementById('st-'+k).classList.toggle('active',k===s)); }
+  function toggleChanged(){ document.getElementById('changed-panel').classList.toggle('open'); }
+  function setTheme(t){ document.body.setAttribute('data-theme',t);
+    document.getElementById('opt-light').classList.toggle('active',t==='light');
+    document.getElementById('opt-dark').classList.toggle('active',t==='dark'); }
+  function setPage(p){ ['views','seq','cfg','kv'].forEach(k=>{
+    document.getElementById('page-'+k).classList.toggle('active',k===p);
+    document.getElementById('tab-'+k).classList.toggle('active',k===p); }); }
+
+  function closeAllMenus(){ document.querySelectorAll('.dropdown,.card-menu,.shelf-menu').forEach(m=>m.classList.remove('open')); }
+  function openMenu(e,id){ e.stopPropagation(); const el=document.getElementById(id);
+    const was=el.classList.contains('open'); closeAllMenus(); if(!was) el.classList.add('open'); }
+  document.addEventListener('click', closeAllMenus);
+  document.querySelectorAll('.dropdown,.card-menu,.shelf-menu').forEach(m=>m.addEventListener('click',e=>e.stopPropagation()));
+
+  function toggleLabel(cb,id){ document.getElementById(id).classList.toggle('show-label',cb.checked); }
+  function toggleSteps(l,m){ const L=document.getElementById(l),M=document.getElementById(m);
+    M.textContent = L.classList.toggle('expanded') ? 'Show less' : '+4 more'; }
+  function setAccent(shelfId,hue,el){ const s=document.getElementById(shelfId);
+    s.style.setProperty('--shelf-accent', hue?`var(--hue-${hue})`:'');
+    el.parentElement.querySelectorAll('.swatch').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); }
+
+  function toggleDrawer(){ const d=document.getElementById('drawer'),b=document.getElementById('sidebar-btn'),bd=document.getElementById('board');
+    const o=d.classList.toggle('open'); b.classList.toggle('on',o); bd.classList.toggle('pushed',o); }
+  function filterDrawer(q){ q=q.toLowerCase();
+    document.querySelectorAll('#drawer-list .drawer-item').forEach(i=>{ i.style.display=i.textContent.toLowerCase().includes(q)?'flex':'none'; }); }
+
+  /* ---------- configurations ---------- */
+  const NS=[['AccaBonus',3],['BetBot',12],['BetPlacedRelay',53],['Betting',122],['BookingCodes',9],
+    ['CashoutApi',152],['CashoutEngine',103],['ConfigRegistryApi',63],['ExtraMetrics',18],
+    ['FixturePushNotifications',34],['Flexicut',8],['Formulas',8],['Generosity',17],
+    ['IdentitySync',51],['Importer',264],['LeaderboardManagement',72],['LegacyCouponConsumer',104],
+    ['MaterializedViews',28],['MTS',23],['OfferApi',131],['OfferFeedsRepublishService',31],
+    ['OfferImporter',304],['OfferIntegrationApi',100],['Placement',290]];
+  const KEYS={
+    AccaBonus:[
+      {k:'10000000',label:null,type:'JSON',preview:'{ MinOdd, MultipliersPerSelectionCount }'},
+      {k:'20050000',label:null,type:'JSON',preview:'{ MinOdd, MultipliersPerSelectionCount }'},
+      {k:'20060000',label:'staging',type:'JSON',preview:'{ MinOdd, MultipliersPerSelectionCount }'}],
+    Flexicut:[
+      {k:'Enabled',label:null,type:'BOOL',preview:'true'},
+      {k:'MaxSelections',label:null,type:'INT',preview:'12'},
+      {k:'DefaultTier',label:null,type:'STR',preview:'"standard"'},
+      {k:'CutRules',label:'staging',type:'JSON',preview:'{ MinOdd, Tiers, Rounding }'}],
+    Formulas:[
+      {k:'AccaBoost',label:null,type:'JSON',preview:'{ Steps, Cap }'},
+      {k:'RoundingMode',label:null,type:'STR',preview:'"half-up"'},
+      {k:'Precision',label:null,type:'INT',preview:'4'}]
+  };
+  const JSON_SAMPLE=`{
+  <span class="jk">"MinOdd"</span><span class="jp">:</span> <span class="jn">1.35</span><span class="jp">,</span>
+  <span class="jk">"Mode"</span><span class="jp">:</span> <span class="js">"progressive"</span><span class="jp">,</span>
+  <span class="jk">"MultipliersPerSelectionCount"</span><span class="jp">:</span> {
+    <span class="jk">"5"</span><span class="jp">:</span> <span class="jn">0.05</span><span class="jp">,</span>
+    <span class="jk">"6"</span><span class="jp">:</span> <span class="jn">0.1</span><span class="jp">,</span>
+    <span class="jk">"7"</span><span class="jp">:</span> <span class="jn">0.15</span><span class="jp">,</span>
+    <span class="jk">"8"</span><span class="jp">:</span> <span class="jn">0.2</span><span class="jp">,</span>
+    <span class="jk">"9"</span><span class="jp">:</span> <span class="jn">0.25</span><span class="jp">,</span>
+    <span class="jk">"10"</span><span class="jp">:</span> <span class="jn">0.3</span><span class="jp">,</span>
+    <span class="jk">"11"</span><span class="jp">:</span> <span class="jn">0.35</span><span class="jp">,</span>
+    <span class="jk">"12"</span><span class="jp">:</span> <span class="jn">0.4</span><span class="jp">,</span>
+    <span class="jk">"13"</span><span class="jp">:</span> <span class="jn">0.45</span><span class="jp">,</span>
+    <span class="jk">"14"</span><span class="jp">:</span> <span class="jn">0.5</span><span class="jp">,</span>
+    <span class="jk">"15"</span><span class="jp">:</span> <span class="jn">0.55</span><span class="jp">,</span>
+    <span class="jk">"16"</span><span class="jp">:</span> <span class="jn">0.6</span>
+  }
+}`;
+  const ENDPOINTS={dev:'cfg-example-dev-weu-common.azconfig.io',
+    test:'cfg-example-test-weu-common.azconfig.io', prod:'cfg-example-prod-weu-common.azconfig.io'};
+  let activeNs='AccaBonus', activeEnv='Dev';
+
+  function sizeClass(c){ return c<20?'sz1' : c<80?'sz2' : c<200?'sz3' : 'sz4'; }
+  function renderNs(){ document.getElementById('ns-list').innerHTML = NS.map(([n,c])=>
+    `<div class="ns-item ${n===activeNs?'active':''}" data-ns="${n}" onclick="selectNs('${n}')">
+       <span class="nm">${n}</span><span class="ns-count ${sizeClass(c)}">${c}</span></div>`).join(''); }
+  function selectNs(n){ activeNs=n; renderNs();
+    const c=(NS.find(x=>x[0]===n)||[,0])[1];
+    document.getElementById('keys-title').textContent=n;
+    document.getElementById('keys-sub').textContent=`${c} key${c===1?'':'s'} · ${activeEnv}`;
+    renderKeys(n); closeDetail(); }
+  function renderKeys(n){ const rows=KEYS[n], t=document.getElementById('keys-table');
+    if(!rows){ t.innerHTML=`<div class="cfg-empty">Keys for <b style="margin:0 4px">${n}</b> aren't stubbed in this mockup —<br>try <b>AccaBonus</b>, <b>Flexicut</b> or <b>Formulas</b>.</div>`; return; }
+    t.innerHTML = `<div class="keys-colhead"><span>Key</span><span>Label</span><span>Value</span><span style="text-align:center">Type</span></div>` +
+      rows.map(r=>`<div class="key-row" onclick="openDetail('${n}','${r.k}',this)">
+        <span class="key-name">${r.k}</span>
+        <span class="key-label">${r.label?`<span class="tag">${r.label}</span>`:'no label'}</span>
+        <span class="key-preview">${r.preview.replace(/</g,'&lt;')}</span>
+        <span class="key-type ty-${r.type}">${r.type}</span></div>`).join(''); }
+  function openDetail(ns,k,el){ document.querySelectorAll('.key-row').forEach(r=>r.classList.remove('sel'));
+    if(el) el.classList.add('sel');
+    document.getElementById('detail-title').textContent=`${ns}:${k}`;
+    document.getElementById('json-view').innerHTML=JSON_SAMPLE;
+    document.getElementById('cfg-root').classList.add('detail-open'); }
+  function closeDetail(){ document.getElementById('cfg-root').classList.remove('detail-open');
+    document.querySelectorAll('.key-row').forEach(r=>r.classList.remove('sel')); }
+  function setEnv(env,el){ activeEnv = env.charAt(0).toUpperCase()+env.slice(1);
+    document.querySelectorAll('.env-pill').forEach(p=>p.classList.remove('active')); el.classList.add('active');
+    document.getElementById('cfg-root').style.setProperty('--env-active',`var(--env-${env})`);
+    const ep=document.getElementById('cfg-endpoint'); ep.textContent=ENDPOINTS[env]; ep.title='https://'+ENDPOINTS[env];
+    const c=(NS.find(x=>x[0]===activeNs)||[,0])[1];
+    document.getElementById('keys-sub').textContent=`${c} key${c===1?'':'s'} · ${activeEnv}`; }
+  function filterNs(q){ q=q.toLowerCase();
+    document.querySelectorAll('.ns-item').forEach(i=>{ i.style.display=i.dataset.ns.toLowerCase().includes(q)?'flex':'none'; }); }
+  function filterKeys(q){ q=q.toLowerCase();
+    document.querySelectorAll('.key-row').forEach(r=>{ r.style.display=r.textContent.toLowerCase().includes(q)?'grid':'none'; }); }
+
+  renderNs(); renderKeys('AccaBonus');
+</script>
+</body>
+</html>

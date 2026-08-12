@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { canInstall as pwaCanInstall, promptInstall } from "../pwa";
 import { SettingsModal } from "./SettingsModal";
+import {
+  getSettings, setSettings,
+  type ShelfStyle, type Texture, type Theme,
+} from "../lib/settings";
 import type { User } from "../types";
 
 export type Page = "views" | "sequences" | "configurations" | "keyvault";
@@ -14,10 +18,62 @@ interface Props {
   onImported: () => void;
 }
 
+/** 14px monochrome SVGs that inherit currentColor — never emoji (§2.1). */
+const NAV: { id: Page; label: string; icon: JSX.Element }[] = [
+  {
+    id: "views", label: "Views",
+    icon: (
+      <svg className="nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5" strokeWidth="1.3" />
+        <rect x="9" y="1.5" width="5.5" height="5.5" rx="1.5" strokeWidth="1.3" />
+        <rect x="1.5" y="9" width="5.5" height="5.5" rx="1.5" strokeWidth="1.3" />
+        <rect x="9" y="9" width="5.5" height="5.5" rx="1.5" strokeWidth="1.3" />
+      </svg>
+    ),
+  },
+  {
+    id: "sequences", label: "Sequences",
+    icon: (
+      <svg className="nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="3" cy="3.5" r="1.4" strokeWidth="1.3" />
+        <circle cx="3" cy="8" r="1.4" strokeWidth="1.3" />
+        <circle cx="3" cy="12.5" r="1.4" strokeWidth="1.3" />
+        <path d="M6.5 3.5H14M6.5 8H14M6.5 12.5H14" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    id: "configurations", label: "Configurations",
+    icon: (
+      <svg className="nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M2 4h12M2 8h12M2 12h12" strokeWidth="1.3" strokeLinecap="round" />
+        <circle cx="5.5" cy="4" r="1.3" fill="currentColor" stroke="none" />
+        <circle cx="10.5" cy="8" r="1.3" fill="currentColor" stroke="none" />
+        <circle cx="6.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    id: "keyvault", label: "Key Vault",
+    icon: (
+      <svg className="nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="3" y="7" width="10" height="7" rx="1.8" strokeWidth="1.3" />
+        <path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2" strokeWidth="1.3" />
+      </svg>
+    ),
+  },
+];
+
+const THEMES: Theme[] = ["light", "dark", "system"];
+const SHELF_STYLES: ShelfStyle[] = ["rail", "tint", "both", "none"];
+const TEXTURES: Texture[] = ["off", "dots", "hatch", "both"];
+
 export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [menu, setMenu] = useState<"transfer" | "settings" | null>(null);
+  const [prefs, setPrefs] = useState(getSettings());
   const [canInstall, setCanInstall] = useState(pwaCanInstall());
 
   useEffect(() => {
@@ -30,6 +86,22 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
       window.removeEventListener("pl-installed", off);
     };
   }, []);
+
+  // Close any open dropdown on an outside click.
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!barRef.current?.contains(e.target as Node)) setMenu(null);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [menu]);
+
+  function updatePrefs(next: typeof prefs) {
+    setPrefs(next);
+    setSettings(next);
+  }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -66,16 +138,22 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
   }
 
   return (
-    <div className="topbar">
+    <div className="topbar" ref={barRef}>
       <div className="brand">Pipeline <span>Launchpad</span></div>
       <span className="faint">·</span>
       <span className="muted">{user.org}</span>
 
       <nav className="nav">
-        <button className={`nav-btn ${page === "views" ? "active" : ""}`} onClick={() => onNav("views")}>Views</button>
-        <button className={`nav-btn ${page === "sequences" ? "active" : ""}`} onClick={() => onNav("sequences")}>Sequences</button>
-        <button className={`nav-btn ${page === "configurations" ? "active" : ""}`} onClick={() => onNav("configurations")}>Configurations</button>
-        <button className={`nav-btn ${page === "keyvault" ? "active" : ""}`} onClick={() => onNav("keyvault")}>Key Vault</button>
+        {NAV.map((n) => (
+          <button
+            key={n.id}
+            className={`nav-btn ${page === n.id ? "active" : ""}`}
+            onClick={() => onNav(n.id)}
+          >
+            {n.icon}
+            {n.label}
+          </button>
+        ))}
       </nav>
 
       <div className="spacer" />
@@ -87,21 +165,113 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
         style={{ display: "none" }}
         onChange={onFile}
       />
-      {canInstall && (
-        <button className="btn ghost small" title="Install as an app" onClick={async () => { await promptInstall(); setCanInstall(pwaCanInstall()); }}>
-          ⇩ Install
+
+      {/* Import + Export merged into one Transfer dropdown (§2.1). */}
+      <div className="menu-anchor">
+        <button
+          className="transfer-btn"
+          onClick={() => setMenu(menu === "transfer" ? null : "transfer")}
+          disabled={busy}
+        >
+          {busy ? <><span className="spin" /> Importing…</> : (
+            <>
+              <svg className="t-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 2.5v7M5.2 6.8L8 9.6l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2" />
+              </svg>
+              Transfer
+              <svg className="t-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                <path d="M4 6.5L8 10.5l4-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </>
+          )}
         </button>
-      )}
-      <button className="btn ghost small" onClick={() => fileRef.current?.click()} disabled={busy} title="Replace your views & sequences from a config file">
-        {busy ? <><span className="spin" /> Importing…</> : "Import"}
-      </button>
-      <button className="btn ghost small" onClick={onExport} title="Download your current views & sequences as a config">Export</button>
-      <button className="btn ghost small icon-btn" title="Settings" onClick={() => setShowSettings(true)}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      </button>
+        {menu === "transfer" && (
+          <div className="dropdown">
+            <button className="menu-item" onClick={() => { setMenu(null); fileRef.current?.click(); }}>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 10.5v-8M5.2 5.3L8 2.5l2.8 2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2" />
+              </svg>
+              Import configuration…
+            </button>
+            <button className="menu-item" onClick={() => { setMenu(null); onExport(); }}>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 2.5v8M5.2 7.7L8 10.5l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2" />
+              </svg>
+              Export current view
+            </button>
+            <div className="dropdown-sep" />
+            <button className="menu-item" disabled title="Not implemented yet">Export all views</button>
+          </div>
+        )}
+      </div>
+
+      {/* Settings gear: appearance first, then presentation preferences (§2.1). */}
+      <div className="menu-anchor">
+        <button
+          className="btn ghost small icon-btn"
+          title="Settings"
+          onClick={() => setMenu(menu === "settings" ? null : "settings")}
+        >
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <circle cx="10" cy="10" r="2.6" />
+            <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M4.6 15.4L6 14M14 6l1.4-1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+        {menu === "settings" && (
+          <div className="dropdown" style={{ minWidth: 232 }}>
+            <div className="dropdown-label">Appearance</div>
+            <div className="theme-switch">
+              {THEMES.map((t) => (
+                <button
+                  key={t}
+                  className={`theme-opt ${prefs.theme === t ? "active" : ""}`}
+                  onClick={() => updatePrefs({ ...prefs, theme: t })}
+                >
+                  {t === "light" ? "☀ Light" : t === "dark" ? "☾ Dark" : "Auto"}
+                </button>
+              ))}
+            </div>
+
+            <div className="dropdown-label">Shelf accent</div>
+            <div className="theme-switch" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+              {SHELF_STYLES.map((v) => (
+                <button
+                  key={v}
+                  className={`theme-opt ${prefs.shelfStyle === v ? "active" : ""}`}
+                  style={{ textTransform: "capitalize" }}
+                  onClick={() => updatePrefs({ ...prefs, shelfStyle: v })}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+
+            <div className="dropdown-label">Texture</div>
+            <div className="theme-switch" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+              {TEXTURES.map((v) => (
+                <button
+                  key={v}
+                  className={`theme-opt ${prefs.texture === v ? "active" : ""}`}
+                  style={{ textTransform: "capitalize" }}
+                  onClick={() => updatePrefs({ ...prefs, texture: v })}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+
+            <div className="dropdown-sep" />
+            {canInstall && (
+              <button className="menu-item" onClick={async () => { setMenu(null); await promptInstall(); setCanInstall(pwaCanInstall()); }}>
+                ⇩ Install as an app
+              </button>
+            )}
+            <button className="menu-item" onClick={() => { setMenu(null); setShowSettings(true); }}>
+              Notifications &amp; stores…
+            </button>
+          </div>
+        )}
+      </div>
 
       <span className="who">{user.displayName || user.uniqueName}</span>
       <button className="btn ghost small" onClick={onDisconnect}>Sign out</button>

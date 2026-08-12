@@ -1,0 +1,476 @@
+/* ==========================================================================
+   Pipeline Launchpad — design tokens & component rules
+   Extracted from the v4 redesign mockup (pipeline-launchpad-redesign-v4.html).
+
+   Drop this in as the single source of truth for colour, spacing, radii and
+   type. Everything below is written against CSS custom properties so the
+   light/dark swap happens in one place and component CSS never hardcodes hex.
+
+   Theme is applied via [data-theme="light"|"dark"] on <html> or <body>.
+   Shelf accent style via [data-shelfstyle="rail"|"tint"|"both"|"none"].
+   Canvas texture via   [data-texture="off"|"dots"|"hatch"|"both"].
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. TOKENS
+   -------------------------------------------------------------------------- */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* surfaces */
+  --bg-page:          #f7f7f5;   /* the board canvas behind shelves */
+  --bg-surface:       #ffffff;   /* shelves, cards, nav, panels */
+  --bg-surface-2:     #fbfbf9;   /* inset fields, table head, recessed strips */
+  --code-bg:          #fafaf8;   /* JSON / monospace panes */
+
+  /* lines */
+  --border-hairline:  rgba(11, 11, 11, 0.09);  /* card dividers, panel edges */
+  --border-strong:    rgba(11, 11, 11, 0.14);  /* step bullets, dashed edges */
+
+  /* ink */
+  --ink-primary:      #0b0b0b;   /* titles, branch names, values */
+  --ink-secondary:    #52514e;   /* nav labels, step text, button labels */
+  --ink-muted:        #8b8a84;   /* durations, timestamps, counts, hints */
+
+  /* accent — RESERVED, see invariant A1 */
+  --accent:           #2a78d6;
+  --accent-hover:     #1c5cab;
+  --accent-tint:      #eaf1fc;
+
+  /* status — RESERVED, see invariant A2 */
+  --status-good:      #0ca30c;
+  --status-bad:       #d03b3b;
+  --status-warn:      #e59400;
+
+  /* interaction */
+  --hover-wash:       #f2f1ec;
+  --shadow-card:      0 1px 2px rgba(16, 24, 32, 0.05),
+                      0 5px 14px rgba(16, 24, 32, 0.045);
+
+  /* texture */
+  --dot:              rgba(11, 11, 11, 0.055);
+  --hatch:            rgba(11, 11, 11, 0.05);
+
+  /* shelf accent hues — no green, no red (invariant A2) */
+  --hue-blue:         #2a78d6;
+  --hue-violet:       #6b5bd6;
+  --hue-aqua:         #1097a8;
+  --hue-orange:       #d9722b;
+  --hue-magenta:      #c14d80;
+  --hue-slate:        #5c6672;
+
+  /* configurations: value-type identity */
+  --t-json:           #2a78d6;
+  --t-bool:           #6b5bd6;
+  --t-int:            #1097a8;
+  --t-str:            #5c6672;
+
+  /* configurations: environment identity */
+  --env-dev:          #2a78d6;
+  --env-test:         #6b5bd6;
+  --env-prod:         #d9722b;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-page:          #0d0d0d;
+  --bg-surface:       #1a1a19;
+  --bg-surface-2:     #212120;
+  --code-bg:          #131312;
+
+  --border-hairline:  rgba(255, 255, 255, 0.11);
+  --border-strong:    rgba(255, 255, 255, 0.18);
+
+  --ink-primary:      #ffffff;
+  --ink-secondary:    #c3c2b7;
+  --ink-muted:        #8b8a84;
+
+  --accent:           #3987e5;
+  --accent-hover:     #5aa2ee;
+  --accent-tint:      rgba(57, 135, 229, 0.16);
+
+  --status-good:      #1abd1a;
+  --status-bad:       #e66767;
+  --status-warn:      #fab219;
+
+  --hover-wash:       rgba(255, 255, 255, 0.06);
+  --shadow-card:      none;   /* elevation reads as a lighter surface in dark */
+
+  --dot:              rgba(255, 255, 255, 0.06);
+  --hatch:            rgba(255, 255, 255, 0.05);
+
+  --hue-blue:         #4a90e8;
+  --hue-violet:       #9085e9;
+  --hue-aqua:         #35b3c4;
+  --hue-orange:       #e08a4a;
+  --hue-magenta:      #d97aa6;
+  --hue-slate:        #8b95a3;
+
+  --t-json:           #6da7ec;
+  --t-bool:           #9085e9;
+  --t-int:            #35b3c4;
+  --t-str:            #8b95a3;
+
+  --env-dev:          #4a90e8;
+  --env-test:         #9085e9;
+  --env-prod:         #e08a4a;
+}
+
+/* --------------------------------------------------------------------------
+   2. GEOMETRY
+   -------------------------------------------------------------------------- */
+
+:root {
+  /* the ONE gutter — used between shelves AND between shelf rows. Cards
+     inside a shelf use no gutter at all; they are divided by hairlines. */
+  --gutter:           20px;
+
+  --board-pad-y:      26px;
+  --board-pad-x:      28px;
+
+  --h-topnav:         56px;
+  --h-viewbar:        46px;
+
+  --r-shelf:          12px;
+  --r-control:         7px;   /* buttons, run button, pills, inputs */
+  --r-small:           5px;   /* icon-button hover targets */
+  --r-tag:             4px;   /* SEQ tag */
+  --r-glyph:         4.5px;   /* status glyph corner — 8px makes it a circle */
+
+  --h-control:        30px;   /* every footer control is exactly this tall */
+  --w-card:          236px;   /* flex-basis AND min-width */
+  --w-dropzone:       46px;
+  --w-drawer:        258px;
+
+  --rail-h:            3px;
+  --dot-grid:         22px;
+}
+
+/* --------------------------------------------------------------------------
+   3. TYPE SCALE
+   All in the system sans: system-ui, -apple-system, "Segoe UI", sans-serif.
+   Monospace only for keys, endpoints and JSON.
+   -------------------------------------------------------------------------- */
+
+/*  role                          size      weight   colour            notes
+    ------------------------------------------------------------------------
+    card title                    14.5px    600      --ink-primary
+    shelf header                  13.5px    600      --ink-primary     (see tint rule)
+    nav tab                       13.5px    500/600  --ink-secondary   600 when active
+    org name                      13.5px    500      --ink-secondary
+    run row · branch              12.5px    400      --ink-primary
+    sequence step                 12.5px    400      --ink-secondary
+    button label                  12.5px    600      --ink-secondary
+    card sub (project label)      11.5px    400      --ink-muted       hidden by default
+    shelf health pill             11.5px    600      status colour
+    run row · duration/time       11px      400      --ink-muted       tabular-nums
+    card meta ("last run …")      11px      400      --ink-muted       italic
+    table column header           10px      400      --ink-muted       uppercase, .05em
+    value-type badge               9.5px    700      type colour       .04em
+    SEQ tag                        9px      700      --ink-secondary   .04em
+*/
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* --------------------------------------------------------------------------
+   4. BOARD & SHELVES
+   -------------------------------------------------------------------------- */
+
+.board {
+  padding: var(--board-pad-y) var(--board-pad-x);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gutter);
+}
+
+/* Canvas texture: dot grid on the empty plane behind shelves. Never behind
+   text — see invariant A5. */
+[data-texture="dots"] .board,
+[data-texture="both"] .board {
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+  background-size: var(--dot-grid) var(--dot-grid);
+  background-position: -1px -1px;
+}
+
+/* align-items: stretch is what makes every shelf in a row the same height. */
+.shelf-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gutter);
+  align-items: stretch;
+}
+
+.shelf {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;                       /* clips the hairline overhang */
+  border-radius: var(--r-shelf);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-card);
+  position: relative;
+}
+
+/* ---- shelf accent: rail ---- */
+[data-shelfstyle="rail"] .shelf::before,
+[data-shelfstyle="both"] .shelf::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--rail-h);
+  background: var(--shelf-accent, var(--border-strong));
+  z-index: 2;
+}
+[data-shelfstyle="rail"] .shelf-header,
+[data-shelfstyle="both"] .shelf-header { padding-top: 14px; }
+
+/* ---- shelf accent: tint ---- */
+[data-shelfstyle="tint"] .shelf-header,
+[data-shelfstyle="both"] .shelf-header {
+  background: color-mix(in oklab, var(--shelf-accent, var(--ink-muted)) 8%, var(--bg-surface));
+}
+[data-shelfstyle="tint"] .shelf-header .title,
+[data-shelfstyle="both"] .shelf-header .title {
+  color: color-mix(in oklab, var(--shelf-accent, var(--ink-primary)) 55%, var(--ink-primary));
+}
+
+.shelf-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 11px;
+  border-bottom: 1px solid var(--border-hairline);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  flex-shrink: 0;
+  position: relative;
+}
+.shelf-header .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Health pill — only rendered when a shelf has a non-green pipeline. */
+.shelf-health {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; font-weight: 600;
+  padding: 2px 8px; border-radius: 100px; flex-shrink: 0;
+}
+.shelf-health--fail    { background: color-mix(in oklab, var(--status-bad) 14%, transparent);  color: var(--status-bad); }
+.shelf-health--running { background: color-mix(in oklab, var(--status-warn) 16%, transparent); color: var(--status-warn); }
+
+/* --------------------------------------------------------------------------
+   5. SHELF BODY — the wrapping hairline grid (invariant A3)
+
+   Cards have NO gap and NO border of their own. Each card carries a right and
+   bottom hairline; the body is pulled back 1px on those edges and the shelf
+   clips the overhang. Result: dividers are vertical in a row and become
+   horizontal automatically when the shelf narrows and cards wrap.
+   -------------------------------------------------------------------------- */
+
+.shelf-body {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  margin: 0 -1px -1px 0;
+  overflow: auto;
+}
+
+.card {
+  flex: 1 1 var(--w-card);
+  min-width: var(--w-card);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 13px 15px;
+  background: var(--bg-surface);
+  border-right:  1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+/* Slim "+ add pipeline" rail at the end of every shelf. The one place hatch
+   texture is correct: it marks a drop target, not content. */
+.dropzone {
+  flex: 0 0 var(--w-dropzone);
+  min-width: var(--w-dropzone);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--ink-muted);
+  background: var(--bg-surface);
+  border-right:  1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+}
+[data-texture="hatch"] .dropzone,
+[data-texture="both"]  .dropzone {
+  background-image: repeating-linear-gradient(45deg, transparent 0 5px, var(--hatch) 5px 6px);
+}
+.dropzone:hover { color: var(--accent); background-color: var(--accent-tint); }
+
+/* --------------------------------------------------------------------------
+   6. CARD INTERNALS
+   -------------------------------------------------------------------------- */
+
+.card-top      { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 3px; }
+.card-title    { font-size: 14.5px; font-weight: 600; color: var(--ink-primary);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-top-right{ display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+.seq-tag {
+  font-size: 9px; font-weight: 700; letter-spacing: .04em; flex-shrink: 0;
+  padding: 2px 5px; border-radius: var(--r-tag);
+  color: var(--ink-secondary); background: var(--hover-wash);
+}
+
+/* Status glyph — 17px rounded square. Icon only; the word goes in title/aria.
+   Set --r-glyph to 8px for a circle. */
+.status-glyph      { width: 17px; height: 17px; display: inline-flex; }
+.status-glyph svg  { width: 17px; height: 17px; }
+.status-glyph rect { rx: var(--r-glyph); ry: var(--r-glyph); }
+/*  succeeded → filled --status-good  + white check
+    failed    → filled --status-bad   + white cross
+    running   → outlined --status-warn + partial arc
+    never     → a text label beside it (invariant A4)                        */
+
+/* ✕ lives top-right beside the glyph, at matching visual weight. */
+.card-close {
+  width: 20px; height: 20px; border-radius: var(--r-small);
+  border: none; background: transparent; color: var(--ink-muted);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.card-close:hover {
+  background: color-mix(in oklab, var(--status-bad) 12%, transparent);
+  color: var(--status-bad);
+}
+
+/* ⋯ lives in the footer, right-aligned. */
+.card-menu-btn {
+  width: var(--h-control); height: var(--h-control); border-radius: var(--r-control);
+  border: none; background: transparent; color: var(--ink-muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0; margin-left: auto;
+}
+.card-menu-btn:hover { background: var(--hover-wash); color: var(--ink-primary); }
+
+/* Project label ("Sportsteam") — hidden by default, per-card opt-in via the
+   ⋯ menu's "Show project label" checkbox. */
+.card-sub                { display: none; font-size: 11.5px; color: var(--ink-muted); margin-bottom: 8px; }
+.card.show-label .card-sub { display: block; }
+
+/* Run rows — single line. Branch shows the segment after the last "/", with
+   the full ref in title=. */
+.run-row       { display: flex; align-items: center; gap: 8px; padding: 5px; margin: 0 -5px; border-radius: 6px; }
+.run-row:hover { background: var(--hover-wash); }
+.run-row .dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.run-row .dot--good     { background: var(--status-good); }
+.run-row .dot--bad      { background: var(--status-bad); }
+.run-row .dot--progress { background: var(--status-warn); }
+.run-row .branch { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink-primary);
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-row .meta   { flex-shrink: 0; font-size: 11px; color: var(--ink-muted);
+                   font-variant-numeric: tabular-nums; }   /* "1m 3s · 4h" */
+
+/* Sequence steps — short display name, full name in title=. */
+.seq-steps li          { position: relative; padding-left: 14px; margin-bottom: 5px; line-height: 1.35;
+                         font-size: 12.5px; color: var(--ink-secondary);
+                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seq-steps li::before  { content: ""; position: absolute; left: 1px; top: 6px;
+                         width: 5px; height: 5px; border-radius: 2px; background: var(--border-strong); }
+/* Collapse past 4 steps behind a "+N more" toggle so one long sequence can't
+   drive the height of every card in its row. */
+
+/* --------------------------------------------------------------------------
+   7. CONTROLS
+   Every footer control is --h-control tall so footers align across a shelf.
+   -------------------------------------------------------------------------- */
+
+.btn {
+  height: var(--h-control); padding: 0 12px; border: none; cursor: pointer;
+  border-radius: var(--r-control); font-size: 12.5px; font-weight: 600; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.btn--secondary       { background: var(--hover-wash); color: var(--ink-secondary); }
+.btn--secondary:hover { color: var(--ink-primary); }
+
+/* Run button — icon only, no text. Solid for sequences, ghost for single
+   pipelines: same accent, two weights. */
+.run-btn {
+  width: var(--h-control); height: var(--h-control); border-radius: var(--r-control);
+  border: none; cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.run-btn--solid       { background: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(42,120,214,.32); }
+.run-btn--solid:hover { background: var(--accent-hover); }
+.run-btn--ghost       { background: transparent; color: var(--accent); border: 1px solid var(--border-hairline); }
+.run-btn--ghost:hover { background: var(--accent-tint); border-color: var(--accent); }
+
+/* --------------------------------------------------------------------------
+   8. CONFIGURATIONS PAGE
+   Three panes: namespaces → keys → detail. No modal, no nested scrollbars.
+   -------------------------------------------------------------------------- */
+
+.cfg {
+  display: grid;
+  grid-template-columns: 258px minmax(0, 1fr) 0;
+  height: calc(100vh - var(--h-topnav));
+  width: 100%; overflow: hidden;
+  transition: grid-template-columns .18s ease;
+}
+.cfg.is-detail-open { grid-template-columns: 258px minmax(0, 1fr) 470px; }
+.cfg-col { display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+           background: var(--bg-surface); border-right: 1px solid var(--border-hairline); }
+
+/* Environment identity band — the endpoint strip carries the active env
+   colour so "which environment am I editing?" is answerable peripherally. */
+.cfg-endpoint {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px;
+  padding: 5px 9px; border-radius: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background:    color-mix(in oklab, var(--env-active) 12%, transparent);
+  color:         color-mix(in oklab, var(--env-active) 70%, var(--ink-primary));
+  border-left: 3px solid var(--env-active);
+}
+/* set --env-active to var(--env-dev|test|prod) on the .cfg container */
+
+/* Key count badge doubles as a magnitude cue — one hue, four steps. */
+.ns-count       { font-size: 10.5px; font-weight: 600; padding: 1px 7px;
+                  border-radius: 100px; font-variant-numeric: tabular-nums; }
+.ns-count--sz1  { background: #eef4fd; color: #4a7cb5; }  /* <20   */
+.ns-count--sz2  { background: #dbe9fb; color: #2a6cbd; }  /* <80   */
+.ns-count--sz3  { background: #c3daf8; color: #1f5ca8; }  /* <200  */
+.ns-count--sz4  { background: #a8c9f4; color: #17498a; }  /* 200+  */
+[data-theme="dark"] .ns-count--sz1 { background: rgba(57,135,229,.10); color: #7fb0ee; }
+[data-theme="dark"] .ns-count--sz2 { background: rgba(57,135,229,.18); color: #94bef2; }
+[data-theme="dark"] .ns-count--sz3 { background: rgba(57,135,229,.28); color: #b3d2f7; }
+[data-theme="dark"] .ns-count--sz4 { background: rgba(57,135,229,.40); color: #d5e6fb; }
+
+/* Value-type badge — identity, not status. */
+.key-type          { font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
+                     padding: 2px 6px; border-radius: var(--r-small); text-align: center; }
+.key-type--json    { background: color-mix(in oklab, var(--t-json) 13%, transparent); color: var(--t-json); }
+.key-type--bool    { background: color-mix(in oklab, var(--t-bool) 13%, transparent); color: var(--t-bool); }
+.key-type--int     { background: color-mix(in oklab, var(--t-int)  15%, transparent); color: var(--t-int);  }
+.key-type--str     { background: color-mix(in oklab, var(--t-str)  14%, transparent); color: var(--t-str);  }
+
+/* Keys table — sticky column header, 4 columns. */
+.keys-colhead,
+.key-row { display: grid; grid-template-columns: 200px 96px minmax(0, 1fr) 62px; gap: 12px; padding: 9px 16px; }
+.keys-colhead { position: sticky; top: 0; z-index: 2; padding: 7px 16px;
+                font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+                color: var(--ink-muted); background: var(--bg-surface-2);
+                border-bottom: 1px solid var(--border-hairline); }
+.key-row { align-items: center; cursor: pointer; font-size: 12.5px;
+           border-bottom: 1px solid var(--border-hairline); border-left: 2px solid transparent; }
+.key-row:hover      { background: var(--hover-wash); }
+.key-row.is-selected{ background: var(--accent-tint); border-left-color: var(--accent); }
+
+/* JSON pane */
+.json-view { flex: 1; overflow: auto; padding: 14px 16px; background: var(--code-bg);
+             font-family: ui-monospace, "SF Mono", Menlo, monospace;
+             font-size: 12px; line-height: 1.65; white-space: pre; }
+.json-key    { color: #1c5cab; }  [data-theme="dark"] .json-key    { color: #6da7ec; }
+.json-number { color: #9a6a00; }  [data-theme="dark"] .json-number { color: #eda100; }
+.json-string { color: #0a7d0a; }  [data-theme="dark"] .json-string { color: #4fc94f; }
+.json-punct  { color: var(--ink-muted); }

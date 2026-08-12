@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { PipelineDetail, Sequence, SequenceInput } from "../types";
@@ -17,7 +18,9 @@ export function SequenceRunDialog({ sequence, busy, onClose, onRun }: {
     Object.fromEntries(sequence.inputs.map((i) => [i.id, i.default ?? ""])),
   );
 
-  return (
+  // Portalled for the same reason as SequenceLogModal: a shelf's transform would otherwise
+  // become the containing block for this fixed overlay and clip it.
+  return createPortal(
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-head">
@@ -49,7 +52,8 @@ export function SequenceRunDialog({ sequence, busy, onClose, onRun }: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

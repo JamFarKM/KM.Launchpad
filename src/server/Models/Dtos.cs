@@ -90,6 +90,7 @@ public class SequenceStepDto
     public string Project { get; set; } = "";
     public int PipelineId { get; set; }
     public string Name { get; set; } = "";
+    public string? Alias { get; set; }            // short label shown on the dashboard card (falls back to Name)
     public string? Branch { get; set; }
     public string? BranchInputId { get; set; }     // if set, branch comes from this pre-run input
     public Dictionary<string, string>? TemplateParameters { get; set; }
@@ -138,6 +139,8 @@ public record UpsertVaultRegistryRequest(string Name, string VaultUri);
 public record VaultSecretValueDto(string Name, string? Value);
 
 // ----- views -----
-public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf);
-public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, Dictionary<string, int> ShelfWidths, Dictionary<string, string> ShelfColors, List<ViewItemDto> Items);
-public record UpsertViewRequest(string Name, int SortOrder, List<string> Shelves, Dictionary<string, int>? ShelfWidths, Dictionary<string, string>? ShelfColors, List<ViewItemDto> Items);
+public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf, bool? ShowLabel = null);
+/// <summary>A shelf's placement on the dashboard grid, in grid cells (Grafana-style).</summary>
+public record GridPosDto(int X, int Y, int W, int H);
+public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, Dictionary<string, string> ShelfColors, Dictionary<string, GridPosDto> ShelfLayout, List<ViewItemDto> Items);
+public record UpsertViewRequest(string Name, int SortOrder, List<string> Shelves, Dictionary<string, string>? ShelfColors, Dictionary<string, GridPosDto>? ShelfLayout, List<ViewItemDto> Items);

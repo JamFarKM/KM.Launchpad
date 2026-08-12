@@ -12,6 +12,7 @@ import type {
   Project,
   Run,
   RunRequest,
+  GridPos,
   SavedView,
   Sequence,
   SequenceInput,
@@ -114,15 +115,15 @@ export const api = {
 
   // views
   views: () => req<SavedView[]>("/api/views"),
-  createView: (name: string, sortOrder: number, shelves: string[], shelfWidths: Record<string, number>, shelfColors: Record<string, string>, items: ViewItem[]) =>
+  createView: (name: string, sortOrder: number, shelves: string[], shelfColors: Record<string, string>, shelfLayout: Record<string, GridPos>, items: ViewItem[]) =>
     req<SavedView>("/api/views", {
       method: "POST",
-      body: JSON.stringify({ name, sortOrder, shelves, shelfWidths, shelfColors, items }),
+      body: JSON.stringify({ name, sortOrder, shelves, shelfColors, shelfLayout, items }),
     }),
-  updateView: (id: string, name: string, sortOrder: number, shelves: string[], shelfWidths: Record<string, number>, shelfColors: Record<string, string>, items: ViewItem[]) =>
+  updateView: (id: string, name: string, sortOrder: number, shelves: string[], shelfColors: Record<string, string>, shelfLayout: Record<string, GridPos>, items: ViewItem[]) =>
     req<SavedView>(`/api/views/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ name, sortOrder, shelves, shelfWidths, shelfColors, items }),
+      body: JSON.stringify({ name, sortOrder, shelves, shelfColors, shelfLayout, items }),
     }),
   deleteView: (id: string) =>
     req<void>(`/api/views/${id}`, { method: "DELETE" }),

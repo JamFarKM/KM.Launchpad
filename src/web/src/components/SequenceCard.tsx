@@ -1,30 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import type { Sequence, SequenceRun, SequenceRunStep, ViewItem } from "../types";
 import { notify } from "../lib/notify";
-import { timeAgo } from "../lib/format";
+import { commonPrefix, stepShort, timeAgo } from "../lib/format";
 import { SequenceRunDialog } from "./SequenceRunDialog";
 import { SequenceLogModal } from "./SequenceLogModal";
+import { CloseIcon, LogsIcon, PlayIcon, StatusGlyph } from "./StatusGlyph";
+import type { StatusTone } from "../lib/format";
 
 interface Props {
   item: ViewItem;
   sequence?: Sequence;
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
+  onToggleLabel: (item: ViewItem, show: boolean) => void;
   onOpenRun: (project: string, buildId: number) => void;
   onDragCard: (item: ViewItem) => void;
   onReorder: (target: ViewItem) => void;
 }
 
-function seqStatusTone(status: string): string {
+const VISIBLE_STEPS = 4; // collapse past this so a long sequence can't drive its neighbours' height
+
+function seqStatusTone(status?: string | null): StatusTone {
   return status === "succeeded" ? "success"
     : status === "failed" ? "failed"
     : status === "running" ? "running"
-    : "canceled";
+    : status === "canceled" ? "canceled"
+    : "idle";
 }
 
-function stepTone(s: SequenceRunStep): string {
+function stepTone(s: SequenceRunStep): StatusTone {
   if (s.state === "running" || s.state === "inProgress" || s.state === "notStarted") return "running";
   if (s.state === "pending") return "idle";
   if (s.state === "skipped") return "canceled";
@@ -39,13 +45,17 @@ function stepTone(s: SequenceRunStep): string {
 const isTerminal = (r?: SequenceRun | null) =>
   !!r && (r.status === "succeeded" || r.status === "failed" || r.status === "canceled");
 
-export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, onDragCard, onReorder }: Props) {
+export function SequenceCard({
+  item, sequence, onRemove, onRename, onToggleLabel, onOpenRun, onDragCard, onReorder,
+}: Props) {
   const seqId = item.sequenceId!;
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showRunDialog, setShowRunDialog] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const latestQ = useQuery<SequenceRun | null>({
     queryKey: ["seq-latest", seqId],
@@ -102,26 +112,27 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
     state: "pending", result: null,
   } as SequenceRunStep)) ?? [];
 
+  // Short step labels: the author's per-step alias wins; otherwise strip the prefix
+  // shared by every step in the sequence so the verbose ADO name fits the card.
+  const prefix = useMemo(() => commonPrefix(steps.map((s) => s.name)), [steps]);
+  const labelFor = (s: SequenceRunStep, i: number) =>
+    sequence?.steps[i]?.alias?.trim() || stepShort(s.name, prefix);
+
+  const hidden = Math.max(0, steps.length - VISIBLE_STEPS);
+  const shown = expanded ? steps : steps.slice(0, VISIBLE_STEPS);
+
   const running = run?.status === "running";
   const missing = !sequence;
 
-  // Long sequences widen in whole card-width units instead of growing tall.
-  // ~4 steps fit per cell width, so e.g. 8 steps → 2 cells wide (not 4).
-  // Keep in sync with .shelf-cards > .card (320px) and the 12px gap.
-  const NOMINAL = 320, GAP = 12, STEPS_PER_UNIT = 4, MAX_UNITS = 4;
-  const units = Math.min(MAX_UNITS, Math.max(1, Math.ceil(steps.length / STEPS_PER_UNIT)));
-  const cardWidth = units * NOMINAL + (units - 1) * GAP;
-
   return (
     <>
-    <div className="card seq-card" draggable
-      style={{ flex: "0 0 auto", width: cardWidth, maxWidth: "none" }}
+    <div className={`card seq-card ${item.showLabel ? "show-label" : ""}`} draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onReorder(item); }}>
       <div className="card-head">
         <div className="title">
-          <span className="seq-badge">SEQ</span>{" "}
+          <span className="seq-badge">SEQ</span>
           <span
             className="card-title-text"
             title="Double-click to rename"
@@ -132,51 +143,78 @@ export function SequenceCard({ item, sequence, onRemove, onRename, onOpenRun, on
           >
             {item.name}
           </span>
-          <div className="sub">{missing ? "sequence not found" : `${sequence!.steps.length} steps`}</div>
         </div>
-        {run && (
-          <span className={`badge ${seqStatusTone(run.status)}`}>
-            <span className="dot" />{run.status}
-          </span>
-        )}
+        <div className="card-head-right">
+          {/* No glyph until the sequence has actually run — see PipelineCard. */}
+          {seqStatusTone(run?.status) !== "idle" && (
+            <StatusGlyph
+              tone={seqStatusTone(run?.status)}
+              label={missing ? "sequence not found" : run?.status ?? "no runs"}
+            />
+          )}
+          <button className="card-close" title="Remove from view" onClick={() => onRemove(item)}>
+            <CloseIcon />
+          </button>
+        </div>
       </div>
+
+      <div className="sub">{missing ? "sequence not found" : `${sequence!.steps.length} steps`}</div>
 
       {error && <div className="error" style={{ fontSize: 12 }}>{error}</div>}
 
       <div className="seq-flow">
-        {steps.map((s, i) => (
+        {shown.map((s, i) => (
           <div className="seq-step" key={i} title={s.message ?? s.name}>
-            <span className={`badge ${stepTone(s)}`}><span className="dot" /></span>
+            <span className={`seq-step-dot ${stepTone(s)}`} />
             <button
               className="seq-step-name linklike"
               disabled={!s.buildId}
               title={s.buildId ? `${s.name} — view logs` : s.name}
               onClick={() => s.buildId && onOpenRun(s.project, s.buildId)}
             >
-              {s.name}
+              {labelFor(s, i)}
             </button>
           </div>
         ))}
+        {hidden > 0 && (
+          <button className="seq-more" onClick={() => setExpanded((v) => !v)}>
+            {expanded ? "show fewer" : `+${hidden} more`}
+          </button>
+        )}
       </div>
 
       {run?.startedAt && (
-        <div className="faint" style={{ fontSize: 12 }}>
+        <div className="card-meta">
           {running ? "started" : "last run"} {timeAgo(run.finishedAt ?? run.startedAt)}
         </div>
       )}
 
       <div className="actions">
-        <button className="btn primary small" onClick={start} disabled={busy || running || missing}>
-          {busy ? <><span className="spin" /> starting…</> : running ? "running…" : "▶ Run sequence"}
+        <button className="run-btn solid" title="Run sequence" onClick={start} disabled={busy || running || missing}>
+          {busy ? <span className="spin" /> : <PlayIcon />}
         </button>
         {running && <button className="btn small" onClick={cancel}>Cancel</button>}
         {run && (
-          <button className="btn small" title="View this sequence run's logs" onClick={() => setShowLog(true)}>
-            Logs
+          <button className="btn small icon-only" title="View this sequence run's logs"
+            aria-label="View logs" onClick={() => setShowLog(true)}>
+            <LogsIcon />
           </button>
         )}
-        <span style={{ flex: 1 }} />
-        <button className="btn ghost small" title="Remove from view" onClick={() => onRemove(item)}>✕</button>
+        <div className="card-menu-wrap">
+          <button className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
+          {menu && (
+            <div className="card-menu" onMouseLeave={() => setMenu(false)}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={!!item.showLabel}
+                  onChange={(e) => onToggleLabel(item, e.target.checked)}
+                />
+                Show project label
+              </label>
+            </div>
+          )}
+        </div>
       </div>
     </div>
 

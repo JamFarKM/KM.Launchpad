@@ -1,42 +1,154 @@
+/* ==========================================================================
+   Design tokens — see design/DESIGN_SPEC.md and design/launchpad-tokens.css.
+   Dark and light are both AUTHORED (invariant A6): the dark values are chosen
+   for the dark surface, not derived by inverting the light ones.
+
+   Invariants that are easy to break by accident:
+     A1  --accent is ONLY for run buttons + list-selection. Never active tabs,
+         never the SEQ tag, never branch names.
+     A2  --status-good/-bad/-warn are the only greens, reds and ambers. The
+         shelf-accent and value-type hue ramps exclude green and red entirely.
+   ========================================================================== */
+
 :root {
-  --bg: #0d1117;
-  --bg-2: #161b22;
-  --bg-3: #1c2330;
-  --border: #2b3444;
-  --border-2: #3a4658;
-  --text: #e6edf3;
-  --text-dim: #9aa7b4;
-  --text-faint: #6a7684;
-  --accent: #4c8dff;
-  --accent-2: #3b7bef;
-  --success: #3fb950;
-  --failed: #f85149;
-  --running: #d29922;
-  --canceled: #8b949e;
-  --shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-  --hover: #232c3a;
-  --radius: 10px;
   color-scheme: dark;
+
+  /* surfaces */
+  --bg-page: #0d0d0d;          /* the board canvas behind shelves */
+  --bg-surface: #1a1a19;       /* shelves, cards, nav, panels */
+  --bg-surface-2: #212120;     /* inset fields, table head, recessed strips */
+  --code-bg: #131312;          /* JSON / monospace panes */
+
+  /* lines */
+  --border-hairline: rgba(255, 255, 255, 0.11);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* ink */
+  --ink-primary: #ffffff;
+  --ink-secondary: #c3c2b7;
+  --ink-muted: #8b8a84;
+
+  /* accent — RESERVED, see A1 */
+  --accent: #3987e5;
+  --accent-hover: #5aa2ee;
+  --accent-tint: rgba(57, 135, 229, 0.16);
+
+  /* status — RESERVED, see A2 */
+  --status-good: #1abd1a;
+  --status-bad: #e66767;
+  --status-warn: #fab219;
+
+  /* interaction */
+  --hover-wash: rgba(255, 255, 255, 0.06);
+  --shadow-card: none;         /* elevation reads as a lighter surface in dark */
+  --shadow-pop: 0 8px 30px rgba(0, 0, 0, 0.5);
+
+  /* texture */
+  --dot: rgba(255, 255, 255, 0.06);
+  --hatch: rgba(255, 255, 255, 0.05);
+
+  /* shelf accent hues — no green, no red (A2) */
+  --hue-blue: #4a90e8;
+  --hue-violet: #9085e9;
+  --hue-aqua: #35b3c4;
+  --hue-orange: #e08a4a;
+  --hue-magenta: #d97aa6;
+  --hue-slate: #8b95a3;
+
+  /* configurations: value-type identity */
+  --t-json: #6da7ec;
+  --t-bool: #9085e9;
+  --t-int: #35b3c4;
+  --t-str: #8b95a3;
+
+  /* configurations: environment identity */
+  --env-dev: #4a90e8;
+  --env-test: #9085e9;
+  --env-prod: #e08a4a;
 }
 
 :root[data-theme="light"] {
-  --bg: #f6f8fa;
-  --bg-2: #ffffff;
-  --bg-3: #eef1f4;
-  --border: #d8dee4;
-  --border-2: #c3ccd6;
-  --text: #1f2328;
-  --text-dim: #57606a;
-  --text-faint: #8c959f;
-  --accent: #0969da;
-  --accent-2: #0a6ad1;
-  --success: #1a7f37;
-  --failed: #cf222e;
-  --running: #9a6700;
-  --canceled: #6e7781;
-  --shadow: 0 8px 30px rgba(140, 149, 159, 0.22);
-  --hover: #e7ecf2;
   color-scheme: light;
+
+  --bg-page: #f7f7f5;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #fbfbf9;
+  --code-bg: #fafaf8;
+
+  --border-hairline: rgba(11, 11, 11, 0.09);
+  --border-strong: rgba(11, 11, 11, 0.14);
+
+  --ink-primary: #0b0b0b;
+  --ink-secondary: #52514e;
+  --ink-muted: #8b8a84;
+
+  --accent: #2a78d6;
+  --accent-hover: #1c5cab;
+  --accent-tint: #eaf1fc;
+
+  --status-good: #0ca30c;
+  --status-bad: #d03b3b;
+  --status-warn: #e59400;
+
+  --hover-wash: #f2f1ec;
+  --shadow-card: 0 1px 2px rgba(16, 24, 32, 0.05),
+                 0 5px 14px rgba(16, 24, 32, 0.045);
+  --shadow-pop: 0 8px 30px rgba(16, 24, 32, 0.16);
+
+  --dot: rgba(11, 11, 11, 0.055);
+  --hatch: rgba(11, 11, 11, 0.05);
+
+  --hue-blue: #2a78d6;
+  --hue-violet: #6b5bd6;
+  --hue-aqua: #1097a8;
+  --hue-orange: #d9722b;
+  --hue-magenta: #c14d80;
+  --hue-slate: #5c6672;
+
+  --t-json: #2a78d6;
+  --t-bool: #6b5bd6;
+  --t-int: #1097a8;
+  --t-str: #5c6672;
+
+  --env-dev: #2a78d6;
+  --env-test: #6b5bd6;
+  --env-prod: #d9722b;
+}
+
+/* Geometry + legacy aliases. The aliases let the existing component CSS pick up
+   the new palette without being rewritten all at once; new rules should use the
+   token names above directly. */
+:root {
+  --gutter: 20px;
+  --r-shelf: 12px;
+  --r-control: 7px;
+  --r-small: 5px;
+  --r-tag: 4px;
+  --r-glyph: 4.5px;    /* status glyph corner — 8px makes it a circle */
+  --h-control: 30px;   /* every footer control is exactly this tall */
+  --w-dropzone: 46px;
+  /* One sidebar width shared by the Views pipeline list and the Configurations
+     namespace pane, so the two pages line up. */
+  --w-sidebar: 340px;
+  --rail-h: 3px;
+  --dot-grid: 22px;
+
+  --bg: var(--bg-page);
+  --bg-2: var(--bg-surface);
+  --bg-3: var(--bg-surface-2);
+  --border: var(--border-hairline);
+  --border-2: var(--border-strong);
+  --text: var(--ink-primary);
+  --text-dim: var(--ink-secondary);
+  --text-faint: var(--ink-muted);
+  --accent-2: var(--accent-hover);
+  --success: var(--status-good);
+  --failed: var(--status-bad);
+  --running: var(--status-warn);
+  --canceled: var(--ink-muted);
+  --hover: var(--hover-wash);
+  --shadow: var(--shadow-pop);
+  --radius: var(--r-control);
 }
 
 * {
@@ -116,13 +228,35 @@ a {
   min-height: 0;
 }
 
+/* The pool stays mounted and animates its width so it slides in and out rather than
+   popping. The inner content is pinned to the panel's full width so it slides as a
+   block instead of reflowing while the width animates. */
 .sidebar {
-  width: 340px;
+  width: var(--w-sidebar);
+  flex: 0 0 var(--w-sidebar);
   border-right: 1px solid var(--border);
   background: var(--bg-2);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+  transition: flex-basis 0.22s ease, width 0.22s ease, opacity 0.18s ease;
+}
+
+.sidebar.is-collapsed {
+  width: 0;
+  flex-basis: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar > * {
+  min-width: var(--w-sidebar); /* keeps the contents from squashing during the slide */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
 }
 
 .main {
@@ -378,64 +512,282 @@ a {
 }
 
 /* ---------- shelves ---------- */
-.shelves-wrap {
+/* ---------- dashboard grid (react-grid-layout) ---------- */
+.grid-canvas-wrap {
+  width: 100%;
+}
+
+/* Dot grid on the empty plane behind shelves. Never behind text (A5). */
+:root[data-texture="dots"] .view-area.board,
+:root[data-texture="both"] .view-area.board {
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+  background-size: var(--dot-grid) var(--dot-grid);
+  background-position: -1px -1px;
+}
+
+/* ---------- dropdown menus (Transfer, settings, shelf ⋯) ---------- */
+.menu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  z-index: 90;
+  min-width: 210px;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  box-shadow: var(--shadow-pop);
+}
+
+.dropdown-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  padding: 6px 8px 2px;
+}
+
+.dropdown-sep {
+  height: 1px;
+  background: var(--border-hairline);
+  margin: 4px 2px;
+}
+
+.dropdown .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--ink-secondary);
+  font-size: 12.5px;
+  padding: 7px 8px;
+  border-radius: var(--r-small);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dropdown .menu-item svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.dropdown .menu-item:hover:not(:disabled) {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.dropdown .menu-item:disabled {
+  color: var(--ink-muted);
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Transfer: bordered button with a leading download glyph and a trailing chevron. */
+.transfer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--h-control);
+  padding: 0 10px;
+  background: var(--bg-surface);
+  color: var(--ink-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.transfer-btn:hover:not(:disabled) {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.transfer-btn .t-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.transfer-btn .t-caret {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  color: var(--ink-muted);
+}
+
+/* Predictable keyboard focus everywhere (the OS default ring was leaking through). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Segmented Light/Dark switch — the only theme control (§2.1). */
+.theme-switch {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 3px;
+  margin: 2px;
+  background: var(--bg-surface-2);
+  border-radius: var(--r-control);
+}
+
+.theme-opt {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  padding: 5px 6px;
+  border-radius: var(--r-small);
+  cursor: pointer;
+}
+
+.theme-opt:hover {
+  color: var(--ink-primary);
+}
+
+.theme-opt.active {
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+
+/* No cell grid is ever drawn — the drop placeholder alone shows where a shelf lands. */
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.16;
+  border-radius: var(--r-shelf);
+}
+
+/* RGL writes an inline width/height onto whichever element it lays out, so it gets this
+   transparent slot and the shelf hugs its own rows inside it. That way a shelf can end
+   short of the box that was dragged instead of padding itself out with blank space. */
+.shelf-slot {
+  display: flex;
   align-items: flex-start;
-  gap: 14px;
+  min-width: 0;
+}
+
+/* RGL anchors the resize grip to the slot's corner, but the shelf shrink-wraps and can be
+   smaller than its slot — so pin the grip to the SHELF's bottom-right instead, or it ends up
+   stranded out in empty board space where nobody would think to grab it. It stays out of
+   sight until you're over the shelf, so the board reads clean at rest. */
+.shelf-slot > .react-resizable-handle.react-resizable-handle-se {
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.shelf-slot:hover > .react-resizable-handle {
+  opacity: 0.55;
+}
+
+.shelf-slot > .react-resizable-handle:hover {
+  opacity: 1;
 }
 
 .shelf {
   position: relative;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.015);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Fills its grid slot exactly. The grid is authoritative for SHELVES: a 2-tall shelf is
+     therefore the same height as two 1-tall shelves stacked with a gutter between them, and
+     likewise across. The cards inside take up the slack (see .shelf-cards). */
+  height: 100%;
+  width: 100%;
+  border-radius: var(--r-shelf);
+  background: var(--bg-surface);
+  /* A slightly stronger edge than the inner hairlines, so a tinted shelf still reads
+     as distinct from the board behind it. */
+  box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-card);
+  overflow: hidden; /* clips the trailing card hairlines (§4) */
 }
 
 .shelf-grip {
   color: var(--text-faint);
-  cursor: grab;
+  cursor: move;
   font-size: 12px;
   letter-spacing: -1px;
 }
 
-.shelf-resize {
+/* ---------- shelf accent hues — no green, no red (A2) ---------- */
+[data-color="blue"] { --shelf-accent: var(--hue-blue); }
+[data-color="violet"] { --shelf-accent: var(--hue-violet); }
+[data-color="aqua"] { --shelf-accent: var(--hue-aqua); }
+[data-color="orange"] { --shelf-accent: var(--hue-orange); }
+[data-color="magenta"] { --shelf-accent: var(--hue-magenta); }
+[data-color="slate"] { --shelf-accent: var(--hue-slate); }
+
+/* Two presentation modes, both shipping, chosen by a user preference:
+   rail = 3px stripe across the top edge, tint = 8% wash on the header band. */
+:root[data-shelfstyle="rail"] .shelf[data-color]::before,
+:root[data-shelfstyle="both"] .shelf[data-color]::before {
+  content: "";
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 9px;
-  height: 100%;
-  cursor: col-resize;
+  inset: 0 0 auto 0;
+  height: var(--rail-h);
+  background: var(--shelf-accent, var(--border-strong));
+  z-index: 3;
 }
 
-.shelf-resize:hover {
-  background: rgba(76, 141, 255, 0.25);
+:root[data-shelfstyle="tint"] .shelf[data-color] .shelf-head,
+:root[data-shelfstyle="both"] .shelf[data-color] .shelf-head {
+  background: color-mix(in oklab, var(--shelf-accent) 8%, var(--bg-surface));
 }
 
-/* ---------- shelf colour families (very subtle, theme-adaptive via alpha) ---------- */
-[data-color="red"] { --sh: 248, 81, 73; }
-[data-color="orange"] { --sh: 219, 109, 40; }
-[data-color="amber"] { --sh: 210, 153, 34; }
-[data-color="green"] { --sh: 63, 185, 80; }
-[data-color="teal"] { --sh: 45, 178, 160; }
-[data-color="blue"] { --sh: 76, 141, 255; }
-[data-color="violet"] { --sh: 152, 122, 255; }
-[data-color="pink"] { --sh: 236, 64, 122; }
-
-.shelf[data-color] {
-  background: rgba(var(--sh), 0.05);
-  border-color: rgba(var(--sh), 0.30);
+:root[data-shelfstyle="tint"] .shelf[data-color] .shelf-title,
+:root[data-shelfstyle="both"] .shelf[data-color] .shelf-title {
+  color: color-mix(in oklab, var(--shelf-accent) 55%, var(--ink-primary));
 }
 
-.shelf[data-color] .shelf-head {
-  background: rgba(var(--sh), 0.12);
-  border-bottom-color: rgba(var(--sh), 0.22);
-}
-
-.shelf-color-wrap {
-  position: relative;
+/* Health pill — only rendered when the shelf holds a non-passing pipeline. */
+.shelf-health {
   display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+  flex-shrink: 0;
+}
+
+.shelf-health.fail {
+  background: color-mix(in oklab, var(--status-bad) 14%, transparent);
+  color: var(--status-bad);
+}
+
+.shelf-health.running {
+  background: color-mix(in oklab, var(--status-warn) 16%, transparent);
+  color: var(--status-warn);
+}
+
+/* "+N" — cards the shelf has no cell for. Neutral: it's a sizing hint, not a status. */
+.shelf-hidden {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+  flex-shrink: 0;
+  color: var(--ink-muted);
+  background: var(--hover-wash);
+  cursor: help;
 }
 
 .shelf-color-dot {
@@ -443,41 +795,26 @@ a {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 1px solid var(--border-2);
-  background: var(--bg-3);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface-2);
 }
 
 .shelf-color-dot[data-color] {
-  background: rgba(var(--sh), 0.9);
+  background: var(--shelf-accent);
   border-color: transparent;
-}
-
-.color-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  z-index: 80;
-  display: flex;
-  gap: 7px;
-  padding: 8px;
-  background: var(--bg-2);
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
 }
 
 .swatch {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 1px solid var(--border-2);
+  border: 1px solid var(--border-strong);
   cursor: pointer;
   padding: 0;
 }
 
 .swatch[data-color] {
-  background: rgba(var(--sh), 0.85);
+  background: var(--shelf-accent);
   border-color: transparent;
 }
 
@@ -495,64 +832,175 @@ a {
 }
 
 .shelf.active {
-  border-color: var(--border-2);
+  box-shadow: inset 0 0 0 1px var(--border-2);
 }
 
 .shelf-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-2);
+  padding: 0 12px;
+  box-sizing: border-box;
+  height: 42px; /* fixed so the card area below has predictable, symmetric padding */
+  /* A thin line all the way around the header, not just under it, so the tinted band
+     reads as its own box instead of bleeding into the board. The top/left/right edges
+     land on the shelf's own ring, so it still shows as a single hairline. */
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-shelf) var(--r-shelf) 0 0;
+  background: var(--bg-surface-2);
+  cursor: move; /* whole header is the grid drag handle */
+  flex: 0 0 auto;
 }
 
 .shelf-title {
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0; /* allow the title to shrink and ellipsis instead of wrapping */
 }
 
-.shelf-count {
-  font-size: 11px;
-  color: var(--text-faint);
-  background: var(--bg-3);
-  border-radius: 999px;
-  padding: 1px 8px;
+/* ---------- shelf options menu (kebab) ---------- */
+.shelf-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.shelf-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  z-index: 80;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.shelf-menu .menu-item {
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.shelf-menu .menu-item:hover {
+  background: var(--hover);
+}
+
+.shelf-menu .menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.shelf-menu .menu-colors {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 7px;
+  padding: 2px;
+}
+
+/* ---------- the hairline card grid (invariant A3, §4) ----------
+   Cards have NO gutter and NO border of their own. Each carries a right and a
+   bottom hairline; the body is pulled back 1px on those edges and the shelf
+   clips the overhang, so dividers are vertical across a row and become
+   horizontal automatically when the shelf narrows and cards wrap to a new row.
+
+   A divider exists ONLY where two cards meet: never against the header band and never
+   against the shelf edge. Each cell draws its right/bottom hairline and the cells on the
+   last column / last row drop theirs, so no line is ever left hanging in empty space.
+
+   --card-w / --card-h are derived per shelf from its INTEGER cell span, so the cards tile
+   the shelf exactly (no shoulder, no blank footer) and only ever change on a snap. */
+.shelf-body {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .shelf-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px 16px 12px 12px;
-  min-height: 96px;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--card-w, 224px));
+  /* Exactly as many rows as the shelf spans — reserved whether or not they hold a card, so
+     the shelf keeps the size you gave it instead of auto-fitting to its contents. */
+  grid-auto-rows: var(--card-h, 224px);
+  gap: 0;
+  padding: 0;
+  justify-content: start;
+  align-content: start;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: calc(var(--card-h, 224px) * var(--rows, 1));
+  overflow: hidden; /* the user sizes the shelf; extra cards clip rather than scroll */
+  /* One continuous hatch behind every cell; occupied cells paint over it. Widely spaced
+     with a soft, even stroke — tight 1px diagonals beat against the pixel grid and shimmer. */
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0 2px,
+    transparent 2px 16px
+  );
 }
+
+/* A divider is drawn ONLY where two occupied cards meet — never against the header, the
+   shelf edge, or an empty slot. So the hatched region reads as one continuous free area
+   with no internal lines. */
+.card-cell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  border: 0 solid var(--border-hairline);
+}
+
+.card-cell[data-div-right] { border-right-width: 1px; }
+.card-cell[data-div-bottom] { border-bottom-width: 1px; }
+
+/* Unused space is hatched — it reads as "space available", not as content (A5). The texture
+   is painted ONCE across the whole card area and the cards paint over it, so it runs
+   seamlessly through every empty cell instead of restarting at each cell's origin. */
+.card-cell.is-empty {
+  background: none;
+}
+
+/* No hover highlight: an empty cell is a passive marker, not something to click. */
 
 .shelf-cards.drop-hint {
   outline: 2px dashed var(--accent);
   outline-offset: -8px;
-  border-radius: 10px;
+  border-radius: var(--r-control);
 }
 
-.shelf-cards > .card {
-  flex: 0 0 320px;
-  max-width: 320px;
-  /* Uniform floor so sparse cards (and widened sequences) match a normal card's height. */
-  min-height: 190px;
+.card-cell > .card {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
+  border: none;          /* dividers live on .card-cell, never on the card itself */
+  border-radius: 0;
+  background: var(--bg-surface);
+  box-shadow: none;
 }
 
 .shelf-empty {
-  color: var(--text-faint);
-  border: 1px dashed var(--border-2);
-  border-radius: 10px;
+  color: var(--ink-muted);
+  font-size: 12.5px;
   padding: 22px;
-  width: 100%;
   text-align: center;
   align-self: center;
-}
-
-.add-shelf {
-  margin-top: 2px;
+  grid-column: 1 / -1;
 }
 
 .shelf-select {
@@ -563,46 +1011,63 @@ a {
 }
 
 /* ---------- top nav ---------- */
+/* Equal-column grid so every tab is exactly as wide as the widest one. */
 .nav {
-  display: flex;
-  gap: 4px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
   margin-left: 14px;
+  align-self: stretch;
 }
 
+/* Active nav is ink weight + a 2px ink underline — never accent (A1). */
 .nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-dim);
-  border-radius: 8px;
-  padding: 5px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--ink-secondary);
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 6px 11px;
+  white-space: nowrap;
+  border-radius: var(--r-small) var(--r-small) 0 0;
+}
+
+.nav-btn .nav-icon {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  flex-shrink: 0;
 }
 
 .nav-btn:hover {
-  background: var(--bg-3);
-  color: var(--text);
+  background: var(--hover-wash);
+  color: var(--ink-primary);
 }
 
 .nav-btn.active {
-  background: var(--bg-3);
-  color: var(--text);
-  border-color: var(--border-2);
+  color: var(--ink-primary);
+  font-weight: 600;
+  border-bottom-color: var(--ink-primary);
+  background: transparent;
 }
 
 /* ---------- sequence card (in shelves) ---------- */
-.seq-card {
-  border-color: var(--border-2);
-}
-
+/* SEQ is an identity tag, not an action — neutral ink, never accent (A1). */
 .seq-badge {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--accent);
-  background: rgba(76, 141, 255, 0.14);
-  border-radius: 5px;
-  padding: 1px 5px;
-  margin-right: 4px;
-  vertical-align: 1px;
+  letter-spacing: 0.04em;
+  color: var(--ink-secondary);
+  background: var(--hover-wash);
+  border-radius: var(--r-tag);
+  padding: 2px 5px;
+  flex-shrink: 0;
 }
 
 .seq-sub {
@@ -617,14 +1082,28 @@ a {
 }
 
 .seq-flow {
-  /* Fill top-to-bottom (up to 4 steps per cell-width column), then move to the next
-     column — so each step gets a full cell width and long chains stay compact. */
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(4, auto);
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 6px 12px;
-  align-items: center;
+  /* Steps stack vertically and fill the card; past 4 they collapse behind a
+     "+N more" toggle so one long sequence can't drive its neighbours' height. */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.seq-more {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.seq-more:hover {
+  color: var(--ink-primary);
+  text-decoration: underline;
 }
 
 /* sequence run log modal */
@@ -662,13 +1141,26 @@ a {
 .seq-step {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 7px;
+  font-size: 12.5px;
   min-width: 0;
 }
 
+.seq-step-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: var(--border-strong);
+}
+
+.seq-step-dot.success { background: var(--status-good); }
+.seq-step-dot.failed { background: var(--status-bad); }
+.seq-step-dot.running { background: var(--status-warn); }
+.seq-step-dot.canceled { background: var(--ink-muted); }
+
 .seq-step-name {
-  color: var(--text);
+  color: var(--ink-secondary);
   text-decoration: none;
   flex: 1 1 auto;
   min-width: 0;
@@ -679,7 +1171,7 @@ a {
 }
 
 .seq-step-name[href]:hover {
-  color: var(--accent);
+  color: var(--ink-primary);
   text-decoration: underline;
 }
 
@@ -703,7 +1195,7 @@ a {
 }
 
 .linklike:not(:disabled):hover {
-  color: var(--accent);
+  color: var(--ink-primary);
   text-decoration: underline;
 }
 
@@ -928,11 +1420,376 @@ a {
   margin-bottom: 6px;
 }
 
-/* ---------- configurations ---------- */
+/* ---------- configurations: namespaces → keys → detail (§2.4) ----------
+   One scroll context per pane, no modal, no nested scrollbars. The detail pane slides in
+   beside the key list instead of covering it, so you keep your place in the list. */
+.cfg {
+  display: grid;
+  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 0;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  transition: grid-template-columns 0.18s ease;
+}
+
+.cfg.is-detail-open {
+  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 470px;
+}
+
+.cfg-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-hairline);
+}
+
+.cfg-col.cfg-detail {
+  border-right: none;
+}
+
+.cfg-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+  flex-shrink: 0;
+}
+
+.cfg-envrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+/* One pill per store. The dot carries the environment hue even when inactive. */
+.env-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--r-control);
+  cursor: pointer;
+  color: var(--ink-secondary);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.env-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--env-c);
+  flex-shrink: 0;
+}
+
+.env-pill.active {
+  color: #fff;
+  border-color: transparent;
+  background: var(--env-c);
+}
+
+.env-pill.active::before {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+/* Environment identity band: the endpoint strip carries the active env colour, so
+   "which environment am I about to edit?" is answerable peripherally. */
+.cfg-endpoint {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: color-mix(in oklab, var(--env-active) 12%, transparent);
+  color: color-mix(in oklab, var(--env-active) 70%, var(--ink-primary));
+  border-left: 3px solid var(--env-active);
+}
+
+.cfg-filter {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  flex-shrink: 0;
+}
+
+.cfg-search {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--border-hairline);
+  font: inherit;
+  font-size: 12.5px;
+  background: var(--bg-surface-2);
+  color: var(--ink-primary);
+}
+
+.cfg-search:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.cfg-scroll {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.cfg-note {
+  padding: 14px 16px;
+  font-size: 12.5px;
+}
+
+.ns-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--ink-primary);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+}
+
+.ns-item:hover {
+  background: var(--hover-wash);
+}
+
+/* Selection — the one sanctioned use of --accent outside a run button (A1). */
+.ns-item.active {
+  background: var(--accent-tint);
+  border-left-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ns-item .nm {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Count badge doubles as a magnitude cue — one hue, four steps. */
+.ns-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 100px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-count.sz1 { background: #eef4fd; color: #4a7cb5; }
+.ns-count.sz2 { background: #dbe9fb; color: #2a6cbd; }
+.ns-count.sz3 { background: #c3daf8; color: #1f5ca8; }
+.ns-count.sz4 { background: #a8c9f4; color: #17498a; }
+
+:root[data-theme="dark"] .ns-count.sz1 { background: rgba(57, 135, 229, 0.10); color: #7fb0ee; }
+:root[data-theme="dark"] .ns-count.sz2 { background: rgba(57, 135, 229, 0.18); color: #94bef2; }
+:root[data-theme="dark"] .ns-count.sz3 { background: rgba(57, 135, 229, 0.28); color: #b3d2f7; }
+:root[data-theme="dark"] .ns-count.sz4 { background: rgba(57, 135, 229, 0.40); color: #d5e6fb; }
+
+.keys-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  flex-shrink: 0;
+}
+
+.keys-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.keys-sub {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.keys-table {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.keys-colhead,
+.key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) 96px minmax(0, 1fr) 62px;
+  gap: 12px;
+}
+
+.keys-colhead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 7px 16px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  background: var(--bg-surface-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+/* Keys are grouped by their next ":" segment, so a family of related settings reads as
+   one block instead of a run of near-identical prefixes. */
+.key-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: var(--bg-surface-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.kg-name {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kg-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.key-row {
+  align-items: center;
+  padding: 9px 16px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-hairline);
+  border-left: 2px solid transparent;
+}
+
+/* Grouped rows sit slightly inboard of their heading. */
+.key-row.in-group {
+  padding-left: 30px;
+}
+
+.key-row:hover {
+  background: var(--hover-wash);
+}
+
+.key-row.sel {
+  background: var(--accent-tint);
+  border-left-color: var(--accent);
+}
+
+.key-name {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-label {
+  font-size: 11px;
+  color: var(--ink-muted);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.key-label .tag {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: var(--r-small);
+  padding: 2px 8px;
+  font-weight: 600;
+  font-size: 10.5px;
+  background: color-mix(in oklab, var(--hue-violet) 14%, transparent);
+  color: var(--hue-violet);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-preview {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Value-type badge — identity, not status, so the ramp excludes green and red (A2). */
+.key-type {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: var(--r-small);
+  text-align: center;
+}
+
+.key-type.ty-JSON { background: color-mix(in oklab, var(--t-json) 13%, transparent); color: var(--t-json); }
+.key-type.ty-BOOL { background: color-mix(in oklab, var(--t-bool) 13%, transparent); color: var(--t-bool); }
+.key-type.ty-INT { background: color-mix(in oklab, var(--t-int) 15%, transparent); color: var(--t-int); }
+.key-type.ty-STR { background: color-mix(in oklab, var(--t-str) 14%, transparent); color: var(--t-str); }
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+  border-left: 1px solid var(--border-hairline);
+  flex-shrink: 0;
+}
+
+.detail-title {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- key vault ----------
+   Still the single-panel layout; it hasn't had its own design pass yet. */
 .view-area.cfg-area {
   display: flex;
   flex-direction: column;
-  align-items: center; /* center the constrained panel horizontally */
+  align-items: center;
   overflow: hidden;
 }
 
@@ -962,94 +1819,8 @@ a {
 }
 
 .cfg-tree {
-  width: 100%;
-}
-
-.cfg-group {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: none;
-  border: none;
-  color: var(--text);
-  padding: 6px 8px;
-  border-radius: 6px;
-  text-align: left;
-}
-
-.cfg-group:hover {
-  background: var(--hover);
-}
-
-.cfg-chevron {
-  width: 12px;
-  flex: 0 0 12px;
-  color: var(--text-faint);
-  font-size: 10px;
-}
-
-.cfg-group-name {
-  font-weight: 600;
-}
-
-.cfg-count {
-  font-size: 11px;
-  color: var(--text-faint);
-  background: var(--bg-3);
-  border-radius: 999px;
-  padding: 0 7px;
-}
-
-.cfg-leaf {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 8px;
-  border-radius: 6px;
-}
-
-.cfg-leaf:hover {
-  background: var(--hover);
-}
-
-.cfg-leaf-name {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  min-width: 160px;
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cfg-leaf-label {
-  font-size: 11px;
-  color: var(--accent);
-  background: rgba(76, 141, 255, 0.14);
-  border-radius: 5px;
-  padding: 1px 7px;
-  flex: 0 0 auto;
-  min-width: 64px;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cfg-leaf-label.cfg-no-label {
-  color: var(--text-faint);
-  background: transparent;
-  font-style: italic;
-}
-
-.cfg-leaf-digest {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-direction: column;
 }
 
 /* key vault rows */
@@ -1086,20 +1857,31 @@ a {
   word-break: break-all;
 }
 
-/* JSON viewer */
+/* JSON viewer — keys, numbers and strings coloured separately so a blob can be skimmed. */
 .json-view {
   margin: 0;
-  font: 12.5px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  white-space: pre;
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px;
+  background: var(--code-bg);
+  border-left: 1px solid var(--border-hairline);
+  font: 12px/1.65 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
   overflow: auto;
-  color: var(--text);
+  color: var(--ink-primary);
 }
 
-.json-view .j-key { color: var(--accent); }
-.json-view .j-str { color: var(--success); }
-.json-view .j-num { color: var(--running); }
-.json-view .j-bool { color: #c678dd; }
-.json-view .j-null { color: var(--text-faint); }
+.json-view .j-key { color: #1c5cab; }
+.json-view .j-num { color: #9a6a00; }
+.json-view .j-str { color: #0a7d0a; }
+.json-view .j-bool { color: var(--hue-violet); }
+.json-view .j-null { color: var(--ink-muted); }
+.json-view .j-punct { color: var(--ink-muted); }
+
+:root[data-theme="dark"] .json-view .j-key { color: #6da7ec; }
+:root[data-theme="dark"] .json-view .j-num { color: #eda100; }
+:root[data-theme="dark"] .json-view .j-str { color: #4fc94f; }
 
 .cfg-table {
   width: 100%;
@@ -1151,16 +1933,13 @@ a {
 
 /* ---------- pipeline card ---------- */
 .card {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius);
-  padding: 14px;
+  padding: 11px 13px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.card {
+  gap: 5px;
   cursor: grab;
 }
 
@@ -1168,58 +1947,195 @@ a {
   cursor: grabbing;
 }
 
+/* Title row: SEQ tag + title on the left, status glyph + ✕ on the right (§2.3). */
 .card .card-head {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px; /* a little air between the title and the card's content */
 }
 
 .card .title {
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   flex: 1;
   min-width: 0;
 }
 
 .card-title-text {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink-primary);
   border-radius: 4px;
   padding: 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-title-text:hover {
-  background: var(--bg-3);
+  background: var(--hover-wash);
   cursor: text;
 }
 
+.card-head-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Status is a glyph + tooltip, never a bare colour and never a text pill (A4). The glyph
+   SHAPE differs per state (check / cross / arc / dash), so it still reads in greyscale
+   whether or not the chip behind it is drawn. */
+.status-glyph {
+  width: 17px;
+  height: 17px;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.status-glyph svg {
+  width: 17px;
+  height: 17px;
+}
+
+.status-glyph.tone-success { color: var(--status-good); }
+.status-glyph.tone-failed { color: var(--status-bad); }
+.status-glyph.tone-running { color: var(--status-warn); }
+.status-glyph.tone-canceled { color: var(--ink-muted); }
+
+/* Light: a filled chip with the mark knocked out of it. */
+.status-glyph .glyph-chip {
+  rx: var(--r-glyph);
+  ry: var(--r-glyph);
+  fill: currentColor;
+  stroke: none;
+}
+
+.status-glyph .glyph-mark {
+  fill: none;
+  stroke: var(--bg-surface);
+  stroke-width: 1.6;
+}
+
+/* "Running" is an outline in both themes — it's an in-flight state, not a result. */
+.status-glyph.tone-running .glyph-chip,
+.status-glyph.tone-canceled .glyph-chip {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+
+.status-glyph.tone-running .glyph-mark,
+.status-glyph.tone-canceled .glyph-mark {
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+
+/* Dark: drop the chip entirely and let the mark carry the colour. */
+:root[data-theme="dark"] .status-glyph .glyph-chip {
+  fill: none;
+  stroke: none;
+}
+
+:root[data-theme="dark"] .status-glyph .glyph-mark {
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+/* ✕ sits top-right beside the glyph, at matching visual weight. */
+.card-close {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-small);
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.card-close:hover {
+  background: color-mix(in oklab, var(--status-bad) 12%, transparent);
+  color: var(--status-bad);
+}
+
+/* Project label — hidden by default, per-card opt-in from the ⋯ menu (§2.3). */
 .card .sub {
-  font-size: 12px;
-  color: var(--text-faint);
+  display: none;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.card.show-label .sub {
+  display: block;
 }
 
 .card .runs {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
+  flex: 1 1 auto;   /* take the slack so the actions row stays pinned to the bottom */
+  min-height: 0;
+  overflow: hidden; /* clip extra runs rather than scroll (shelf is user-sized) */
 }
 
+/* Single-line run row: dot, short branch, then "1m 3s · 4h" as one muted string. */
 .run-line {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  padding: 3px 0;
-  border-top: 1px solid var(--border);
+  padding: 5px;
+  margin: 0 -5px;
+  border-radius: 6px;
+  border: none;
 }
 
+.run-line:hover {
+  background: var(--hover-wash);
+}
+
+.run-line .rl-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ink-muted);
+}
+
+.run-line .rl-dot.success { background: var(--status-good); }
+.run-line .rl-dot.failed { background: var(--status-bad); }
+.run-line .rl-dot.running { background: var(--status-warn); }
+.run-line .rl-dot.canceled { background: var(--ink-muted); }
+
+/* Branch names are ink-coloured, never accent (A1). */
 .run-line .rl-branch {
-  color: var(--text-dim);
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 120px;
 }
 
-.run-line .rl-spacer {
-  flex: 1;
+.run-line .rl-meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-meta {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--ink-muted);
 }
 
 .card .actions {
@@ -1228,6 +2144,154 @@ a {
   gap: 6px;
   margin-top: auto; /* pin to the bottom so button rows align across cards */
   padding-top: 4px;
+}
+
+/* Every footer control is exactly --h-control tall, so the play button, Logs and ⋯
+   line up as one row and footers match across a shelf (§7 of the token sheet). */
+.card .actions .btn {
+  box-sizing: border-box;
+  height: var(--h-control);
+  padding: 0 12px;
+  border-radius: var(--r-control);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Icon-only footer buttons are exactly the same square as the run button. */
+.card .actions .btn.icon-only {
+  width: var(--h-control);
+  min-width: var(--h-control);
+  padding: 0;
+  flex: 0 0 var(--h-control);
+}
+
+.card .actions .btn.icon-only svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+/* Run button — icon only. Solid for sequences, ghost for single pipelines:
+   same accent, two weights. --accent lives here and on list selection only (A1). */
+/* Both variants must be pixel-identical in size — only their weight differs. The
+   explicit box-sizing + flex-basis keeps the solid one from measuring differently to
+   the bordered ghost one. */
+.run-btn {
+  box-sizing: border-box;
+  flex: 0 0 var(--h-control);
+  width: var(--h-control);
+  height: var(--h-control);
+  min-width: var(--h-control);
+  min-height: var(--h-control);
+  border-radius: var(--r-control);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 0;
+}
+
+.run-btn svg {
+  width: 10px;
+  height: 10px;
+  display: block;
+}
+
+.run-btn .spin {
+  margin: 0;
+}
+
+.run-btn.solid {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 1px 2px rgba(42, 120, 214, 0.32);
+}
+
+.run-btn.solid:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.run-btn.ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--border-strong);
+}
+
+.run-btn.ghost:hover:not(:disabled) {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+}
+
+.run-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ⋯ takes the footer slot where ✕ used to be. */
+.card-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.card-menu-btn {
+  width: var(--h-control);
+  height: var(--h-control);
+  border-radius: var(--r-control);
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.card-menu-btn:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.card-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 6px;
+  z-index: 80;
+  min-width: 176px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  box-shadow: var(--shadow-pop);
+}
+
+.card-menu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  padding: 6px 8px;
+  border-radius: var(--r-small);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.card-menu label:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
 }
 
 /* ---------- modal ---------- */

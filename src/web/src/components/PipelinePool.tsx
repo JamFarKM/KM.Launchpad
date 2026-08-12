@@ -17,12 +17,14 @@ interface Props {
   pinnedSequenceIds: Set<string>;
   onAddSequence: (s: Sequence) => void;
   onDragStartSequence: (s: Sequence) => void;
+  /** Stays mounted while collapsed so the panel can slide out instead of popping. */
+  collapsed?: boolean;
 }
 
 export function PipelinePool({
   projects, activeProject, onProject, pipelines, loading, search, onSearch,
   pinnedIds, onAdd, onDragStart,
-  sequences, pinnedSequenceIds, onAddSequence, onDragStartSequence,
+  sequences, pinnedSequenceIds, onAddSequence, onDragStartSequence, collapsed,
 }: Props) {
   const [source, setSource] = useState<"pipelines" | "sequences">("pipelines");
 
@@ -45,7 +47,7 @@ export function PipelinePool({
   }, [sequences, search]);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${collapsed ? "is-collapsed" : ""}`} aria-hidden={collapsed}>
       <div className="pool-head">
         <div className="nav" style={{ margin: 0 }}>
           <button className={`nav-btn ${source === "pipelines" ? "active" : ""}`} onClick={() => setSource("pipelines")}>

@@ -96,6 +96,7 @@ export interface ViewItem {
   sequenceId?: string | null; // sequence only
   name: string;
   shelf?: string | null;
+  showLabel?: boolean | null; // per-card "Show project label" opt-in (§2.3)
 }
 
 // ----- sequences -----
@@ -128,6 +129,7 @@ export interface SequenceStep {
   project: string;
   pipelineId: number;
   name: string;
+  alias?: string | null; // short label shown on the dashboard card (falls back to name)
   branch?: string | null;
   branchInputId?: string | null;
   templateParameters?: Record<string, string> | null;
@@ -166,13 +168,21 @@ export interface SequenceRun {
   finishedAt?: string | null;
 }
 
+// A shelf's position/size on the dashboard grid, in grid cells (Grafana-style).
+export interface GridPos {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface SavedView {
   id: string;
   name: string;
   sortOrder: number;
   shelves: string[];
-  shelfWidths?: Record<string, number>; // per-shelf width in card-width units; 0/absent = full width
   shelfColors?: Record<string, string>; // per-shelf colour family (e.g. "red"); absent = none
+  shelfLayout?: Record<string, GridPos>; // per-shelf grid placement; absent = auto-placed
   items: ViewItem[];
 }
 

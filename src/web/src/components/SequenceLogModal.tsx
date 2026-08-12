@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import type { SequenceRun, SequenceRunStep } from "../types";
 import { timeAgo } from "../lib/format";
 
@@ -36,7 +37,10 @@ export function SequenceLogModal({ run, sequenceName, onClose, onOpenRun }: {
   onClose: () => void;
   onOpenRun: (project: string, buildId: number) => void;
 }) {
-  return (
+  // Portalled to <body>: react-grid-layout puts a transform on every shelf, which makes it the
+  // containing block for position:fixed, so an in-place overlay would be trapped and clipped
+  // inside the shelf instead of covering the window.
+  return createPortal(
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
         <div className="modal-head">
@@ -80,6 +84,7 @@ export function SequenceLogModal({ run, sequenceName, onClose, onOpenRun }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

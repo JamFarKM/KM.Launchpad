@@ -2,13 +2,14 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
-import { applyTheme, getSettings } from "./lib/settings";
+import { applyAll } from "./lib/settings";
 import "./pwa";
 import "./styles.css";
 
-// Apply the saved theme before first paint (an inline script in index.html handles
-// the very first frame; this keeps it in sync for SPA navigation and OS changes).
-applyTheme(getSettings().theme);
+// Apply theme + presentation preferences before first paint (an inline script in
+// index.html handles the very first frame; this keeps it in sync for SPA
+// navigation and OS changes).
+applyAll();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

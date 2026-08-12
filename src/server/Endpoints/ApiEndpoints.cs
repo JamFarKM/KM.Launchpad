@@ -142,7 +142,7 @@ public static class ApiEndpoints
                 UserId = ctx.UserId!,
                 Name = body.Name.Trim(),
                 SortOrder = body.SortOrder,
-                ItemsJson = SerializeLayout(body.Shelves, body.ShelfWidths, body.ShelfColors, body.Items),
+                ItemsJson = SerializeLayout(body.Shelves, body.ShelfColors, body.ShelfLayout, body.Items),
                 CreatedAt = now,
                 UpdatedAt = now,
             };
@@ -158,7 +158,7 @@ public static class ApiEndpoints
             if (view is null) return Results.NotFound();
             view.Name = body.Name.Trim();
             view.SortOrder = body.SortOrder;
-            view.ItemsJson = SerializeLayout(body.Shelves, body.ShelfWidths, body.ShelfColors, body.Items);
+            view.ItemsJson = SerializeLayout(body.Shelves, body.ShelfColors, body.ShelfLayout, body.Items);
             view.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToDto(view));
@@ -180,19 +180,20 @@ public static class ApiEndpoints
         catch (AdoService.AdoException ex) { return Results.Json(new { error = ex.Message }, statusCode: ex.Status); }
     }
 
-    // Layout (shelves + per-shelf widths + items) is stored in the single ItemsJson
-    // column so no schema change is needed. Tolerates the legacy shape (bare array).
-    private record ViewLayout(List<string> Shelves, Dictionary<string, int>? ShelfWidths, Dictionary<string, string>? ShelfColors, List<ViewItemDto> Items);
+    // Layout (shelves + colours + grid placement + items) is stored in the single ItemsJson
+    // column so no schema change is needed. Tolerates the legacy shape (bare array) and the
+    // older object shape (which carried a now-removed ShelfWidths field — simply ignored).
+    private record ViewLayout(List<string> Shelves, Dictionary<string, string>? ShelfColors, Dictionary<string, GridPosDto>? ShelfLayout, List<ViewItemDto> Items);
 
-    private static string SerializeLayout(List<string>? shelves, Dictionary<string, int>? shelfWidths, Dictionary<string, string>? shelfColors, List<ViewItemDto>? items) =>
-        JsonSerializer.Serialize(new ViewLayout(shelves ?? new(), shelfWidths ?? new(), shelfColors ?? new(), items ?? new()), Json);
+    private static string SerializeLayout(List<string>? shelves, Dictionary<string, string>? shelfColors, Dictionary<string, GridPosDto>? shelfLayout, List<ViewItemDto>? items) =>
+        JsonSerializer.Serialize(new ViewLayout(shelves ?? new(), shelfColors ?? new(), shelfLayout ?? new(), items ?? new()), Json);
 
     private static SavedViewDto ToDto(SavedView v)
     {
         var json = (v.ItemsJson ?? "").TrimStart();
         List<string> shelves = new();
-        Dictionary<string, int> shelfWidths = new();
         Dictionary<string, string> shelfColors = new();
+        Dictionary<string, GridPosDto> shelfLayout = new();
         List<ViewItemDto> items = new();
         if (json.StartsWith("["))
         {
@@ -203,10 +204,10 @@ public static class ApiEndpoints
         {
             var layout = JsonSerializer.Deserialize<ViewLayout>(json, Json);
             shelves = layout?.Shelves ?? new();
-            shelfWidths = layout?.ShelfWidths ?? new();
             shelfColors = layout?.ShelfColors ?? new();
+            shelfLayout = layout?.ShelfLayout ?? new();
             items = layout?.Items ?? new();
         }
-        return new SavedViewDto(v.Id, v.Name, v.SortOrder, shelves, shelfWidths, shelfColors, items);
+        return new SavedViewDto(v.Id, v.Name, v.SortOrder, shelves, shelfColors, shelfLayout, items);
     }
 }

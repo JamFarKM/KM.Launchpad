@@ -22,7 +22,19 @@ public class CfgView
 {
     public string Name { get; set; } = "";
     public List<string> Shelves { get; set; } = new();
+    /// <summary>Per-shelf accent family (e.g. "blue"). Absent means no accent.</summary>
+    public Dictionary<string, string> ShelfColors { get; set; } = new();
+    /// <summary>Per-shelf grid placement. Shelves without one are auto-placed on load.</summary>
+    public Dictionary<string, CfgGridPos> ShelfLayout { get; set; } = new();
     public List<CfgViewItem> Items { get; set; } = new();
+}
+
+public class CfgGridPos
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int W { get; set; }
+    public int H { get; set; }
 }
 
 public class CfgViewItem
@@ -33,4 +45,6 @@ public class CfgViewItem
     public string? Sequence { get; set; }            // sequence name (for kind=sequence)
     public string Name { get; set; } = "";
     public string? Shelf { get; set; }
+    /// <summary>Per-card "Show project label" opt-in.</summary>
+    public bool? ShowLabel { get; set; }
 }

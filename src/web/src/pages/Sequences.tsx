@@ -17,7 +17,7 @@ const uid = () =>
 
 const emptyInput = (): SequenceInput => ({ id: uid(), name: "", kind: "value", default: "" });
 const emptyStep = (): SequenceStep => ({
-  id: uid(), project: "", pipelineId: 0, name: "", branch: "", branchInputId: "",
+  id: uid(), project: "", pipelineId: 0, name: "", alias: "", branch: "", branchInputId: "",
   templateParameters: {}, variables: {}, bindings: [], link: { mode: "none", key: "" },
 });
 
@@ -332,7 +332,7 @@ function StepEditor({ step, index, total, projects, inputs, onChange, onMove, on
     <div className="seq-step-card">
       <div className="seq-step-head">
         <span className="seq-step-num">{index + 1}</span>
-        <strong>{step.name || "Choose a pipeline"}</strong>
+        <strong>{step.alias?.trim() || step.name || "Choose a pipeline"}</strong>
         <span style={{ flex: 1 }} />
         <button className="btn ghost small" disabled={index === 0} onClick={() => onMove(-1)}>↑</button>
         <button className="btn ghost small" disabled={index === total - 1} onClick={() => onMove(1)}>↓</button>
@@ -360,6 +360,12 @@ function StepEditor({ step, index, total, projects, inputs, onChange, onMove, on
           <Combobox value={branchValue} options={branchOptions}
             disabled={step.pipelineId <= 0} loading={detailQ.isLoading}
             onChange={onBranchChange} />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label className="label">Card label (optional)</label>
+          <input className="input" style={{ maxWidth: 260 }}
+            placeholder={step.name || "defaults to the pipeline name"}
+            value={step.alias ?? ""} onChange={(e) => onChange({ alias: e.target.value })} />
         </div>
       </div>
 

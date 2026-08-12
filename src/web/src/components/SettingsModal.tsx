@@ -1,11 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { getSettings, setSettings, type Theme } from "../lib/settings";
+import { getSettings, setSettings } from "../lib/settings";
 import { ensureNotifyPermission } from "../lib/notify";
 import type { AzureCredential, ConfigRegistry, VaultRegistry } from "../types";
-
-const THEMES: Theme[] = ["system", "light", "dark"];
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [s, setS] = useState(getSettings());
@@ -21,22 +19,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 560 }}>
         <div className="modal-head">
-          <div className="title">Settings</div>
+          <div className="title">Notifications &amp; stores</div>
           <button className="btn ghost small" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
-          <div className="field">
-            <label className="label">Theme</label>
-            <div className="row">
-              {THEMES.map((t) => (
-                <button key={t} className={`btn small ${s.theme === t ? "primary" : ""}`}
-                  style={{ textTransform: "capitalize", flex: 1 }} onClick={() => update({ ...s, theme: t })}>
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
+          {/* Theme and presentation preferences live in the settings gear menu —
+              that is the only theme control (§2.1). */}
           <div className="field">
             <label className="label">Desktop notifications</label>
             <label className="row" style={{ gap: 8, cursor: "pointer" }}>

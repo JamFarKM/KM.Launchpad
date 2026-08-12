@@ -89,6 +89,23 @@ public class ConfigService(AppDbContext db)
                 Name = Attr(v, "name"),
                 Shelves = Attr(v, "shelves").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
             };
+            // <shelf name="Placement" color="blue" x="0" y="0" w="2" h="1" />
+            foreach (var sh in v.Elements("shelf"))
+            {
+                var shName = Attr(sh, "name");
+                if (shName.Length == 0) continue;
+                if (!view.Shelves.Contains(shName)) view.Shelves.Add(shName);
+                var color = Attr(sh, "color");
+                if (color.Length > 0) view.ShelfColors[shName] = color;
+                if (sh.Attribute("w") is not null)
+                {
+                    view.ShelfLayout[shName] = new CfgGridPos
+                    {
+                        X = IntAttr(sh, "x"), Y = IntAttr(sh, "y"),
+                        W = IntAttr(sh, "w"), H = IntAttr(sh, "h"),
+                    };
+                }
+            }
             foreach (var it in v.Elements("item"))
             {
                 view.Items.Add(new CfgViewItem
@@ -99,6 +116,7 @@ public class ConfigService(AppDbContext db)
                     Sequence = Attr(it, "sequence"),
                     Name = Attr(it, "name"),
                     Shelf = Attr(it, "shelf"),
+                    ShowLabel = bool.TryParse(Attr(it, "showLabel"), out var sl) ? sl : null,
                 });
             }
             doc.Views.Add(view);
@@ -145,13 +163,22 @@ public class ConfigService(AppDbContext db)
                 return new ViewItemDto(
                     isSeq ? "sequence" : "pipeline",
                     it.Project, it.PipelineId, seqId,
-                    it.Name, it.Shelf);
+                    it.Name, it.Shelf, it.ShowLabel);
             }).ToList();
+
+            var shelfLayout = cv.ShelfLayout.ToDictionary(
+                kv => kv.Key, kv => new GridPosDto(kv.Value.X, kv.Value.Y, kv.Value.W, kv.Value.H));
 
             db.Views.Add(new SavedView
             {
                 Id = Guid.NewGuid().ToString("N"), UserId = userId, Name = cv.Name, SortOrder = order++,
-                ItemsJson = JsonSerializer.Serialize(new { shelves = cv.Shelves, items }, Json),
+                ItemsJson = JsonSerializer.Serialize(new
+                {
+                    shelves = cv.Shelves,
+                    shelfColors = cv.ShelfColors,
+                    shelfLayout,
+                    items,
+                }, Json),
                 CreatedAt = now, UpdatedAt = now,
             });
         }
@@ -178,12 +205,16 @@ public class ConfigService(AppDbContext db)
 
         foreach (var v in views)
         {
-            var (shelves, items) = ReadLayout(v.ItemsJson);
+            var layout = ReadLayout(v.ItemsJson);
             doc.Views.Add(new CfgView
             {
                 Name = v.Name,
-                Shelves = shelves,
-                Items = items.Select(it => new CfgViewItem
+                Shelves = layout.Shelves,
+                ShelfColors = layout.ShelfColors,
+                ShelfLayout = layout.ShelfLayout.ToDictionary(
+                    kv => kv.Key,
+                    kv => new CfgGridPos { X = kv.Value.X, Y = kv.Value.Y, W = kv.Value.W, H = kv.Value.H }),
+                Items = layout.Items.Select(it => new CfgViewItem
                 {
                     Kind = it.Kind ?? "pipeline",
                     Project = it.Project,
@@ -191,21 +222,30 @@ public class ConfigService(AppDbContext db)
                     Sequence = it.Kind == "sequence" && it.SequenceId is not null && idToName.TryGetValue(it.SequenceId, out var nm) ? nm : null,
                     Name = it.Name,
                     Shelf = it.Shelf,
+                    ShowLabel = it.ShowLabel,
                 }).ToList(),
             });
         }
         return doc;
     }
 
-    private static (List<string>, List<ViewItemDto>) ReadLayout(string json)
+    /// <summary>
+    /// Reads a view's stored layout blob, tolerating the legacy bare-array shape and the
+    /// older object shape that predates shelf colours / grid placement.
+    /// </summary>
+    private static Layout ReadLayout(string json)
     {
         var t = (json ?? "").TrimStart();
         if (t.StartsWith("["))
-            return (new(), JsonSerializer.Deserialize<List<ViewItemDto>>(t, Json) ?? new());
-        if (t.Length == 0) return (new(), new());
-        var layout = JsonSerializer.Deserialize<Layout>(t, Json);
-        return (layout?.Shelves ?? new(), layout?.Items ?? new());
+            return new Layout(new(), new(), new(), JsonSerializer.Deserialize<List<ViewItemDto>>(t, Json) ?? new());
+        if (t.Length == 0) return new Layout(new(), new(), new(), new());
+        var l = JsonSerializer.Deserialize<Layout>(t, Json);
+        return new Layout(l?.Shelves ?? new(), l?.ShelfColors ?? new(), l?.ShelfLayout ?? new(), l?.Items ?? new());
     }
 
-    private record Layout(List<string> Shelves, List<ViewItemDto> Items);
+    private record Layout(
+        List<string> Shelves,
+        Dictionary<string, string> ShelfColors,
+        Dictionary<string, GridPosDto> ShelfLayout,
+        List<ViewItemDto> Items);
 }
