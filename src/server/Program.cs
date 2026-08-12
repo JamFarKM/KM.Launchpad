@@ -91,6 +91,17 @@ using (var scope = app.Services.CreateScope())
             "Secret" TEXT NOT NULL,
             "UpdatedAt" TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS "RepoFavourites" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_RepoFavourites" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Project" TEXT NOT NULL,
+            "RepoId" TEXT NOT NULL,
+            "RepoName" TEXT NOT NULL,
+            "SortOrder" INTEGER NOT NULL DEFAULT 0,
+            "CreatedAt" TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_RepoFavourites_UserId" ON "RepoFavourites" ("UserId");
         """);
 
     // Any sequence run still "running" was orphaned by a previous process (restart/crash)

@@ -1,10 +1,19 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import type { DiffStats } from "../components/MonacoDiff";
-import type { PrChange, Project, PullRequest, Repo } from "../types";
+import type { PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
+
+/** ADO's vote scale, as review actions. */
+const VOTES: { vote: number; label: string; tone: string }[] = [
+  { vote: 10, label: "Approve", tone: "ok" },
+  { vote: 5, label: "Approve with suggestions", tone: "ok-soft" },
+  { vote: -5, label: "Waiting for author", tone: "warn" },
+  { vote: -10, label: "Reject", tone: "bad" },
+];
+const voteLabel = (v: number) => VOTES.find((x) => x.vote === v)?.label ?? "No vote";
 
 /**
  * A first pass at PR review: pull requests → changed files → diff.
@@ -38,6 +47,7 @@ const fileDir = (p: string) => {
 };
 
 export function ReviewPage() {
+  const qc = useQueryClient();
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
   const [project, setProject] = useState("");
   const [repoId, setRepoId] = useState("");
@@ -102,8 +112,114 @@ export function ReviewPage() {
   const shown = diffQ.data;
   const isStale = !!shown && shown.path !== path;
 
+  // ---- comment threads ----
+  const threadsQ = useQuery<PrThread[]>({
+    queryKey: ["pr-threads", project, repoId, prId],
+    queryFn: () => api.prThreads(project, repoId, prId!),
+    enabled: !!project && !!repoId && !!prId,
+  });
+
+  const refreshThreads = () => qc.invalidateQueries({ queryKey: ["pr-threads", project, repoId, prId] });
+
+  // System threads ("X voted…") have no file context; only anchored ones belong in the diff.
+  const fileThreads = useMemo(
+    () => (threadsQ.data ?? []).filter((t) => t.filePath === shown?.path && (t.rightLine ?? 0) > 0),
+    [threadsQ.data, shown?.path],
+  );
+
+  const onReply = useCallback(async (threadId: number, content: string) => {
+    await api.prReply(project, repoId, prId!, threadId, content);
+    await refreshThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, repoId, prId]);
+
+  const onSetStatus = useCallback(async (threadId: number, status: string) => {
+    await api.prSetThreadStatus(project, repoId, prId!, threadId, status);
+    await refreshThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, repoId, prId]);
+
+  const onNewThread = useCallback(async (line: number, content: string) => {
+    await api.prCreateThread(project, repoId, prId!, {
+      filePath: shown!.path, line, content, onLeft: false,
+    });
+    await refreshThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, repoId, prId, shown?.path]);
+
+  // ---- starred repos ----
+  const favouritesQ = useQuery<RepoFavourite[]>({ queryKey: ["repo-favourites"], queryFn: api.repoFavourites });
+  const favourites = favouritesQ.data ?? [];
+  const currentFavourite = favourites.find((f) => f.project === project && f.repoId === repoId);
+  const repoName = (reposQ.data ?? []).find((r) => r.id === repoId)?.name ?? "";
+
+  const toggleFavourite = useMutation({
+    mutationFn: async () => {
+      if (currentFavourite) await api.removeRepoFavourite(currentFavourite.id);
+      else await api.addRepoFavourite(project, repoId, repoName);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["repo-favourites"] }),
+  });
+
+  // ---- review vote ----
+  const vote = useMutation({
+    mutationFn: (v: number) => api.prVote(project, repoId, prId!, v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["prs", project, repoId] }),
+  });
+
   return (
-    <div className="body">
+    <div className="body review-wrap">
+      {/* Starred repos: project -> repo is too many clicks for something used all day. */}
+      {favourites.length > 0 && (
+        <div className="quicklinks">
+          <span className="ql-label">Starred</span>
+          {favourites.map((f) => (
+            <button
+              key={f.id}
+              className={`ql-chip ${f.project === project && f.repoId === repoId ? "active" : ""}`}
+              title={`${f.project} / ${f.repoName}`}
+              onClick={() => { setProject(f.project); setRepoId(f.repoId); setPrId(null); }}
+            >
+              <span className="ql-repo">{f.repoName}</span>
+              <span className="ql-project">{f.project}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* PR-level actions live here, above the panes, because they apply to the whole PR. */}
+      {pr && (
+        <div className="pr-bar">
+          <span className="pr-bar-id">!{pr.id}</span>
+          <span className="pr-bar-title" title={pr.title}>{pr.title}</span>
+          <span className="pr-bar-refs">
+            {branchShort(pr.sourceRef)} <span className="pr-arrow">→</span> {branchShort(pr.targetRef)}
+          </span>
+          <span style={{ flex: 1 }} />
+          {pr.myVote !== 0 && (
+            <span className={`pr-vote-state v${pr.myVote > 0 ? "pos" : "neg"}`}>{voteLabel(pr.myVote)}</span>
+          )}
+          <div className="pr-votes">
+            {VOTES.map((v) => (
+              <button
+                key={v.vote}
+                className={`vote-btn ${v.tone} ${pr.myVote === v.vote ? "active" : ""}`}
+                disabled={vote.isPending}
+                title={v.label}
+                onClick={() => vote.mutate(v.vote)}
+              >
+                {v.label}
+              </button>
+            ))}
+            {pr.myVote !== 0 && (
+              <button className="btn ghost small" disabled={vote.isPending} onClick={() => vote.mutate(0)}>
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className={`review ${prId ? "has-files" : ""}`}>
         {/* ---------- pull requests ---------- */}
         <div className="cfg-col">
@@ -125,6 +241,19 @@ export function ReviewPage() {
                 placeholder="— repository —"
                 onChange={(v) => { setRepoId(v); setPrId(null); }}
               />
+              <button
+                className={`star-btn ${currentFavourite ? "on" : ""}`}
+                disabled={!repoId || toggleFavourite.isPending}
+                title={currentFavourite ? "Remove from starred" : "Star this repository"}
+                aria-pressed={!!currentFavourite}
+                onClick={() => toggleFavourite.mutate()}
+              >
+                <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"
+                  fill={currentFavourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.4"
+                  strokeLinejoin="round">
+                  <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -173,6 +302,7 @@ export function ReviewPage() {
             {!prId && <div className="faint cfg-note">Pick a pull request.</div>}
             {changes.map((c) => {
               const cl = changeLabel(c.changeType);
+              const n = (threadsQ.data ?? []).filter((t) => t.filePath === c.path && (t.rightLine ?? 0) > 0).length;
               return (
                 <button key={c.path} className={`file-item ${c.path === path ? "active" : ""}`}
                   onClick={() => setPath(c.path)} title={c.path}>
@@ -181,6 +311,7 @@ export function ReviewPage() {
                     <span className="file-name">{fileName(c.path)}</span>
                     <span className="file-dir">{fileDir(c.path)}</span>
                   </span>
+                  {n > 0 && <span className="file-threads" title={`${n} comment thread${n === 1 ? "" : "s"}`}>{n}</span>}
                 </button>
               );
             })}
@@ -233,6 +364,10 @@ export function ReviewPage() {
                   inline={inline}
                   stale={isStale}
                   onStats={onStats}
+                  threads={fileThreads}
+                  onReply={onReply}
+                  onSetStatus={onSetStatus}
+                  onNewThread={onNewThread}
                 />
               </Suspense>
             )}

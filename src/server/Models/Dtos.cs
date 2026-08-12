@@ -71,12 +71,31 @@ public record PullRequestDto(
     bool IsDraft,
     DateTime? CreatedAt,
     string? SourceCommit,   // the PR's head — the "after" side of a diff
-    string? TargetCommit);  // the branch it merges into — the "before" side
+    string? TargetCommit,   // the branch it merges into — the "before" side
+    int MyVote);            // 10 approved · 5 with suggestions · 0 none · -5 waiting · -10 rejected
+
+public record VoteRequest(int Vote);
+
+public record RepoFavouriteDto(string Id, string Project, string RepoId, string RepoName);
+public record AddRepoFavouriteRequest(string Project, string RepoId, string RepoName);
 
 public record PrChangeDto(string Path, string ChangeType, string? OriginalPath);
 
 /// <summary>Both sides of one file, ready to hand to a diff editor. Null = absent at that commit.</summary>
 public record PrFileDiffDto(string Path, string? Before, string? After);
+
+public record PrCommentDto(
+    int Id, int ParentId, string? Author, string Content,
+    DateTime? PublishedAt, string? CommentType, bool IsDeleted);
+
+/// <summary>A comment thread. FilePath/RightLine are null for ADO's own system threads.</summary>
+public record PrThreadDto(
+    int Id, string? Status, string? FilePath,
+    int? RightLine, int? LeftLine, bool IsDeleted, List<PrCommentDto> Comments);
+
+public record NewThreadRequest(string FilePath, int Line, string Content, bool OnLeft);
+public record ReplyRequest(string Content);
+public record ThreadStatusRequest(string Status);
 
 // ----- sequences -----
 

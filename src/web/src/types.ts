@@ -117,6 +117,15 @@ export interface PullRequest {
   createdAt?: string | null;
   sourceCommit?: string | null;
   targetCommit?: string | null;
+  /** 10 approved · 5 with suggestions · 0 none · -5 waiting for author · -10 rejected. */
+  myVote: number;
+}
+
+export interface RepoFavourite {
+  id: string;
+  project: string;
+  repoId: string;
+  repoName: string;
 }
 
 export interface PrChange {
@@ -129,6 +138,27 @@ export interface PrFileDiff {
   path: string;
   before?: string | null;
   after?: string | null;
+}
+
+export interface PrComment {
+  id: number;
+  parentId: number;
+  author?: string | null;
+  content: string;
+  publishedAt?: string | null;
+  commentType?: string | null;
+  isDeleted: boolean;
+}
+
+/** filePath/rightLine are null for ADO's own system threads ("X voted…"). */
+export interface PrThread {
+  id: number;
+  status?: string | null;
+  filePath?: string | null;
+  rightLine?: number | null;
+  leftLine?: number | null;
+  isDeleted: boolean;
+  comments: PrComment[];
 }
 
 // ----- sequences -----

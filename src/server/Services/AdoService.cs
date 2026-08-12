@@ -332,6 +332,20 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         return doc.RootElement.GetProperty("value").EnumerateArray().Select(p =>
         {
             var author = p.TryGetProperty("createdBy", out var cb) ? Str(cb, "displayName") : null;
+
+            // The signed-in user's own vote, so the review controls can show current state.
+            // 10 approved · 5 approved with suggestions · 0 none · -5 waiting · -10 rejected.
+            var myVote = 0;
+            if (p.TryGetProperty("reviewers", out var revs) && revs.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var r in revs.EnumerateArray())
+                {
+                    if (!string.Equals(Str(r, "id"), ctx.UserId, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (r.TryGetProperty("vote", out var v) && v.TryGetInt32(out var vote)) myVote = vote;
+                    break;
+                }
+            }
+
             return new PullRequestDto(
                 p.TryGetProperty("pullRequestId", out var id) ? id.GetInt32() : 0,
                 Str(p, "title") ?? "",
@@ -342,8 +356,25 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
                 p.TryGetProperty("isDraft", out var dr) && dr.ValueKind == JsonValueKind.True,
                 p.TryGetProperty("creationDate", out var cd) && cd.TryGetDateTime(out var when) ? when : null,
                 p.TryGetProperty("lastMergeSourceCommit", out var sc) ? Str(sc, "commitId") : null,
-                p.TryGetProperty("lastMergeTargetCommit", out var tc) ? Str(tc, "commitId") : null);
+                p.TryGetProperty("lastMergeTargetCommit", out var tc) ? Str(tc, "commitId") : null,
+                myVote);
         }).ToList();
+    }
+
+    /// <summary>
+    /// Casts the signed-in user's review vote. The reviewer id is their ADO identity, which is
+    /// also this app's user id (both come from connectionData at sign-in). ADO adds the user as
+    /// a reviewer implicitly if they weren't one already.
+    /// </summary>
+    public async Task<int> SetVoteAsync(string project, string repoId, int prId, int vote, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(ctx.UserId))
+            throw new AdoException(401, "Not connected to Azure DevOps.");
+
+        using var doc = await SendJsonAsync(HttpMethod.Put,
+            $"{PrBase(project, repoId, prId)}/reviewers/{ctx.UserId}?api-version={ApiVersion}",
+            null, null, new { vote }, ct);
+        return doc.RootElement.TryGetProperty("vote", out var v) && v.TryGetInt32(out var cast) ? cast : vote;
     }
 
     /// <summary>
@@ -376,6 +407,115 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             list.Add(new PrChangeDto(path!, Str(e, "changeType") ?? "edit", Str(item, "originalPath")));
         }
         return list.OrderBy(c => c.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    // ------------------------------------------------------ pr comment threads
+
+    private string PrBase(string project, string repoId, int prId) =>
+        $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}/pullRequests/{prId}";
+
+    private static PrThreadDto ReadThread(JsonElement t)
+    {
+        var comments = new List<PrCommentDto>();
+        if (t.TryGetProperty("comments", out var cs) && cs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in cs.EnumerateArray())
+            {
+                comments.Add(new PrCommentDto(
+                    c.TryGetProperty("id", out var cid) ? cid.GetInt32() : 0,
+                    c.TryGetProperty("parentCommentId", out var pid) ? pid.GetInt32() : 0,
+                    c.TryGetProperty("author", out var a) ? Str(a, "displayName") : null,
+                    Str(c, "content") ?? "",
+                    c.TryGetProperty("publishedDate", out var pd) && pd.TryGetDateTime(out var when) ? when : null,
+                    Str(c, "commentType"),
+                    c.TryGetProperty("isDeleted", out var cdel) && cdel.ValueKind == JsonValueKind.True));
+            }
+        }
+
+        string? filePath = null;
+        int? rightLine = null, leftLine = null;
+        if (t.TryGetProperty("threadContext", out var tcx) && tcx.ValueKind == JsonValueKind.Object)
+        {
+            filePath = Str(tcx, "filePath");
+            if (tcx.TryGetProperty("rightFileStart", out var rs) && rs.ValueKind == JsonValueKind.Object &&
+                rs.TryGetProperty("line", out var rl)) rightLine = rl.GetInt32();
+            if (tcx.TryGetProperty("leftFileStart", out var ls) && ls.ValueKind == JsonValueKind.Object &&
+                ls.TryGetProperty("line", out var ll)) leftLine = ll.GetInt32();
+        }
+
+        return new PrThreadDto(
+            t.TryGetProperty("id", out var tid) ? tid.GetInt32() : 0,
+            Str(t, "status"),
+            filePath,
+            rightLine,
+            leftLine,
+            t.TryGetProperty("isDeleted", out var del) && del.ValueKind == JsonValueKind.True,
+            comments);
+    }
+
+    /// <summary>
+    /// All comment threads on a PR. Includes ADO's own system threads ("X voted…"), which have
+    /// no file context — the caller filters those out of the file view.
+    /// </summary>
+    public async Task<List<PrThreadDto>> GetPullRequestThreadsAsync(
+        string project, string repoId, int prId, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(HttpMethod.Get,
+            $"{PrBase(project, repoId, prId)}/threads?api-version={ApiVersion}", null, null, null, ct);
+        return doc.RootElement.GetProperty("value").EnumerateArray()
+            .Select(ReadThread)
+            .Where(t => !t.IsDeleted)
+            .ToList();
+    }
+
+    /// <summary>Starts a thread anchored to a line. Offsets are 1-based columns; ADO needs both
+    /// a start and an end, so a whole-line comment spans the same line twice.</summary>
+    public async Task<PrThreadDto> CreateThreadAsync(
+        string project, string repoId, int prId, NewThreadRequest body, CancellationToken ct)
+    {
+        var pos = new { line = body.Line, offset = 1 };
+        object context = body.OnLeft
+            ? new { filePath = body.FilePath, leftFileStart = pos, leftFileEnd = pos }
+            : new { filePath = body.FilePath, rightFileStart = pos, rightFileEnd = pos };
+
+        var payload = new
+        {
+            comments = new[] { new { parentCommentId = 0, content = body.Content, commentType = 1 } },
+            status = 1, // active
+            threadContext = context,
+        };
+
+        using var doc = await SendJsonAsync(HttpMethod.Post,
+            $"{PrBase(project, repoId, prId)}/threads?api-version={ApiVersion}", null, null, payload, ct);
+        return ReadThread(doc.RootElement);
+    }
+
+    public async Task<PrCommentDto> ReplyToThreadAsync(
+        string project, string repoId, int prId, int threadId, string content, CancellationToken ct)
+    {
+        var payload = new { parentCommentId = 1, content, commentType = 1 };
+        using var doc = await SendJsonAsync(HttpMethod.Post,
+            $"{PrBase(project, repoId, prId)}/threads/{threadId}/comments?api-version={ApiVersion}",
+            null, null, payload, ct);
+        var c = doc.RootElement;
+        return new PrCommentDto(
+            c.TryGetProperty("id", out var cid) ? cid.GetInt32() : 0,
+            c.TryGetProperty("parentCommentId", out var pid) ? pid.GetInt32() : 0,
+            c.TryGetProperty("author", out var a) ? Str(a, "displayName") : null,
+            Str(c, "content") ?? content,
+            c.TryGetProperty("publishedDate", out var pd) && pd.TryGetDateTime(out var when) ? when : null,
+            Str(c, "commentType"),
+            false);
+    }
+
+    /// <summary>active | fixed | wontFix | closed | byDesign | pending</summary>
+    public async Task<PrThreadDto> SetThreadStatusAsync(
+        string project, string repoId, int prId, int threadId, string status, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(HttpMethod.Patch,
+            $"{PrBase(project, repoId, prId)}/threads/{threadId}?api-version={ApiVersion}",
+            null, null, new { status }, ct);
+        return ReadThread(doc.RootElement);
     }
 
     /// <summary>One side of a file at a specific commit. Null when the file doesn't exist there

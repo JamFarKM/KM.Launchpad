@@ -151,6 +151,74 @@ public static class ApiEndpoints
                 return new PrFileDiffDto(path, before.Result, after.Result);
             }));
 
+        // PR comment threads. The write paths need a PAT with Code (Read & Write).
+        var prBase = "/projects/{project}/repos/{repoId}/pullrequests/{prId:int}";
+
+        api.MapGet($"{prBase}/threads", (
+            string project, string repoId, int prId, AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetPullRequestThreadsAsync(project, repoId, prId, ct)));
+
+        api.MapPost($"{prBase}/threads", (
+            string project, string repoId, int prId, NewThreadRequest body,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.CreateThreadAsync(project, repoId, prId, body, ct)));
+
+        api.MapPost($"{prBase}/threads/{{threadId:int}}/comments", (
+            string project, string repoId, int prId, int threadId, ReplyRequest body,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.ReplyToThreadAsync(project, repoId, prId, threadId, body.Content, ct)));
+
+        api.MapPatch($"{prBase}/threads/{{threadId:int}}", (
+            string project, string repoId, int prId, int threadId, ThreadStatusRequest body,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.SetThreadStatusAsync(project, repoId, prId, threadId, body.Status, ct)));
+
+        api.MapPut($"{prBase}/vote", (
+            string project, string repoId, int prId, VoteRequest body,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, async () => new { vote = await ado.SetVoteAsync(project, repoId, prId, body.Vote, ct) }));
+
+        // ------------------------------------------------- starred repos
+        api.MapGet("/repo-favourites", async (AdoContext ctx, AppDbContext db, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) return Results.Unauthorized();
+            var list = await db.RepoFavourites.Where(f => f.UserId == ctx.UserId)
+                .OrderBy(f => f.SortOrder).ThenBy(f => f.RepoName).ToListAsync(ct);
+            return Results.Ok(list.Select(f => new RepoFavouriteDto(f.Id, f.Project, f.RepoId, f.RepoName)).ToList());
+        });
+
+        api.MapPost("/repo-favourites", async (
+            AddRepoFavouriteRequest body, AdoContext ctx, AppDbContext db, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) return Results.Unauthorized();
+            var existing = await db.RepoFavourites.FirstOrDefaultAsync(
+                f => f.UserId == ctx.UserId && f.Project == body.Project && f.RepoId == body.RepoId, ct);
+            if (existing is not null)
+                return Results.Ok(new RepoFavouriteDto(existing.Id, existing.Project, existing.RepoId, existing.RepoName));
+
+            var fav = new RepoFavourite
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                UserId = ctx.UserId!,
+                Project = body.Project,
+                RepoId = body.RepoId,
+                RepoName = body.RepoName,
+                SortOrder = await db.RepoFavourites.CountAsync(f => f.UserId == ctx.UserId, ct),
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.RepoFavourites.Add(fav);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new RepoFavouriteDto(fav.Id, fav.Project, fav.RepoId, fav.RepoName));
+        });
+
+        api.MapDelete("/repo-favourites/{id}", async (
+            string id, AdoContext ctx, AppDbContext db, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) return Results.Unauthorized();
+            await db.RepoFavourites.Where(f => f.Id == id && f.UserId == ctx.UserId).ExecuteDeleteAsync(ct);
+            return Results.NoContent();
+        });
+
         // ----------------------------------------------------------- views
         api.MapGet("/views", async (AdoContext ctx, AppDbContext db, CancellationToken ct) =>
         {

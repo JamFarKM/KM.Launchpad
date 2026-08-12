@@ -107,3 +107,15 @@ public class SavedView
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
+
+/// <summary>A starred project+repository, surfaced as a quick link on the Review page.</summary>
+public class RepoFavourite
+{
+    public string Id { get; set; } = default!;
+    public string UserId { get; set; } = default!;
+    public string Project { get; set; } = "";
+    public string RepoId { get; set; } = "";
+    public string RepoName { get; set; } = "";
+    public int SortOrder { get; set; }
+    public DateTime CreatedAt { get; set; }
+}

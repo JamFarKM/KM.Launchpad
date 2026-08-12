@@ -1,6 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import { DiffComposer, DiffThread } from "./DiffThread";
+import type { PrThread } from "../types";
 
 /**
  * Monaco's diff editor, themed from the app's design tokens.
@@ -140,9 +143,17 @@ interface Props {
   stale?: boolean;
   /** Line counts, reported once Monaco has computed the diff. */
   onStats?: (stats: DiffStats) => void;
+  /** Threads anchored to this file. Rendered inline as view zones. */
+  threads?: PrThread[];
+  onReply?: (threadId: number, content: string) => Promise<void>;
+  onSetStatus?: (threadId: number, status: string) => Promise<void>;
+  onNewThread?: (line: number, content: string) => Promise<void>;
 }
 
-export function MonacoDiff({ path, before, after, inline, stale, onStats }: Props) {
+export function MonacoDiff({
+  path, before, after, inline, stale, onStats,
+  threads, onReply, onSetStatus, onNewThread,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const modelsRef = useRef<{ original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel } | null>(null);
@@ -151,6 +162,8 @@ export function MonacoDiff({ path, before, after, inline, stale, onStats }: Prop
   statsRef.current = onStats;
   /** Set when models change; cleared by the first diff update, which triggers the fade in. */
   const pendingReveal = useRef(true);
+  /** Line the "new comment" composer is open on, if any. */
+  const [composerLine, setComposerLine] = useState<number | null>(null);
 
   // Create once; the models and options are updated in place afterwards.
   useEffect(() => {
@@ -172,6 +185,7 @@ export function MonacoDiff({ path, before, after, inline, stale, onStats }: Prop
       minimap: { enabled: false },
       renderWhitespace: "selection",
       guides: { indentation: false },
+      glyphMargin: true, // carries the "comment here" affordance and thread markers
       padding: { top: 10, bottom: 10 },
       lineNumbersMinChars: 4,
       lineDecorationsWidth: 8,
@@ -238,6 +252,103 @@ export function MonacoDiff({ path, before, after, inline, stale, onStats }: Prop
     previous?.original.dispose();
     previous?.modified.dispose();
   }, [path, before, after]);
+
+  // ---- comment threads, rendered inline as view zones on the modified (right) side ----
+
+  // Offer "comment on this line" from the glyph margin.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !onNewThread) return;
+    const sub = editor.getModifiedEditor().onMouseDown((e) => {
+      if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+      const line = e.target.position?.lineNumber;
+      if (line) setComposerLine((cur) => (cur === line ? null : line));
+    });
+    return () => sub.dispose();
+  }, [onNewThread]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const right = editor.getModifiedEditor();
+    const list = (threads ?? []).filter((t) => (t.rightLine ?? 0) > 0);
+
+    // Mark commented lines in the glyph margin.
+    const decorations = right.createDecorationsCollection(
+      list.map((t) => ({
+        range: new monaco.Range(t.rightLine!, 1, t.rightLine!, 1),
+        options: { glyphMarginClassName: "diff-glyph-comment", glyphMarginHoverMessage: { value: "Comment thread" } },
+      })),
+    );
+
+    // One React root per zone. Monaco needs a pixel height up front, so each node is measured
+    // after render and the zone re-laid out — otherwise tall threads clip.
+    const mounted: { id: string; root: Root; node: HTMLElement; ro: ResizeObserver }[] = [];
+
+    const addZone = (afterLineNumber: number, render: (node: HTMLElement) => Root) => {
+      const node = document.createElement("div");
+      node.className = "diff-zone";
+      let zoneId = "";
+      right.changeViewZones((a) => {
+        zoneId = a.addZone({ afterLineNumber, domNode: node, heightInPx: 120, suppressMouseDown: true });
+      });
+      const root = render(node);
+      const ro = new ResizeObserver(() => {
+        const h = node.scrollHeight;
+        right.changeViewZones((a) => a.layoutZone(zoneId));
+        void h;
+      });
+      ro.observe(node);
+      // Height is read from the DOM once React has painted.
+      requestAnimationFrame(() => {
+        right.changeViewZones((a) => {
+          a.removeZone(zoneId);
+          zoneId = a.addZone({
+            afterLineNumber, domNode: node, heightInPx: node.scrollHeight + 8, suppressMouseDown: true,
+          });
+        });
+      });
+      mounted.push({ id: zoneId, root, node, ro });
+    };
+
+    for (const t of list) {
+      addZone(t.rightLine!, (node) => {
+        const root = createRoot(node);
+        root.render(
+          <DiffThread
+            thread={t}
+            onReply={async (id, content) => { await onReply?.(id, content); }}
+            onSetStatus={async (id, status) => { await onSetStatus?.(id, status); }}
+          />,
+        );
+        return root;
+      });
+    }
+
+    if (composerLine && onNewThread) {
+      addZone(composerLine, (node) => {
+        const root = createRoot(node);
+        root.render(
+          <DiffComposer
+            line={composerLine}
+            onCancel={() => setComposerLine(null)}
+            onSubmit={async (content) => { await onNewThread(composerLine, content); setComposerLine(null); }}
+          />,
+        );
+        return root;
+      });
+    }
+
+    return () => {
+      decorations.clear();
+      right.changeViewZones((a) => mounted.forEach((m) => a.removeZone(m.id)));
+      mounted.forEach((m) => {
+        m.ro.disconnect();
+        // Deferred: unmounting a root synchronously from inside an effect cleanup warns.
+        setTimeout(() => m.root.unmount(), 0);
+      });
+    };
+  }, [threads, composerLine, path, onReply, onSetStatus, onNewThread]);
 
   return <div className={`monaco-host is-swapping ${stale ? "is-stale" : ""}`} ref={hostRef} />;
 }
