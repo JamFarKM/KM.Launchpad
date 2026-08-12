@@ -37,34 +37,56 @@ function defineTheme() {
   const dark = document.documentElement.getAttribute("data-theme") === "dark";
   const ink = hex("--ink-primary", dark ? "ffffff" : "0b0b0b");
   const muted = hex("--ink-muted", "8b8a84");
-  const good = hex("--status-good", dark ? "1abd1a" : "0ca30c");
-  const bad = hex("--status-bad", dark ? "e66767" : "d03b3b");
-  const violet = hex("--hue-violet", dark ? "9085e9" : "6b5bd6");
-  const aqua = hex("--hue-aqua", dark ? "35b3c4" : "1097a8");
-  const orange = hex("--hue-orange", dark ? "e08a4a" : "d9722b");
-  const code = hex("--code-bg", dark ? "131312" : "fafaf8");
+  const code = hex("--code-bg", dark ? "161615" : "fcfcfb");
+  const gutter = hex("--diff-gutter", dark ? "1c1c1b" : "f6f6f3");
+  const addStripe = hex("--diff-add-stripe", dark ? "2b9e2b" : "0a8a0a");
+  const delStripe = hex("--diff-del-stripe", dark ? "c95e5e" : "c23434");
   const surface = hex("--bg-surface", dark ? "1a1a19" : "ffffff");
   const surface2 = hex("--bg-surface-2", dark ? "212120" : "fbfbf9");
   const border = hex("--border-strong", dark ? "2e2e2c" : "e3e3df");
   const accent = hex("--accent", dark ? "3987e5" : "2a78d6");
+  const synKeyword = hex("--syn-keyword", dark ? "6da7ec" : "1c5cab");
+  const synType = hex("--syn-type", dark ? "35b3c4" : "0d7b8a");
+  const synString = hex("--syn-string", dark ? "e0a86a" : "a35a12");
+  const synNumber = hex("--syn-number", dark ? "b3a6f0" : "5d4bb8");
+  const synComment = hex("--syn-comment", "8b8a84");
+  const synPunct = hex("--syn-punct", dark ? "c3c2b7" : "52514e");
 
   monaco.editor.defineTheme(THEME, {
     base: dark ? "vs-dark" : "vs",
     inherit: true,
+    /* Syntax palette (REVIEW §3, move 3): no green and no red anywhere. The diff tint owns
+       those hues, so code using them is unreadable on a tinted row — a green string on a
+       green added line is exactly the failure being fixed. Comments are neutral grey, which
+       is the single biggest legibility win on a mostly-commented added block. */
     rules: [
       { token: "", foreground: ink },
-      { token: "comment", foreground: muted, fontStyle: "italic" },
-      { token: "string", foreground: aqua },
-      { token: "number", foreground: orange },
-      { token: "keyword", foreground: violet },
-      { token: "type", foreground: violet },
-      { token: "delimiter", foreground: muted },
+      { token: "comment", foreground: synComment, fontStyle: "italic" },
+      { token: "string", foreground: synString },
+      { token: "string.escape", foreground: synString },
+      { token: "regexp", foreground: synString },
+      { token: "number", foreground: synNumber },
+      { token: "constant", foreground: synNumber },
+      { token: "keyword", foreground: synKeyword },
+      { token: "keyword.json", foreground: synKeyword },
+      { token: "operator", foreground: synPunct },
+      { token: "delimiter", foreground: synPunct },
+      { token: "type", foreground: synType },
+      { token: "type.identifier", foreground: synType },
+      { token: "annotation", foreground: synType },
+      { token: "tag", foreground: synKeyword },
+      { token: "attribute.name", foreground: synType },
+      { token: "attribute.value", foreground: synString },
+      { token: "variable", foreground: ink },
+      { token: "identifier", foreground: ink },
     ],
     colors: {
       // surfaces — the editor sits on the same code surface as the JSON pane
       "editor.background": `#${code}`,
       "editor.foreground": `#${ink}`,
-      "editorGutter.background": `#${code}`,
+      // Move 2: the gutter never tints, so line numbers stop competing with a coloured
+      // background. The insert/delete overlays inside the margin are neutralised in CSS.
+      "editorGutter.background": `#${gutter}`,
       "editorWidget.background": `#${surface}`,
       "editorWidget.border": `#${border}`,
       "editorWidget.foreground": `#${ink}`,
@@ -90,20 +112,24 @@ function defineTheme() {
       "scrollbarSlider.hoverBackground": `#${muted}55`,
       "scrollbarSlider.activeBackground": `#${muted}77`,
 
-      // Diff colours stay conventional green/added, red/removed. This is a deliberate
-      // exception to the "green and red are status only" rule: departing from the universal
-      // diff convention would cost more comprehension than the rule buys, and the +/- gutter
-      // markers carry the meaning without relying on hue.
-      "diffEditor.insertedTextBackground": `#${good}26`,
-      "diffEditor.removedTextBackground": `#${bad}26`,
-      "diffEditor.insertedLineBackground": `#${good}14`,
-      "diffEditor.removedLineBackground": `#${bad}14`,
+      /* Diff row/word painting is done in CSS, not here (see .review-diff rules in
+         styles.css). The tokens are color-mix()/oklab values and Monaco's colour parser
+         only understands hex and rgba, so resolving them through defineTheme is not
+         possible — CSS is the only way to drive the diff from --diff-* directly.
+         These are transparent so the theme doesn't paint a second layer underneath. */
+      "diffEditor.insertedTextBackground": "#00000000",
+      "diffEditor.removedTextBackground": "#00000000",
+      "diffEditor.insertedLineBackground": "#00000000",
+      "diffEditor.removedLineBackground": "#00000000",
+      "diffEditorGutter.insertedLineBackground": "#00000000",
+      "diffEditorGutter.removedLineBackground": "#00000000",
+
       "diffEditor.border": `#${border}`,
-      "diffEditor.diagonalFill": `#${muted}1f`,
-      "diffEditorGutter.insertedLineBackground": `#${good}1f`,
-      "diffEditorGutter.removedLineBackground": `#${bad}1f`,
-      "diffEditorOverview.insertedForeground": `#${good}99`,
-      "diffEditorOverview.removedForeground": `#${bad}99`,
+      // The empty side of a side-by-side pair — a non-content plane, which is the case A5
+      // allows texture on. Monaco draws it as diagonal fill rather than a tinted row.
+      "diffEditor.diagonalFill": `#${muted}2b`,
+      "diffEditorOverview.insertedForeground": `#${addStripe}8c`,
+      "diffEditorOverview.removedForeground": `#${delStripe}8c`,
       "editorOverviewRuler.border": "#00000000",
 
       // collapsed "unchanged region" strips — recessed, like the app's inset surfaces
@@ -178,6 +204,9 @@ export function MonacoDiff({
       automaticLayout: true,
       renderSideBySide: !inline,
       renderOverviewRuler: true,
+      // The +/- sign column: the colour-independent fallback that keeps additions and
+      // deletions distinguishable in greyscale (§11). Present in both view modes.
+      renderIndicators: true,
       ignoreTrimWhitespace: false,
       hideUnchangedRegions: { enabled: true },
       scrollBeyondLastLine: false,

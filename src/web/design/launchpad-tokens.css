@@ -23,7 +23,7 @@
   --bg-page:          #f7f7f5;   /* the board canvas behind shelves */
   --bg-surface:       #ffffff;   /* shelves, cards, nav, panels */
   --bg-surface-2:     #fbfbf9;   /* inset fields, table head, recessed strips */
-  --code-bg:          #fafaf8;   /* JSON / monospace panes */
+  --code-bg:          #fcfcfb;   /* JSON / monospace panes */
 
   /* lines */
   --border-hairline:  rgba(11, 11, 11, 0.09);  /* card dividers, panel edges */
@@ -71,6 +71,34 @@
   --env-dev:          #2a78d6;
   --env-test:         #6b5bd6;
   --env-prod:         #d9722b;
+
+  /* ---- review page (DESIGN_SPEC_REVIEW.md §2) ---- */
+
+  /* diff surfaces — the row tint is faint by design; the gutter stripe carries
+     identification, so a whole-file addition is never a solid slab of colour.
+     This is the A2 carve-out: green/red here mean added/removed, and the
+     carve-out stops at the diff body — it does not reach badges or chrome. */
+  --diff-gutter:      #f6f6f3;
+  --diff-add-tint:    color-mix(in oklab, var(--status-good) 10%, var(--code-bg));
+  --diff-add-stripe:  #0a8a0a;
+  --diff-add-word:    color-mix(in oklab, var(--status-good) 26%, var(--code-bg));
+  --diff-del-tint:    color-mix(in oklab, var(--status-bad) 9%, var(--code-bg));
+  --diff-del-stripe:  #c23434;
+  --diff-del-word:    color-mix(in oklab, var(--status-bad) 24%, var(--code-bg));
+
+  /* syntax — contains NO green and NO red: the diff tint owns those hues, so
+     code using them becomes unreadable on a tinted row (§3) */
+  --syn-keyword:      #1c5cab;
+  --syn-type:         #0d7b8a;
+  --syn-string:       #a35a12;
+  --syn-number:       #5d4bb8;
+  --syn-comment:      #8b8a84;
+  --syn-punct:        #52514e;
+
+  /* file change type — identity, not health, so no status green (§1) */
+  --ft-add:           #1097a8;
+  --ft-mod:           #6b5bd6;
+  --ft-del:           #5c6672;
 }
 
 [data-theme="dark"] {
@@ -79,7 +107,7 @@
   --bg-page:          #0d0d0d;
   --bg-surface:       #1a1a19;
   --bg-surface-2:     #212120;
-  --code-bg:          #131312;
+  --code-bg:          #161615;   /* lifted just off --bg-surface */
 
   --border-hairline:  rgba(255, 255, 255, 0.11);
   --border-strong:    rgba(255, 255, 255, 0.18);
@@ -117,6 +145,26 @@
   --env-dev:          #4a90e8;
   --env-test:         #9085e9;
   --env-prod:         #e08a4a;
+
+  /* ---- review page (DESIGN_SPEC_REVIEW.md §2) ---- */
+  --diff-gutter:      #1c1c1b;
+  --diff-add-tint:    color-mix(in oklab, var(--status-good) 13%, var(--code-bg));
+  --diff-add-stripe:  #2b9e2b;
+  --diff-add-word:    color-mix(in oklab, var(--status-good) 30%, var(--code-bg));
+  --diff-del-tint:    color-mix(in oklab, var(--status-bad) 14%, var(--code-bg));
+  --diff-del-stripe:  #c95e5e;
+  --diff-del-word:    color-mix(in oklab, var(--status-bad) 30%, var(--code-bg));
+
+  --syn-keyword:      #6da7ec;
+  --syn-type:         #35b3c4;
+  --syn-string:       #e0a86a;
+  --syn-number:       #b3a6f0;
+  --syn-comment:      #8b8a84;
+  --syn-punct:        #c3c2b7;
+
+  --ft-add:           #35b3c4;
+  --ft-mod:           #9085e9;
+  --ft-del:           #8b95a3;
 }
 
 /* --------------------------------------------------------------------------
@@ -141,6 +189,7 @@
   --r-glyph:         4.5px;   /* status glyph corner — 8px makes it a circle */
 
   --h-control:        30px;   /* every footer control is exactly this tall */
+  --code-size:        12px;   /* diff/code font size — user-adjustable, see REVIEW §5 */
   --w-card:          236px;   /* flex-basis AND min-width */
   --w-dropzone:       46px;
   --w-drawer:        258px;

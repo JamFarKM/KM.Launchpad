@@ -17,7 +17,7 @@
   --bg-page: #0d0d0d;          /* the board canvas behind shelves */
   --bg-surface: #1a1a19;       /* shelves, cards, nav, panels */
   --bg-surface-2: #212120;     /* inset fields, table head, recessed strips */
-  --code-bg: #131312;          /* JSON / monospace panes */
+  --code-bg: #161615;          /* JSON / monospace panes — lifted just off --bg-surface */
 
   /* lines */
   --border-hairline: rgba(255, 255, 255, 0.11);
@@ -65,6 +65,32 @@
   --env-dev: #4a90e8;
   --env-test: #9085e9;
   --env-prod: #e08a4a;
+
+  /* ---- review page (design/DESIGN_SPEC_REVIEW.md §2) ----
+     The A2 carve-out: inside a diff, green means added and red means removed. It is
+     limited to row tints, gutter stripes, word highlights, the +/- signs, the +n/-n
+     counts and the change minimap — it does not reach file badges or page chrome. */
+  --diff-gutter: #1c1c1b;
+  --diff-add-tint: color-mix(in oklab, var(--status-good) 13%, var(--code-bg));
+  --diff-add-stripe: #2b9e2b;
+  --diff-add-word: color-mix(in oklab, var(--status-good) 30%, var(--code-bg));
+  --diff-del-tint: color-mix(in oklab, var(--status-bad) 14%, var(--code-bg));
+  --diff-del-stripe: #c95e5e;
+  --diff-del-word: color-mix(in oklab, var(--status-bad) 30%, var(--code-bg));
+
+  /* syntax — NO green and NO red: the diff tint owns those hues, so code using
+     them is unreadable on a tinted row (§3). Comments are neutral grey, not green. */
+  --syn-keyword: #6da7ec;
+  --syn-type: #35b3c4;
+  --syn-string: #e0a86a;
+  --syn-number: #b3a6f0;
+  --syn-comment: #8b8a84;
+  --syn-punct: #c3c2b7;
+
+  /* file change type — identity, not health, so deliberately off status green (§1) */
+  --ft-add: #35b3c4;
+  --ft-mod: #9085e9;
+  --ft-del: #8b95a3;
 }
 
 :root[data-theme="light"] {
@@ -73,7 +99,7 @@
   --bg-page: #f7f7f5;
   --bg-surface: #ffffff;
   --bg-surface-2: #fbfbf9;
-  --code-bg: #fafaf8;
+  --code-bg: #fcfcfb;
 
   --border-hairline: rgba(11, 11, 11, 0.09);
   --border-strong: rgba(11, 11, 11, 0.14);
@@ -113,6 +139,26 @@
   --env-dev: #2a78d6;
   --env-test: #6b5bd6;
   --env-prod: #d9722b;
+
+  /* ---- review page (design/DESIGN_SPEC_REVIEW.md §2) ---- */
+  --diff-gutter: #f6f6f3;
+  --diff-add-tint: color-mix(in oklab, var(--status-good) 10%, var(--code-bg));
+  --diff-add-stripe: #0a8a0a;
+  --diff-add-word: color-mix(in oklab, var(--status-good) 26%, var(--code-bg));
+  --diff-del-tint: color-mix(in oklab, var(--status-bad) 9%, var(--code-bg));
+  --diff-del-stripe: #c23434;
+  --diff-del-word: color-mix(in oklab, var(--status-bad) 24%, var(--code-bg));
+
+  --syn-keyword: #1c5cab;
+  --syn-type: #0d7b8a;
+  --syn-string: #a35a12;
+  --syn-number: #5d4bb8;
+  --syn-comment: #8b8a84;
+  --syn-punct: #52514e;
+
+  --ft-add: #1097a8;
+  --ft-mod: #6b5bd6;
+  --ft-del: #5c6672;
 }
 
 /* Geometry + legacy aliases. The aliases let the existing component CSS pick up
@@ -126,6 +172,9 @@
   --r-tag: 4px;
   --r-glyph: 4.5px;    /* status glyph corner — 8px makes it a circle */
   --h-control: 30px;   /* every footer control is exactly this tall */
+  /* Diff/code font size. Theme-independent, so it lives here rather than in a palette
+     block — the spec lists it under light only, but it needs to resolve in both. */
+  --code-size: 12px;
   --w-dropzone: 46px;
   /* One sidebar width shared by the Views pipeline list and the Configurations
      namespace pane, so the two pages line up. */
@@ -2335,6 +2384,65 @@ a {
 /* The editor is never unmounted between files — only its models are swapped — so the
    transition here is what the eye sees instead of a rebuild. It's held hidden from the
    model swap until Monaco reports the diff is computed, then fades in fully decorated. */
+/* ---------- diff rendering (DESIGN_SPEC_REVIEW.md §3) ----------
+   Painted here rather than through Monaco's defineTheme because the --diff-* tokens are
+   color-mix()/oklab values and Monaco's colour parser only accepts hex and rgba. The theme
+   sets those same slots transparent, so there is exactly one layer of paint.
+
+   Selectors are prefixed with .review-diff to outrank Monaco's own generated theme rules
+   without needing !important. */
+
+/* Move 1: faint row tint, strong 2px leading stripe. The stripe is what makes a row
+   unmistakably an addition, which is what frees the background to stay quiet — so a
+   whole-file addition never becomes a solid slab of colour. */
+.review-diff .monaco-editor .view-overlays .line-insert {
+  background: var(--diff-add-tint);
+  box-shadow: inset 2px 0 0 var(--diff-add-stripe);
+}
+
+.review-diff .monaco-editor .view-overlays .line-delete {
+  background: var(--diff-del-tint);
+  box-shadow: inset 2px 0 0 var(--diff-del-stripe);
+}
+
+/* Word level is deliberately NOT painted yet (§10 defers it to its own change, since it
+   needs a diff algorithm rather than styling). Monaco marks every character of a wholly
+   added file as inserted *text* as well as inserted *lines*, so applying --diff-*-word
+   here stacks a 30% mix on top of the row tint and turns the file into a solid slab —
+   exactly the failure §3 exists to fix. Left transparent until real token ranges are
+   available, at which point only genuinely changed tokens should carry --diff-*-word. */
+.review-diff .monaco-editor .char-insert,
+.review-diff .monaco-editor .char-delete {
+  background: transparent;
+}
+
+/* Move 2: the gutter never tints, in either theme. This is the change that fixes the
+   contrast problem — line numbers stop sitting on a coloured background. */
+.review-diff .monaco-editor .margin {
+  background: var(--diff-gutter);
+}
+
+/* Monaco tints the margin through marginClassName, which is gutter-insert/gutter-delete —
+   a different class from the content line. Neutralised here as well as in the theme. */
+.review-diff .monaco-editor .margin-view-overlays .gutter-insert,
+.review-diff .monaco-editor .margin-view-overlays .gutter-delete {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The +/- signs take the stripe colour. Monaco emits them as codicon glyphs via
+   linesDecorationsClassName, so they inherit `color`. This is the fallback that keeps
+   additions and deletions distinguishable in greyscale. */
+.review-diff .monaco-editor .margin-view-overlays .insert-sign {
+  color: var(--diff-add-stripe);
+  opacity: 1;
+}
+
+.review-diff .monaco-editor .margin-view-overlays .delete-sign {
+  color: var(--diff-del-stripe);
+  opacity: 1;
+}
+
 .monaco-host {
   flex: 1;
   min-height: 0;
