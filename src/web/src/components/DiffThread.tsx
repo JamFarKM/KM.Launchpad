@@ -85,9 +85,19 @@ export function DiffThread({ thread, busy, onReply, onSetStatus }: Props) {
   );
 }
 
-/** The composer shown when starting a new thread on a line. */
-export function DiffComposer({ line, onCancel, onSubmit }: {
+/* Windows and Linux users don't have a ⌘ key; showing them one is just wrong. */
+const POST_HINT = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⏎" : "Ctrl+⏎";
+
+/**
+ * The composer for a new thread. An overlay floating over the diff rather than a row inserted
+ * into it (§6): inserting a row reflows everything below and reads as the page jumping. The
+ * elevation, the pointer at its anchor line and the scrim behind it are what make it read as
+ * deliberately floating instead of as a rendering fault.
+ */
+export function DiffComposer({ line, top, onCancel, onSubmit }: {
   line: number;
+  /** Pixel offset of the anchor line within the editor viewport. */
+  top: number;
   onCancel: () => void;
   onSubmit: (content: string) => Promise<void>;
 }) {
@@ -102,30 +112,28 @@ export function DiffComposer({ line, onCancel, onSubmit }: {
   }
 
   return (
-    <div className="dthread is-new">
-      <div className="dthread-head">
-        <span className="dthread-status open">New comment</span>
-        <span className="dthread-count">line {line}</span>
+    <div className="diff-composer" style={{ top: top + 6 }}>
+      <div className="dc-head">
+        <span className="dc-badge">New comment</span>
+        <span className="dc-line">line {line}</span>
       </div>
-      <div className="dthread-reply">
-        <textarea
-          className="input dthread-input"
-          rows={2}
-          autoFocus
-          placeholder="Leave a comment…  (Ctrl+Enter to post)"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
-            if (e.key === "Escape") onCancel();
-          }}
-        />
-        <div className="dthread-actions">
-          <button className="btn primary small" disabled={!draft.trim() || sending} onClick={send}>
-            {sending ? <><span className="spin" /> Posting…</> : "Comment"}
-          </button>
-          <button className="btn ghost small" disabled={sending} onClick={onCancel}>Cancel</button>
-        </div>
+      <textarea
+        className="input dc-input"
+        autoFocus
+        placeholder="Leave a comment…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
+          if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+        }}
+      />
+      <div className="dc-foot">
+        <button className="btn primary small" disabled={!draft.trim() || sending} onClick={send}>
+          {sending ? <><span className="spin" /> Posting…</> : "Comment"}
+        </button>
+        <button className="btn outline small" disabled={sending} onClick={onCancel}>Cancel</button>
+        <span className="dc-hint">{POST_HINT} to post · Esc to dismiss</span>
       </div>
     </div>
   );

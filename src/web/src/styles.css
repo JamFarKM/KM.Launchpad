@@ -352,6 +352,19 @@ a {
   border-radius: 6px;
 }
 
+/* Sits between primary and ghost: still clearly a button, but no fill competing with the
+   primary next to it. */
+.btn.outline {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--ink-secondary);
+}
+
+.btn.outline:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
 .btn.ghost {
   background: transparent;
   border-color: transparent;
@@ -2716,12 +2729,108 @@ a {
   opacity: 1;
 }
 
+/* Positioning context for the composer overlay, which floats over the editor rather than
+   displacing it (§6). */
+.monaco-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .monaco-host {
   flex: 1;
   min-height: 0;
   width: 100%;
   opacity: 1;
   transition: opacity 0.16s ease;
+}
+
+/* The piece that changes the read: covered code looks intentionally dimmed rather than
+   accidentally hidden. Not a dark veil — the code surface itself at partial opacity. */
+.diff-scrim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 168px;
+  background: var(--code-bg);
+  opacity: 0.62;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.diff-composer {
+  position: absolute;
+  left: 52px;   /* clear of the gutter, so the card starts where the code does */
+  right: 24px;
+  max-width: 620px;
+  z-index: 6;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Points at the line it belongs to, so the anchor is never in doubt. */
+.diff-composer::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 22px;
+  width: 9px;
+  height: 9px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-strong);
+  border-top: 1px solid var(--border-strong);
+  transform: rotate(45deg);
+}
+
+.dc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dc-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--r-tag);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.dc-line {
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.dc-input {
+  width: 100%;
+  min-height: 66px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.dc-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.dc-hint {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--ink-muted);
 }
 
 .monaco-host.is-swapping {

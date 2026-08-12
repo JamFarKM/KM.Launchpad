@@ -196,6 +196,8 @@ export function MonacoDiff({
   const [composerLine, setComposerLine] = useState<number | null>(null);
   /** Line under the pointer, so the gutter can offer a "+" to comment on it. */
   const [hoverLine, setHoverLine] = useState<number | null>(null);
+  /** Pixel offset of the composer's anchor line within the editor viewport; null = off-screen. */
+  const [anchorTop, setAnchorTop] = useState<number | null>(null);
 
   // Create once; the models and options are updated in place afterwards.
   useEffect(() => {
@@ -406,20 +408,6 @@ export function MonacoDiff({
       });
     }
 
-    if (composerLine && onNewThread) {
-      addZone(composerLine, (node) => {
-        const root = createRoot(node);
-        root.render(
-          <DiffComposer
-            line={composerLine}
-            onCancel={() => setComposerLine(null)}
-            onSubmit={async (content) => { await onNewThread(composerLine, content); setComposerLine(null); }}
-          />,
-        );
-        return root;
-      });
-    }
-
     return () => {
       decorations.clear();
       right.changeViewZones((a) => mounted.forEach((m) => a.removeZone(m.id)));
@@ -429,7 +417,51 @@ export function MonacoDiff({
         setTimeout(() => m.root.unmount(), 0);
       });
     };
-  }, [threads, composerLine, path, onReply, onSetStatus, onNewThread]);
+  }, [threads, path, onReply, onSetStatus, onNewThread]);
 
-  return <div className={`monaco-host is-swapping ${stale ? "is-stale" : ""}`} ref={hostRef} />;
+  /* The composer is an overlay, not a view zone (§6, confirmed): inserting a row into a long
+     diff reflows everything below it and reads as the page jumping. Its top is Monaco's own
+     pixel offset for the anchor line, kept in step with scrolling and layout — including the
+     collapsed unchanged regions, which getTopForLineNumber already accounts for. */
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || composerLine == null) { setAnchorTop(null); return; }
+    const right = editor.getModifiedEditor();
+    const sync = () => {
+      const height = right.getLayoutInfo().height;
+      const top = right.getTopForLineNumber(composerLine) - right.getScrollTop() + right.getOption(
+        monaco.editor.EditorOption.lineHeight,
+      );
+      // Scrolled out of view: drop the overlay rather than pinning it to an edge, where it
+      // would point at a line that isn't there.
+      setAnchorTop(top < 0 || top > height - 40 ? null : top);
+    };
+    sync();
+    const subs = [right.onDidScrollChange(sync), right.onDidLayoutChange(sync), right.onDidContentSizeChange(sync)];
+    return () => subs.forEach((s) => s.dispose());
+  }, [composerLine, inline, wrap, fontSize, path, threads]);
+
+  // Close on file or view change — the anchor line means something different afterwards.
+  useEffect(() => { setComposerLine(null); }, [path, inline]);
+
+  const composerOpen = composerLine != null && anchorTop != null && !!onNewThread;
+
+  return (
+    <div className="monaco-shell">
+      <div className={`monaco-host is-swapping ${stale ? "is-stale" : ""}`} ref={hostRef} />
+      {composerOpen && (
+        <>
+          {/* Dims the lines the card covers, so they read as deliberately obscured rather
+              than as a rendering fault. */}
+          <div className="diff-scrim" style={{ top: anchorTop - 4 }} />
+          <DiffComposer
+            line={composerLine}
+            top={anchorTop}
+            onCancel={() => setComposerLine(null)}
+            onSubmit={async (content) => { await onNewThread!(composerLine, content); setComposerLine(null); }}
+          />
+        </>
+      )}
+    </div>
+  );
 }
