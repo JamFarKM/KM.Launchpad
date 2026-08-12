@@ -168,6 +168,8 @@ public record SequenceRunDto(
 public record ConfigRegistryDto(string Id, string Name, string Endpoint);
 public record UpsertConfigRegistryRequest(string Name, string Connection);
 public record ConfigSettingDto(string Key, string? Value, string? Label, string? ContentType, DateTimeOffset? LastModified);
+/// <summary>Wraps the list so a capped read can say so rather than looking like a complete one.</summary>
+public record ConfigSettingsDto(List<ConfigSettingDto> Settings, bool Truncated, int Limit);
 
 // ----- azure service principal (for Key Vault + endpoint-URL App Config) -----
 public record AzureCredentialDto(bool Configured, string? TenantId, string? ClientId);

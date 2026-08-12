@@ -2,7 +2,7 @@ import type {
   AzureCredential,
   Branch,
   ConfigRegistry,
-  ConfigSetting,
+  ConfigSettings,
   VaultRegistry,
   VaultSecretValue,
   LogContent,
@@ -228,7 +228,7 @@ export const api = {
   deleteConfigRegistry: (id: string) =>
     req<void>(`/api/config-registries/${id}`, { method: "DELETE" }),
   configSettings: (id: string) =>
-    req<ConfigSetting[]>(`/api/config-registries/${id}/settings`),
+    req<ConfigSettings>(`/api/config-registries/${id}/settings`),
 
   // Azure Key Vault registries
   vaultRegistries: () => req<VaultRegistry[]>("/api/vault-registries"),

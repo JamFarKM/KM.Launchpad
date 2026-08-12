@@ -3517,6 +3517,16 @@ a {
   font-size: 13px;
 }
 
+/* Not a failure — the request succeeded, but what's on screen is incomplete. */
+.warn {
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--status-warn) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
 /* ---------- logs ---------- */
 .log-layout {
   display: grid;

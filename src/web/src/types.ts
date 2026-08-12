@@ -272,6 +272,13 @@ export interface ConfigSetting {
   lastModified?: string | null;
 }
 
+export interface ConfigSettings {
+  settings: ConfigSetting[];
+  /** The read hit its backstop, so keys past this point in key order are missing. */
+  truncated: boolean;
+  limit: number;
+}
+
 export interface VaultRegistry {
   id: string;
   name: string;

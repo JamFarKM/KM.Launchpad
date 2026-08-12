@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import type { ConfigRegistry, ConfigSetting } from "../types";
+import type { ConfigRegistry, ConfigSetting, ConfigSettings } from "../types";
 
 /**
  * Three panes: namespaces → keys → detail (§2.4). One scroll context per pane, no modal,
@@ -121,13 +121,13 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
   const [selected, setSelected] = useState<ConfigSetting | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const settingsQ = useQuery<ConfigSetting[]>({
+  const settingsQ = useQuery<ConfigSettings>({
     queryKey: ["config-settings", active?.id],
     queryFn: () => api.configSettings(active!.id),
     enabled: !!active,
   });
 
-  const settings = useMemo(() => settingsQ.data ?? [], [settingsQ.data]);
+  const settings = useMemo(() => settingsQ.data?.settings ?? [], [settingsQ.data]);
 
   // namespace → settings
   const namespaces = useMemo(() => {
@@ -278,6 +278,15 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
           {settingsQ.error && (
             <div className="error cfg-note">
               {settingsQ.error instanceof ApiError ? settingsQ.error.message : "Could not read this store."}
+            </div>
+          )}
+          {/* A capped read has to say so. The store returns settings in key order, so what's
+              missing is the tail of the alphabet — which looks identical to a store that simply
+              doesn't hold those keys. */}
+          {settingsQ.data?.truncated && (
+            <div className="warn cfg-note">
+              Only the first {settingsQ.data.limit.toLocaleString()} settings were read, in key
+              order — keys later in the alphabet are missing from this page.
             </div>
           )}
           {!settingsQ.isLoading && !settingsQ.error && keys.length === 0 && (
