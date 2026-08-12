@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Launchpad — Sequences inside Views</title>
+<style>
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; height:100%; overflow:hidden;
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  button,input,select,textarea { font-family:inherit; }
+
+  /* ============ HARNESS (not product) ============ */
+  .harness { position:fixed; inset:0 0 auto 0; z-index:200; display:flex; align-items:center;
+    justify-content:space-between; gap:14px; background:#1a1a19; color:#fff; padding:8px 16px; font-size:12.5px; }
+  .harness .lbl { color:#898781; font-size:11.5px; }
+  .hbtn { border:1px solid rgba(255,255,255,.2); background:transparent; color:#fff; font-size:12px;
+    padding:6px 12px; border-radius:6px; cursor:pointer; }
+  .hbtn:hover { background:rgba(255,255,255,.1); }
+  .hbtn.go { background:#fff; color:#0b0b0b; border-color:#fff; font-weight:600; }
+  .panel { position:fixed; top:37px; left:0; right:0; z-index:199; background:#fcfcfb; color:#52514e;
+    border-bottom:1px solid #e1e0d9; padding:14px 20px; font-size:12.5px; display:none; max-height:62vh; overflow:auto; }
+  .panel.open { display:block; }
+  .panel ul { margin:6px 0 0; padding-left:18px; columns:2; column-gap:28px; }
+  .panel li { margin-bottom:6px; break-inside:avoid; }
+  .panel strong { color:#0b0b0b; }
+  .panel code { background:rgba(0,0,0,.06); padding:1px 5px; border-radius:4px; }
+
+  /* ============ TOKENS ============ */
+  .app {
+    --bg-page:#f7f7f5; --bg-surface:#fff; --bg-surface-2:#fbfbf9;
+    --border-hairline:rgba(11,11,11,.09); --border-strong:rgba(11,11,11,.14);
+    --ink-primary:#0b0b0b; --ink-secondary:#52514e; --ink-muted:#8b8a84;
+    --accent:#2a78d6; --accent-hover:#1c5cab; --accent-tint:#eaf1fc;
+    --status-good:#0ca30c; --status-bad:#d03b3b; --status-warn:#e59400;
+    --hover-wash:#f2f1ec; --shadow-card:0 1px 2px rgba(16,24,32,.05),0 5px 14px rgba(16,24,32,.045);
+    --shadow-pop:0 10px 28px rgba(16,24,32,.16);
+    --hatch:rgba(11,11,11,.05); --dot:rgba(11,11,11,.055);
+    --hue-blue:#2a78d6; --hue-violet:#6b5bd6; --hue-aqua:#1097a8;
+    --hue-orange:#d9722b; --hue-magenta:#c14d80; --hue-slate:#5c6672;
+    /* NEW — binding source identity. Aliases of the identity hues, no new colours. */
+    --src-input:var(--hue-violet); --src-step:var(--hue-aqua); --src-literal:var(--hue-slate);
+    background:var(--bg-page); color:var(--ink-primary);
+  }
+  [data-theme="dark"] .app {
+    --bg-page:#0d0d0d; --bg-surface:#1a1a19; --bg-surface-2:#212120;
+    --border-hairline:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.18);
+    --ink-primary:#fff; --ink-secondary:#c3c2b7; --ink-muted:#8b8a84;
+    --accent:#3987e5; --accent-hover:#5aa2ee; --accent-tint:rgba(57,135,229,.16);
+    --status-good:#1abd1a; --status-bad:#e66767; --status-warn:#fab219;
+    --hover-wash:rgba(255,255,255,.06); --shadow-card:none;
+    --shadow-pop:0 12px 32px rgba(0,0,0,.5);
+    --hatch:rgba(255,255,255,.045); --dot:rgba(255,255,255,.06);
+    --hue-blue:#4a90e8; --hue-violet:#9085e9; --hue-aqua:#35b3c4;
+    --hue-orange:#e08a4a; --hue-magenta:#d97aa6; --hue-slate:#8b95a3;
+  }
+
+  /* ============ SHELL ============ */
+  .app { position:fixed; inset:37px 0 0 0; display:flex; flex-direction:column; overflow:hidden; }
+  .topnav { display:flex; align-items:center; justify-content:space-between; padding:0 20px; height:56px;
+    background:var(--bg-surface); border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .brand { font-weight:700; font-size:14.5px; } .brand .a { color:var(--accent); }
+  .dot-sep { color:var(--ink-muted); margin:0 8px; }
+  .org { color:var(--ink-secondary); font-size:13.5px; font-weight:500; }
+  .tabs { display:flex; gap:2px; margin-left:14px; }
+  .tabs a { font-size:13.5px; color:var(--ink-secondary); padding:17px 11px; border-bottom:2px solid transparent;
+    font-weight:500; display:flex; align-items:center; gap:7px; cursor:pointer; }
+  .tabs a.on { color:var(--ink-primary); border-bottom-color:var(--ink-primary); font-weight:600; }
+  .tabs svg { width:14px; height:14px; }
+  .tabs a.gone { opacity:.28; text-decoration:line-through; pointer-events:none; }
+  .nav-r { display:flex; align-items:center; gap:10px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:none; background:transparent;
+    color:var(--ink-secondary); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .iconbtn:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .iconbtn.on { background:var(--accent-tint); color:var(--accent); }
+  .iconbtn svg { width:16px; height:16px; }
+  .ghost { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 11px; border-radius:7px;
+    border:1px solid var(--border-hairline); background:transparent; color:var(--ink-secondary);
+    font-size:12.5px; font-weight:600; cursor:pointer; }
+  .ghost:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .ghost svg { width:13px; height:13px; }
+  .avatar { width:22px; height:22px; border-radius:6px; background:var(--accent); color:#fff;
+    font-size:10.5px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .who { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500; }
+  .signout { color:var(--ink-secondary); font-size:13px; text-decoration:none; }
+  .menuwrap { position:relative; }
+  .menu { position:absolute; top:38px; right:0; min-width:210px; background:var(--bg-surface);
+    border:1px solid var(--border-hairline); border-radius:10px; box-shadow:var(--shadow-pop);
+    padding:7px; display:none; z-index:160; }
+  .menu.open { display:block; }
+  .menu-lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); padding:7px 8px 4px; }
+  .seg { display:flex; gap:4px; padding:2px 8px 6px; }
+  .seg div { flex:1; text-align:center; font-size:12px; font-weight:600; padding:6px 0; border-radius:6px;
+    cursor:pointer; border:1px solid var(--border-hairline); color:var(--ink-secondary); background:var(--bg-surface-2); }
+  .seg div.on { background:var(--ink-primary); color:var(--bg-surface); border-color:var(--ink-primary); }
+  .mi { font-size:13px; padding:8px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:9px; color:var(--ink-primary); }
+  .mi:hover { background:var(--hover-wash); }
+  .mi svg { width:14px; height:14px; color:var(--ink-muted); }
+  .mi.off { color:var(--ink-muted); cursor:default; } .mi.off:hover { background:none; }
+  .msep { height:1px; background:var(--border-hairline); margin:5px 0; }
+
+  .viewbar { display:flex; align-items:center; gap:7px; height:46px; padding:0 16px; flex-shrink:0;
+    background:var(--bg-surface); border-bottom:1px solid var(--border-hairline); }
+  .pill { font-size:13px; color:var(--ink-secondary); padding:6px 12px; border-radius:7px; cursor:pointer; font-weight:500; }
+  .pill:hover { background:var(--hover-wash); }
+  .pill.on { background:var(--hover-wash); color:var(--ink-primary); font-weight:600; }
+  .add { font-size:13px; color:var(--ink-secondary); cursor:pointer; font-weight:500; padding:6px 8px; border-radius:6px; }
+  .add:hover { color:var(--ink-primary); background:var(--hover-wash); }
+  .vr { width:1px; height:20px; background:var(--border-hairline); margin:0 4px; }
+
+  /* ============ WORKSPACE ============ */
+  .work { flex:1; display:grid; min-height:0;
+    grid-template-columns: var(--wl,0px) minmax(0,1fr) var(--wr,0px);
+    transition:grid-template-columns .18s ease; }
+  .work[data-drawer="on"] { --wl:266px; }
+  .work[data-editor="on"] { --wr:500px; }
+
+  /* ---- drawer (library) ---- */
+  .drawer { display:flex; flex-direction:column; min-width:0; overflow:hidden;
+    background:var(--bg-surface); border-right:1px solid var(--border-hairline); }
+  .dtabs { display:flex; padding:0 8px; border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .dtab { flex:1; text-align:center; font-size:12.5px; font-weight:600; padding:12px 0 10px; cursor:pointer;
+    color:var(--ink-secondary); border-bottom:2px solid transparent; }
+  .dtab.on { color:var(--ink-primary); border-bottom-color:var(--ink-primary); }
+  .dtab .n { color:var(--ink-muted); font-weight:500; margin-left:4px; }
+  .dsearchwrap { position:relative; padding:9px 10px; flex-shrink:0; }
+  .dsearchwrap svg { position:absolute; left:19px; top:18px; width:13px; height:13px; color:var(--ink-muted); }
+  .dsearch { width:100%; height:30px; padding:0 10px 0 28px; border-radius:7px;
+    border:1px solid var(--border-hairline); font-size:12.5px; background:var(--bg-surface-2); color:var(--ink-primary); }
+  .dsearch:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .dscroll { flex:1; overflow-y:auto; padding:0 8px 10px; }
+  .dgroup { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); padding:11px 8px 4px; }
+  .drow { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:7px; font-size:12.5px;
+    color:var(--ink-primary); cursor:grab; user-select:none; }
+  .drow:hover { background:var(--hover-wash); }
+  .drow .grab { color:var(--ink-muted); font-size:11px; flex-shrink:0; }
+  .drow .nm { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drow .steps { font-size:10.5px; color:var(--ink-muted); flex-shrink:0; font-variant-numeric:tabular-nums; }
+  .drow .pencil { width:22px; height:22px; border-radius:5px; border:none; background:transparent;
+    color:var(--ink-muted); display:none; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .drow:hover .pencil { display:flex; }
+  .drow .pencil:hover { background:var(--border-hairline); color:var(--ink-primary); }
+  .drow .pencil svg { width:12px; height:12px; }
+  .dfoot { padding:9px 10px; border-top:1px solid var(--border-hairline); flex-shrink:0; }
+  .wide { width:100%; justify-content:center; }
+
+  /* ---- board ---- */
+  .board { overflow:auto; padding:26px 28px; display:flex; flex-direction:column; gap:22px; }
+  [data-texture="on"] .board { background-image:radial-gradient(circle,var(--dot) 1px,transparent 1px);
+    background-size:22px 22px; background-position:-1px -1px; }
+  .srow { display:flex; flex-wrap:wrap; gap:20px; align-items:stretch; }
+  .shelf { display:flex; flex-direction:column; border-radius:12px; overflow:hidden; min-width:0;
+    background:var(--bg-surface); border:1px solid var(--border-hairline); box-shadow:var(--shadow-card); position:relative; }
+  .shelf::before { content:""; position:absolute; inset:0 0 auto 0; height:3px; z-index:2;
+    background:var(--shelf-accent,var(--border-strong)); }
+  .shead { display:flex; align-items:center; gap:8px; padding:14px 14px 11px; flex-shrink:0;
+    border-bottom:1px solid var(--border-hairline); font-size:13.5px; font-weight:600;
+    background:color-mix(in oklab,var(--shelf-accent,var(--ink-muted)) 8%,var(--bg-surface)); }
+  .shead .title { flex:1; color:color-mix(in oklab,var(--shelf-accent,var(--ink-primary)) 55%,var(--ink-primary)); }
+  .shead .handle,.shead .more,.shead .close { color:var(--ink-muted); cursor:pointer; font-size:13px; padding:2px 4px; border-radius:5px; }
+  .shead .more:hover,.shead .close:hover { background:var(--hover-wash); }
+  .sbody { flex:1; display:flex; flex-wrap:wrap; align-content:flex-start; margin:0 -1px -1px 0; }
+  .card { flex:1 1 236px; min-width:236px; display:flex; flex-direction:column; padding:13px 15px;
+    background:var(--bg-surface); border-right:1px solid var(--border-hairline); border-bottom:1px solid var(--border-hairline); }
+  .card.editing { background:var(--accent-tint); box-shadow:inset 2px 0 0 var(--accent); }
+  .dropzone { flex:0 0 46px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+    color:var(--ink-muted); border-right:1px solid var(--border-hairline); border-bottom:1px solid var(--border-hairline);
+    background-image:repeating-linear-gradient(45deg,transparent 0 5px,var(--hatch) 5px 6px); }
+  .dropzone:hover { color:var(--accent); background-color:var(--accent-tint); }
+  .dropzone svg { width:15px; height:15px; }
+  .ctop { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:3px; position:relative; }
+  .ctitle-wrap { display:flex; align-items:center; gap:6px; min-width:0; }
+  .seqtag { font-size:9px; font-weight:700; letter-spacing:.04em; padding:2px 5px; border-radius:4px;
+    color:var(--ink-secondary); background:var(--hover-wash); flex-shrink:0; }
+  .ctitle { font-size:14.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ctopr { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+  .glyph { width:17px; height:17px; display:inline-flex; } .glyph svg { width:17px; height:17px; }
+  .glyph rect { rx:4.5px; ry:4.5px; }
+  .cclose { width:20px; height:20px; border-radius:5px; border:none; background:transparent; color:var(--ink-muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; }
+  .cclose:hover { background:color-mix(in oklab,var(--status-bad) 12%,transparent); color:var(--status-bad); }
+  .steps { list-style:none; margin:5px 0 10px; padding:0; }
+  .steps li { position:relative; padding-left:14px; margin-bottom:5px; line-height:1.35; font-size:12.5px;
+    color:var(--ink-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .steps li::before { content:""; position:absolute; left:1px; top:6px; width:5px; height:5px;
+    border-radius:2px; background:var(--border-strong); }
+  .cmeta { font-size:11px; color:var(--ink-muted); font-style:italic; margin-bottom:11px; }
+  .cact { display:flex; align-items:center; gap:6px; margin-top:auto; position:relative; }
+  .btn { height:30px; padding:0 12px; border-radius:7px; border:1px solid transparent; cursor:pointer;
+    font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+  .btn.sec { background:var(--hover-wash); color:var(--ink-secondary); }
+  .btn.sec:hover { color:var(--ink-primary); }
+  .btn.acc { background:var(--accent); color:#fff; } .btn.acc:hover { background:var(--accent-hover); }
+  .btn.out { background:transparent; color:var(--ink-secondary); border-color:var(--border-hairline); }
+  .btn.out:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .runbtn { width:30px; height:30px; border-radius:7px; display:inline-flex; align-items:center;
+    justify-content:center; border:none; cursor:pointer; flex-shrink:0; }
+  .runbtn svg { width:11px; height:11px; }
+  .runbtn.solid { background:var(--accent); color:#fff; box-shadow:0 1px 2px rgba(42,120,214,.32); }
+  .runbtn.ghost2 { background:transparent; color:var(--accent); border:1px solid var(--border-hairline); }
+  .cmenubtn { width:30px; height:30px; border-radius:7px; border:none; background:transparent; color:var(--ink-muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; margin-left:auto; flex-shrink:0; font-size:14px; }
+  .cmenubtn:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .cmenu { position:absolute; bottom:34px; right:0; width:210px; background:var(--bg-surface);
+    border:1px solid var(--border-hairline); border-radius:9px; box-shadow:var(--shadow-pop); padding:6px; display:none; z-index:60; }
+  .cmenu.open { display:block; }
+
+  /* ============ EDITOR PANEL ============ */
+  .editor { display:flex; flex-direction:column; min-width:0; overflow:hidden;
+    background:var(--bg-surface); border-left:1px solid var(--border-hairline); }
+  .ehead { padding:12px 14px 11px; border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .ehead-t { display:flex; align-items:center; gap:8px; }
+  .ename { flex:1; min-width:0; font-size:14.5px; font-weight:600; background:transparent; border:1px solid transparent;
+    border-radius:6px; padding:4px 6px; color:var(--ink-primary); }
+  .ename:hover { border-color:var(--border-hairline); }
+  .ename:focus { outline:2px solid var(--accent); outline-offset:-1px; background:var(--bg-surface-2); }
+
+  /* usage disclosure — the requirement that only exists once editing moves in-context */
+  .usage { display:flex; align-items:flex-start; gap:7px; margin-top:9px; padding:7px 9px; border-radius:7px;
+    font-size:11.5px; line-height:1.45; color:var(--ink-secondary);
+    background:color-mix(in oklab,var(--status-warn) 11%,transparent);
+    border-left:2px solid var(--status-warn); }
+  .usage svg { width:13px; height:13px; color:var(--status-warn); flex-shrink:0; margin-top:1px; }
+  .usage b { color:var(--ink-primary); }
+  .viewchip { display:inline-flex; align-items:center; height:19px; padding:0 7px; border-radius:100px;
+    font-size:10.5px; font-weight:600; background:var(--bg-surface); border:1px solid var(--border-hairline);
+    color:var(--ink-secondary); margin:3px 3px 0 0; cursor:pointer; }
+  .viewchip:hover { color:var(--ink-primary); border-color:var(--border-strong); }
+
+  .escroll { flex:1; overflow-y:auto; }
+  .sect { border-bottom:1px solid var(--border-hairline); padding:13px 14px 15px; }
+  .sect-h { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .sect-h .t { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); font-weight:600; flex:1; }
+  .sect-note { font-size:11.5px; color:var(--ink-muted); line-height:1.5; margin-bottom:10px; }
+  .minibtn { display:inline-flex; align-items:center; gap:4px; height:24px; padding:0 8px; border-radius:6px;
+    border:1px solid var(--border-hairline); background:transparent; color:var(--ink-secondary);
+    font-size:11.5px; font-weight:600; cursor:pointer; }
+  .minibtn:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .minibtn svg { width:11px; height:11px; }
+
+  /* inputs table */
+  .inrow { display:grid; grid-template-columns:1fr 74px 1fr 24px; gap:7px; align-items:center; padding:5px 0; }
+  .inrow.head { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-muted);
+    padding-bottom:4px; border-bottom:1px solid var(--border-hairline); margin-bottom:3px; }
+  .fld { height:28px; border-radius:6px; border:1px solid var(--border-hairline); background:var(--bg-surface-2);
+    color:var(--ink-primary); font-size:12px; padding:0 8px; min-width:0;
+    font-family:ui-monospace,"SF Mono",Menlo,monospace; }
+  .fld:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .tybadge { font-size:9.5px; font-weight:700; letter-spacing:.04em; padding:3px 0; border-radius:5px; text-align:center;
+    background:color-mix(in oklab,var(--src-input) 14%,transparent); color:var(--src-input); }
+  .xbtn { width:22px; height:22px; border-radius:5px; border:none; background:transparent; color:var(--ink-muted);
+    cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; }
+  .xbtn:hover { background:color-mix(in oklab,var(--status-bad) 12%,transparent); color:var(--status-bad); }
+
+  /* steps */
+  .step { border:1px solid var(--border-hairline); border-radius:9px; margin-bottom:8px; background:var(--bg-surface-2); }
+  .step.warn { border-color:color-mix(in oklab,var(--status-warn) 45%,transparent); }
+  .step-h { display:flex; align-items:center; gap:8px; padding:8px 9px; cursor:pointer; }
+  .step-h .grip { color:var(--ink-muted); font-size:11px; cursor:grab; flex-shrink:0; }
+  .step-h .idx { width:18px; height:18px; border-radius:5px; flex-shrink:0; display:flex; align-items:center;
+    justify-content:center; font-size:10px; font-weight:700; font-variant-numeric:tabular-nums;
+    background:var(--border-hairline); color:var(--ink-secondary); }
+  .step-h .names { flex:1; min-width:0; }
+  .dispname { width:100%; font-size:12.5px; font-weight:600; background:transparent; border:1px solid transparent;
+    border-radius:5px; padding:2px 5px; color:var(--ink-primary); }
+  .dispname:hover { border-color:var(--border-hairline); background:var(--bg-surface); }
+  .dispname:focus { outline:2px solid var(--accent); outline-offset:-1px; background:var(--bg-surface); }
+  .realname { font-size:10.5px; color:var(--ink-muted); padding:0 6px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; font-family:ui-monospace,Menlo,monospace; }
+  .step-h .chev { color:var(--ink-muted); flex-shrink:0; transition:transform .15s; }
+  .step-h .chev svg { width:12px; height:12px; }
+  .step.shut .chev { transform:rotate(-90deg); }
+  .step-b { padding:2px 10px 10px 36px; }
+  .step.shut .step-b { display:none; }
+  .warnrow { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--status-warn);
+    padding:0 9px 8px 36px; }
+  .warnrow svg { width:12px; height:12px; flex-shrink:0; }
+
+  .prow { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:4px 0;
+    border-bottom:1px dashed var(--border-hairline); }
+  .prow:last-child { border-bottom:none; }
+  .pname { font-size:11.5px; font-family:ui-monospace,Menlo,monospace; color:var(--ink-secondary);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bind { display:inline-flex; align-items:center; gap:5px; max-width:230px; height:24px; padding:0 7px;
+    border-radius:6px; border:1px solid var(--border-hairline); background:var(--bg-surface); cursor:pointer;
+    font-size:11px; font-family:ui-monospace,Menlo,monospace; }
+  .bind:hover { border-color:var(--border-strong); }
+  .bind .kind { width:5px; height:5px; border-radius:2px; flex-shrink:0; }
+  .bind .val { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bind svg { width:8px; height:8px; color:var(--ink-muted); flex-shrink:0; }
+  .k-input .kind { background:var(--src-input); } .k-input .val { color:var(--src-input); }
+  .k-step  .kind { background:var(--src-step); }  .k-step  .val { color:var(--src-step); }
+  .k-lit   .kind { background:var(--src-literal); } .k-lit .val { color:var(--ink-secondary); }
+  .k-bad   .kind { background:var(--status-warn); } .k-bad .val { color:var(--status-warn); }
+
+  .bmenu { position:fixed; width:264px; background:var(--bg-surface); border:1px solid var(--border-hairline);
+    border-radius:9px; box-shadow:var(--shadow-pop); padding:6px; z-index:180; display:none; max-height:300px; overflow:auto; }
+  .bmenu.open { display:block; }
+  .bmi { font-size:11.5px; padding:6px 7px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:7px;
+    font-family:ui-monospace,Menlo,monospace; color:var(--ink-primary); }
+  .bmi:hover { background:var(--hover-wash); }
+  .bmi .kind { width:5px; height:5px; border-radius:2px; flex-shrink:0; }
+
+  .efoot { display:flex; align-items:center; gap:7px; padding:10px 14px; flex-shrink:0;
+    border-top:1px solid var(--border-hairline); background:var(--bg-surface); }
+  .efoot .sp { margin-left:auto; }
+  .dirty { font-size:11px; color:var(--status-warn); font-weight:600; }
+
+  /* legend / empty */
+  .emptyed { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+    color:var(--ink-muted); font-size:12.5px; padding:40px; text-align:center; }
+</style>
+</head>
+<body data-theme="light" data-texture="on">
+
+<div class="harness">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="lbl">Try:</span>
+    <button class="hbtn go" onclick="openDrawer('seq')">Open library → Sequences</button>
+    <button class="hbtn go" onclick="editSeq('placement')">Edit a sequence from a card</button>
+    <span class="lbl">Theme is in the ⚙ gear →</span>
+  </div>
+  <button class="hbtn" onclick="document.getElementById('p').classList.toggle('open')">What changed?</button>
+</div>
+
+<div class="panel" id="p">
+  <strong>Sequences folded into Views — option B</strong>
+  <ul>
+    <li><strong>The Sequences nav tab is gone.</strong> Nav is now Views · Review · Configurations · Key Vault. The struck-through tab in the mockup is there only to show what was removed — it isn't part of the design.</li>
+    <li><strong>The drawer became the library.</strong> Two tabs: <code>Pipelines</code> and <code>Sequences</code>. Both lists are draggable onto shelves, which is the honest model — a pipeline and a sequence are both "a thing you put on a shelf".</li>
+    <li><strong>Editing happens in context.</strong> A sequence card's <code>⋯</code> menu gets <em>Edit sequence…</em>, opening a right-hand panel — the same slide-in pattern as the Configurations detail pane. The card being edited gets an accent rail so you never lose track of what the panel is pointed at.</li>
+    <li><strong>Opening the editor auto-collapses the drawer.</strong> You don't need the library while editing, and three panels plus a board is too many.</li>
+    <li><strong>Usage disclosure.</strong> The editor header states which views use this sequence, because in-context editing removes the "this is a shared object" signal the separate page gave you for free. Destructive edits warn against that list.</li>
+    <li><strong>Step renaming lives here</strong> — the display name is the editable field, the real pipeline name sits under it in muted mono. This is what makes the verbose <code>SB.ConfigRegistry.UserTypesMap · Deploy</code> names fit on a card.</li>
+    <li><strong>Pre-run inputs</strong> are a small table: key, type, default. Referenced by steps below.</li>
+    <li><strong>Value passing</strong> is a binding chip per parameter, colour-coded by source — violet for a pre-run input, aqua for a previous step's output, slate for a literal. Click one to repoint it; the menu only offers steps <em>earlier</em> than the current one, so you can't build a cycle.</li>
+    <li><strong>Broken bindings surface.</strong> Step 6 of <em>ConfigRegistry Nuget SuperBuild</em> references an input that no longer exists — the chip and the step border go amber. Try deleting the <code>packageVersion</code> input and watch step 2 break the same way.</li>
+    <li><strong>Binding source colours are aliases</strong> of the existing identity hues (violet / aqua / slate) — no new colours, and no green or red, so invariant A2 holds.</li>
+  </ul>
+</div>
+
+<div class="app">
+  <div class="topnav">
+    <div style="display:flex;align-items:center;">
+      <span class="brand">Pipeline <span class="a">Launchpad</span></span><span class="dot-sep">·</span>
+      <span class="org">ExampleDevOps</span>
+      <div class="tabs">
+        <a class="on"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.5"/></svg>Views</a>
+        <a class="gone" title="Removed — folded into Views"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="3" cy="3.5" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="3" cy="12.5" r="1.4"/><path d="M6.5 3.5H14M6.5 8H14M6.5 12.5H14" stroke-linecap="round"/></svg>Sequences</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="8" r="2"/><path d="M4 6v4M6 4h3a3 3 0 0 1 3 3v0" stroke-linecap="round"/></svg>Review</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4h12M2 8h12M2 12h12" stroke-linecap="round"/><circle cx="5.5" cy="4" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>Configurations</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="7" width="10" height="7" rx="1.8"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>Key Vault</a>
+      </div>
+    </div>
+    <div class="nav-r">
+      <button class="ghost"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 2.5v7M5.2 6.8L8 9.6l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2"/></svg>Transfer</button>
+      <div class="menuwrap">
+        <button class="iconbtn" onclick="pop(event,'setm')" title="Settings">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M4.6 15.4L6 14M14 6l1.4-1.4" stroke-linecap="round"/></svg>
+        </button>
+        <div class="menu" id="setm">
+          <div class="menu-lbl">Appearance</div>
+          <div class="seg"><div class="on" id="tl" onclick="theme('light')">☀ Light</div><div id="td" onclick="theme('dark')">☾ Dark</div></div>
+        </div>
+      </div>
+      <div class="who"><span class="avatar">JF</span>James Farrugia</div>
+      <a href="#" class="signout">Sign out</a>
+    </div>
+  </div>
+
+  <div class="viewbar">
+    <button class="iconbtn" id="dbtn" onclick="toggleDrawer()" title="Library — pipelines & sequences">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2" width="13" height="12" rx="2"/><path d="M6 2v12"/></svg>
+    </button>
+    <span class="pill on">DEV Deployment</span>
+    <span class="pill">DEV Infrastructure</span>
+    <span class="pill">TEMP – Testing Bonus Ladder</span>
+    <span class="vr"></span>
+    <span class="add">+ New view</span>
+    <span class="add">+ Add shelf</span>
+  </div>
+
+  <div class="work" id="work" data-drawer="off" data-editor="off">
+
+    <!-- LIBRARY DRAWER -->
+    <div class="drawer">
+      <div class="dtabs">
+        <div class="dtab" id="dt-pipe" onclick="drawerTab('pipe')">Pipelines <span class="n" id="n-pipe"></span></div>
+        <div class="dtab on" id="dt-seq" onclick="drawerTab('seq')">Sequences <span class="n" id="n-seq"></span></div>
+      </div>
+      <div class="dsearchwrap">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14" stroke-linecap="round"/></svg>
+        <input class="dsearch" id="dq" placeholder="Search…" oninput="renderDrawer()">
+      </div>
+      <div class="dscroll" id="dlist"></div>
+      <div class="dfoot">
+        <button class="btn out wide" id="dnew" onclick="newSeq()">+ New sequence</button>
+      </div>
+    </div>
+
+    <!-- BOARD -->
+    <div class="board" id="board"></div>
+
+    <!-- EDITOR -->
+    <div class="editor" id="editor"></div>
+  </div>
+</div>
+
+<div class="bmenu" id="bmenu"></div>
+
+<script>
+/* ===================== data ===================== */
+const PIPELINES = {
+  'Placement': ['Dev Build and Push','Dev Deployment','Terraform','Deploy AKS'],
+  'Settlement Engine': ['Dev - Build and Push','Dev - Deployment'],
+  'Configuration Registry': ['SB.ConfigRegistry - Build','SB.ConfigRegistry.Tooling - Deploy','SB.ConfigRegistry.AccaBonus - Deploy'],
+  'Betstore': ['UP Migration'],
+  'Betting': ['Build','Deploy'],
+};
+
+let SEQ = {
+  placement: {
+    id:'placement', name:'Placement Dev Ship', usedIn:['DEV Deployment'],
+    inputs:[
+      {key:'branch', type:'branch', def:'feature/bonus-eligibility'},
+      {key:'environment', type:'choice', def:'dev'},
+    ],
+    steps:[
+      { real:'Placement - Dev Build and Push', disp:'Build & Push', open:true, params:[
+        {name:'branch',        src:{k:'input', ref:'branch'}},
+        {name:'configuration', src:{k:'lit',   ref:'Release'}},
+      ]},
+      { real:'Placement - Dev Deployment', disp:'Deploy', open:true, params:[
+        {name:'environment', src:{k:'input', ref:'environment'}},
+        {name:'imageTag',    src:{k:'step',  ref:'0.imageTag'}},
+        {name:'waitForIt',   src:{k:'lit',   ref:'true'}},
+      ]},
+    ]},
+  settlement: {
+    id:'settlement', name:'Settlement Engine Dev Ship', usedIn:['DEV Deployment'],
+    inputs:[{key:'branch', type:'branch', def:'feature/bonus-eligibility'}],
+    steps:[
+      { real:'Settlement Engine - Dev - Build and Push', disp:'Build & Push', open:false, params:[
+        {name:'branch', src:{k:'input', ref:'branch'}}]},
+      { real:'Settlement Engine - Dev - Deployment', disp:'Deploy', open:false, params:[
+        {name:'imageTag', src:{k:'step', ref:'0.imageTag'}}]},
+    ]},
+  configreg: {
+    id:'configreg', name:'ConfigRegistry Nuget SuperBuild', usedIn:['DEV Deployment'],
+    inputs:[
+      {key:'branch', type:'branch', def:'develop'},
+      {key:'packageVersion', type:'string', def:'auto'},
+    ],
+    steps:[
+      { real:'SB.ConfigRegistry - Build', disp:'Build', open:true, params:[
+        {name:'branch',  src:{k:'input', ref:'branch'}},
+        {name:'version', src:{k:'input', ref:'packageVersion'}}]},
+      { real:'SB.ConfigRegistry.Tooling - Deploy', disp:'Tooling', open:false, params:[
+        {name:'nugetVersion', src:{k:'step', ref:'0.packageVersion'}}]},
+      { real:'SB.ConfigRegistry.AccaBonus - Deploy', disp:'AccaBonus', open:false, params:[
+        {name:'nugetVersion', src:{k:'step', ref:'0.packageVersion'}}]},
+      { real:'SB.ConfigRegistry.Flexicut - Deploy', disp:'Flexicut', open:false, params:[
+        {name:'nugetVersion', src:{k:'step', ref:'0.packageVersion'}}]},
+      { real:'SB.ConfigRegistry.Generosity', disp:'Generosity', open:false, params:[
+        {name:'nugetVersion', src:{k:'step', ref:'0.packageVersion'}}]},
+      { real:'SB.ConfigRegistry.MTS - Package', disp:'MTS', open:true, params:[
+        {name:'nugetVersion', src:{k:'step',  ref:'0.packageVersion'}},
+        {name:'feed',         src:{k:'input', ref:'nugetFeed'}}]},   /* ← deliberately broken */
+      { real:'SB.ConfigRegistry.Taxation - Deploy', disp:'Taxation', open:false, params:[
+        {name:'nugetVersion', src:{k:'step', ref:'0.packageVersion'}}]},
+      { real:'SB.ConfigRegistry.UserTypesMap - Deploy', disp:'UserTypesMap', open:false, params:[
+        {name:'nugetVersion', src:{k:'step', ref:'0.packageVersion'}}]},
+    ]},
+  betting: {
+    id:'betting', name:'Betting Dev Ship', usedIn:['DEV Deployment','TEMP – Testing Bonus Ladder'],
+    inputs:[{key:'branch', type:'branch', def:'feature/CO-3'}],
+    steps:[
+      { real:'Betting - Build', disp:'Build & Push', open:false, params:[
+        {name:'branch', src:{k:'input', ref:'branch'}}]},
+      { real:'Betting - Deploy', disp:'Deploy', open:false, params:[
+        {name:'imageTag', src:{k:'step', ref:'0.imageTag'}}]},
+    ]},
+};
+
+const SHELVES = [
+  { name:'Placement', accent:'--hue-blue', cards:[
+      {kind:'seq', seq:'placement', status:'good', meta:'last run 6h ago'},
+      {kind:'pipe', title:'Build', status:'good'},
+      {kind:'pipe', title:'Deploy', status:'good'} ]},
+  { name:'Settlement Engine', accent:'--hue-violet', cards:[
+      {kind:'seq', seq:'settlement', status:'good', meta:'last run 7h ago'},
+      {kind:'pipe', title:'Build', status:'good'} ]},
+  { name:'Configuration Registry', accent:'--hue-aqua', cards:[
+      {kind:'seq', seq:'configreg', status:'good', meta:'last run 2d ago'} ]},
+];
+
+let dtab='seq', editing=null, dirty=false;
+
+/* ===================== board ===================== */
+const glyphGood = `<span class="glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+const play = `<svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg>`;
+
+function renderBoard(){
+  document.getElementById('board').innerHTML = `<div class="srow">` + SHELVES.map((sh,si)=>`
+    <div class="shelf" style="--shelf-accent:var(${sh.accent})">
+      <div class="shead"><span class="handle">⠿</span><span class="title">${sh.name}</span>
+        <span class="more">⋯</span><span class="close">✕</span></div>
+      <div class="sbody">
+        ${sh.cards.map((c,ci)=>c.kind==='seq'? seqCard(c,si,ci) : pipeCard(c,si,ci)).join('')}
+        <div class="dropzone" title="Add a pipeline or sequence"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></div>
+      </div>
+    </div>`).join('') + `</div>`;
+}
+function seqCard(c,si,ci){
+  const s = SEQ[c.seq], shelf = SHELVES[si].name;
+  /* card label drops the prefix the shelf already supplies */
+  const label = s.name.replace(shelf,'').replace(/^\s*(Dev\s*)?/,'').trim() || s.name;
+  const shown = s.steps.slice(0,4), rest = s.steps.length-shown.length;
+  return `<div class="card ${editing===s.id?'editing':''}">
+    <div class="ctop">
+      <div class="ctitle-wrap"><span class="seqtag">SEQ</span><span class="ctitle" title="${s.name}">${label}</span></div>
+      <div class="ctopr">${glyphGood}<button class="cclose" title="Remove card">✕</button></div>
+    </div>
+    <ul class="steps">${shown.map(st=>`<li title="${st.real}">${st.disp}</li>`).join('')}
+      ${rest>0?`<li style="color:var(--ink-muted)">+${rest} more</li>`:''}</ul>
+    <div class="cmeta">${c.meta}</div>
+    <div class="cact">
+      <button class="runbtn solid" title="Run sequence">${play}</button>
+      <button class="btn sec">Logs</button>
+      <button class="cmenubtn" onclick="pop(event,'cm-${si}-${ci}')">⋯</button>
+      <div class="cmenu" id="cm-${si}-${ci}">
+        <div class="mi" onclick="editSeq('${s.id}')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.6l2.2 2.2L6 12.2l-3 .8.8-3z"/></svg>
+          Edit sequence…</div>
+        <div class="mi off">Duplicate sequence</div>
+        <div class="msep"></div>
+        <div class="mi off">Show project label</div>
+      </div>
+    </div></div>`;
+}
+function pipeCard(c,si,ci){
+  return `<div class="card">
+    <div class="ctop"><div class="ctitle-wrap"><span class="ctitle">${c.title}</span></div>
+      <div class="ctopr">${glyphGood}<button class="cclose">✕</button></div></div>
+    <ul class="steps" style="opacity:0"><li>·</li><li>·</li></ul>
+    <div class="cmeta">last run 4h ago</div>
+    <div class="cact"><button class="runbtn ghost2" title="Run">${play}</button>
+      <button class="btn sec">Logs</button><button class="cmenubtn">⋯</button></div></div>`;
+}
+
+/* ===================== drawer ===================== */
+function renderDrawer(){
+  const q = (document.getElementById('dq').value||'').toLowerCase();
+  const seqs = Object.values(SEQ);
+  document.getElementById('n-seq').textContent = seqs.length;
+  document.getElementById('n-pipe').textContent = Object.values(PIPELINES).flat().length;
+  document.getElementById('dnew').style.display = dtab==='seq' ? '' : 'none';
+  document.getElementById('dt-seq').classList.toggle('on', dtab==='seq');
+  document.getElementById('dt-pipe').classList.toggle('on', dtab==='pipe');
+  document.getElementById('dq').placeholder = dtab==='seq' ? 'Search sequences…' : 'Search pipelines…';
+
+  let html='';
+  if(dtab==='seq'){
+    const hits = seqs.filter(s=>s.name.toLowerCase().includes(q));
+    html = hits.length ? hits.map(s=>`
+      <div class="drow" draggable="true" title="Drag onto a shelf">
+        <span class="grab">⠿</span>
+        <span class="nm">${s.name}</span>
+        <span class="steps">${s.steps.length}</span>
+        <button class="pencil" title="Edit sequence" onclick="event.stopPropagation();editSeq('${s.id}')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.6l2.2 2.2L6 12.2l-3 .8.8-3z"/></svg>
+        </button></div>`).join('')
+      : `<div style="padding:20px 8px;font-size:12px;color:var(--ink-muted);text-align:center">No sequences match.</div>`;
+  } else {
+    html = Object.entries(PIPELINES).map(([g,items])=>{
+      const hits = items.filter(i=>(g+' '+i).toLowerCase().includes(q));
+      if(!hits.length) return '';
+      return `<div class="dgroup">${g}</div>` + hits.map(i=>`
+        <div class="drow" draggable="true"><span class="grab">⠿</span><span class="nm">${i}</span></div>`).join('');
+    }).join('');
+  }
+  document.getElementById('dlist').innerHTML = html;
+}
+function drawerTab(t){ dtab=t; renderDrawer(); }
+function toggleDrawer(){
+  const w=document.getElementById('work');
+  const on = w.getAttribute('data-drawer')==='on';
+  w.setAttribute('data-drawer', on?'off':'on');
+  document.getElementById('dbtn').classList.toggle('on', !on);
+}
+function openDrawer(tab){
+  dtab=tab||dtab; renderDrawer();
+  const w=document.getElementById('work');
+  w.setAttribute('data-drawer','on');
+  document.getElementById('dbtn').classList.add('on');
+}
+function newSeq(){
+  const id='new'+Object.keys(SEQ).length;
+  SEQ[id]={id, name:'New sequence', usedIn:[], inputs:[{key:'branch',type:'branch',def:'develop'}], steps:[]};
+  renderDrawer(); editSeq(id);
+}
+
+/* ===================== editor ===================== */
+function editSeq(id){
+  editing=id; dirty=false;
+  const w=document.getElementById('work');
+  w.setAttribute('data-editor','on');
+  /* the library isn't needed while editing, and 3 panels + board is too many */
+  w.setAttribute('data-drawer','off');
+  document.getElementById('dbtn').classList.remove('on');
+  closeAll(); renderEditor(); renderBoard();
+}
+function closeEditor(){
+  editing=null;
+  document.getElementById('work').setAttribute('data-editor','off');
+  renderBoard();
+}
+const KINDLBL = {input:'k-input', step:'k-step', lit:'k-lit', bad:'k-bad'};
+
+function bindLabel(s, seq, stepIdx){
+  if(s.k==='input'){
+    const ok = seq.inputs.some(i=>i.key===s.ref);
+    return { cls: ok?'k-input':'k-bad', txt:'inputs.'+s.ref, ok };
+  }
+  if(s.k==='step'){
+    const [i,out] = s.ref.split('.');
+    const st = seq.steps[+i];
+    const ok = !!st && +i < stepIdx;
+    return { cls: ok?'k-step':'k-bad', txt: (st? `${st.disp}.${out}` : `step${+i+1}.${out}`), ok };
+  }
+  return { cls:'k-lit', txt:'"'+s.ref+'"', ok:true };
+}
+
+function renderEditor(){
+  const el = document.getElementById('editor');
+  if(!editing){ el.innerHTML=''; return; }
+  const s = SEQ[editing];
+
+  const stepsHtml = s.steps.map((st,i)=>{
+    const bad = st.params.some(p=>!bindLabel(p.src,s,i).ok);
+    return `<div class="step ${st.open?'':'shut'} ${bad?'warn':''}">
+      <div class="step-h" onclick="tstep(${i})">
+        <span class="grip" onclick="event.stopPropagation()" title="Drag to reorder">⠿</span>
+        <span class="idx">${i+1}</span>
+        <span class="names">
+          <input class="dispname" value="${st.disp}" onclick="event.stopPropagation()"
+                 oninput="setDisp(${i},this.value)" placeholder="Display name">
+          <div class="realname" title="${st.real}">${st.real}</div>
+        </span>
+        <span class="chev"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 4.5L6 7.5l3-3" stroke-linecap="round"/></svg></span>
+      </div>
+      ${bad?`<div class="warnrow"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.5l6 11H2z" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.4v.1" stroke-linecap="round"/></svg>A parameter points at something that no longer exists.</div>`:''}
+      <div class="step-b">
+        ${st.params.map((p,pi)=>{
+          const b = bindLabel(p.src,s,i);
+          return `<div class="prow"><span class="pname">${p.name}</span>
+            <button class="bind ${b.cls}" onclick="bmenu(event,${i},${pi})">
+              <span class="kind"></span><span class="val">${b.txt}</span>
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 4.5L6 7.5l3-3" stroke-linecap="round"/></svg>
+            </button></div>`;
+        }).join('') || `<div style="font-size:11.5px;color:var(--ink-muted);padding:4px 0">No parameters.</div>`}
+      </div></div>`;
+  }).join('') || `<div style="font-size:12px;color:var(--ink-muted);padding:6px 0 10px">No steps yet — add the first one below.</div>`;
+
+  el.innerHTML = `
+    <div class="ehead">
+      <div class="ehead-t">
+        <span class="seqtag">SEQ</span>
+        <input class="ename" value="${s.name}" oninput="setName(this.value)">
+        <button class="iconbtn" onclick="closeEditor()" title="Close editor">✕</button>
+      </div>
+      ${s.usedIn.length ? `
+        <div class="usage">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5.2v.1M8 7.4v3.4" stroke-linecap="round"/></svg>
+          <div>Used by <b>${s.usedIn.length} view${s.usedIn.length>1?'s':''}</b> — edits apply everywhere.
+            <div>${s.usedIn.map(v=>`<span class="viewchip">${v}</span>`).join('')}</div></div>
+        </div>`
+        : `<div class="sect-note" style="margin:8px 0 0">Not on any view yet. Drag it from the library onto a shelf.</div>`}
+    </div>
+
+    <div class="escroll">
+      <div class="sect">
+        <div class="sect-h"><span class="t">Pre-run inputs</span>
+          <button class="minibtn" onclick="addInput()"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 2.5v7M2.5 6h7"/></svg>Add</button></div>
+        <div class="sect-note">Collected once before the run, then available to every step.</div>
+        <div class="inrow head"><span>Key</span><span>Type</span><span>Default</span><span></span></div>
+        ${s.inputs.map((inp,i)=>`
+          <div class="inrow">
+            <input class="fld" value="${inp.key}" oninput="setInputKey(${i},this.value)">
+            <span class="tybadge">${inp.type.toUpperCase()}</span>
+            <input class="fld" value="${inp.def}" oninput="setInputDef(${i},this.value)">
+            <button class="xbtn" title="Remove input" onclick="delInput(${i})">✕</button>
+          </div>`).join('') || `<div style="font-size:11.5px;color:var(--ink-muted);padding:6px 0">No inputs.</div>`}
+      </div>
+
+      <div class="sect">
+        <div class="sect-h"><span class="t">Steps — run in order</span>
+          <button class="minibtn" onclick="addStep()"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 2.5v7M2.5 6h7"/></svg>Add step</button></div>
+        <div class="sect-note">Each step waits for the previous to succeed. The <b>display name</b> is what shows on the card; the real pipeline name sits underneath.</div>
+        ${stepsHtml}
+      </div>
+    </div>
+
+    <div class="efoot">
+      <button class="btn acc" onclick="save()">Save changes</button>
+      <button class="btn out" onclick="closeEditor()">Discard</button>
+      <span class="sp"></span>
+      ${dirty?`<span class="dirty">Unsaved</span>`:''}
+      <button class="runbtn solid" title="Run sequence now">${play}</button>
+    </div>`;
+}
+function touch(){ dirty=true; }
+function tstep(i){ SEQ[editing].steps[i].open = !SEQ[editing].steps[i].open; renderEditor(); }
+function setDisp(i,v){ SEQ[editing].steps[i].disp=v; touch(); renderBoard(); }
+function setName(v){ SEQ[editing].name=v; touch(); renderBoard(); renderDrawer(); }
+function setInputKey(i,v){ SEQ[editing].inputs[i].key=v; touch(); renderEditor(); }
+function setInputDef(i,v){ SEQ[editing].inputs[i].def=v; touch(); }
+function delInput(i){ SEQ[editing].inputs.splice(i,1); touch(); renderEditor(); }
+function addInput(){ SEQ[editing].inputs.push({key:'newInput',type:'string',def:''}); touch(); renderEditor(); }
+function addStep(){ const s=SEQ[editing];
+  s.steps.push({real:'Pick a pipeline…', disp:'New step', open:true, params:[]}); touch(); renderEditor(); renderBoard(); }
+function save(){ dirty=false; renderEditor(); }
+
+/* binding picker — only offers steps EARLIER than this one, so no cycles */
+function bmenu(e, stepIdx, paramIdx){
+  e.stopPropagation(); closeAll();
+  const s = SEQ[editing], m = document.getElementById('bmenu');
+  let html = `<div class="menu-lbl">Pre-run inputs</div>`;
+  html += s.inputs.map(i=>`<div class="bmi" onclick="setBind(${stepIdx},${paramIdx},'input','${i.key}')">
+      <span class="kind" style="background:var(--src-input)"></span>inputs.${i.key}</div>`).join('')
+    || `<div class="bmi" style="color:var(--ink-muted)">none defined</div>`;
+  const prior = s.steps.slice(0, stepIdx);
+  html += `<div class="menu-lbl">Outputs from earlier steps</div>`;
+  html += prior.length ? prior.map((st,i)=>['imageTag','packageVersion','runId'].map(o=>
+      `<div class="bmi" onclick="setBind(${stepIdx},${paramIdx},'step','${i}.${o}')">
+        <span class="kind" style="background:var(--src-step)"></span>${st.disp}.${o}</div>`).join('')).join('')
+    : `<div class="bmi" style="color:var(--ink-muted)">this is the first step</div>`;
+  html += `<div class="menu-lbl">Literal</div>
+    <div class="bmi" onclick="setBind(${stepIdx},${paramIdx},'lit',prompt('Literal value','')||'')">
+      <span class="kind" style="background:var(--src-literal)"></span>type a value…</div>`;
+  m.innerHTML = html;
+  const r = e.currentTarget.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth-274)) + 'px';
+  m.style.top  = Math.min(r.bottom+5, innerHeight-310) + 'px';
+  m.classList.add('open');
+}
+function setBind(si,pi,k,ref){
+  SEQ[editing].steps[si].params[pi].src = {k, ref};
+  closeAll(); touch(); renderEditor();
+}
+
+/* ===================== chrome ===================== */
+function closeAll(){ document.querySelectorAll('.menu,.cmenu,.bmenu').forEach(m=>m.classList.remove('open')); }
+function pop(e,id){ e.stopPropagation(); const el=document.getElementById(id);
+  const was=el.classList.contains('open'); closeAll(); if(!was) el.classList.add('open'); }
+document.addEventListener('click', closeAll);
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeAll(); } });
+function theme(t){ document.body.setAttribute('data-theme',t);
+  document.getElementById('tl').classList.toggle('on',t==='light');
+  document.getElementById('td').classList.toggle('on',t==='dark'); }
+
+renderBoard(); renderDrawer(); renderEditor();
+</script>
+</body>
+</html>

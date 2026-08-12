@@ -6,8 +6,8 @@
 
 | File | What it is |
 |---|---|
-| `docs/design/pipeline-launchpad-redesign-v4.html` | Interactive mockup. Open it in a browser. Ground truth for anything this doc doesn't pin down. |
-| `docs/design/launchpad-tokens.css` | Extracted tokens + component rules, written to be dropped into the real app. |
+| `src/web/design/pipeline-launchpad-redesign-v4.html` | Interactive mockup. Open it in a browser. Ground truth for anything this doc doesn't pin down. |
+| `src/web/design/launchpad-tokens.css` | Extracted tokens + component rules, written to be dropped into the real app. |
 
 The mockup has a black harness bar at the very top with toggles (shelf accent, glyph shape, texture, step verbosity). **That bar is not part of the product** — it exists so the options could be compared side by side. Everything below it is the design.
 
@@ -54,6 +54,8 @@ The dark values in `launchpad-tokens.css` are chosen for the dark surface, not c
 - **Nav tabs keep their text labels** and gain a 14px monochrome SVG icon that inherits `currentColor`. Do not substitute emoji — emoji are rendered by the OS emoji font, so they can't recolour for dark mode and render differently per platform.
 - **Nav active state** is ink-coloured text + a 2px bottom border in `--ink-primary`. Not blue (A1).
 - **Sidebar toggle** sits at the left of the view bar and opens a 258px pipeline drawer: search field, pipelines grouped by service, each row draggable onto a shelf.
+
+> **Superseded by `DESIGN_SPEC_SEQUENCES.md` §1 and §4.** The nav tab list drops `Sequences` (it folds into Views), and the sidebar drawer becomes a two-tab library — `Pipelines` and `Sequences` — at 266px. Read that addendum before touching nav or the drawer. Everything else in this section still stands.
 
 ### 2.2 Views page — shelves
 
