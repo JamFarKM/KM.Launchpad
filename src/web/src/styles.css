@@ -815,6 +815,18 @@ a {
 .smartchip .xbtn { width: 18px; height: 18px; color: inherit; }
 .prow-add { border-bottom: none; padding-top: 8px; }
 
+/* The source chain under a branch/environment input. Indented and hairlined so it reads as
+   belonging to the row above rather than as another entry in the table. */
+.insrc {
+  margin: 0 0 6px 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-hairline);
+}
+
+.insrc .prow { padding: 3px 0; }
+.insrc .pctl { width: 220px; }
+.insrc .sect-note { margin: 4px 0 0; }
+
 /* A step whose parameters no longer resolve. The border is one of three carriers — the warning
    row and the raw reference in the chip carry it too — so it survives greyscale (§10). */
 .step.is-broken { border-color: color-mix(in oklab, var(--status-warn) 45%, transparent); }
@@ -2017,6 +2029,15 @@ a {
 .combo-opt.active {
   background: var(--bg-3);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Commits the typed text for lists that can't be exhaustive. Separated from the matches
+   below it so it doesn't read as one of them. */
+.combo-custom {
+  color: var(--ink-secondary);
+  border-bottom: 1px solid var(--border-hairline);
+  border-radius: 6px 6px 0 0;
+  margin-bottom: 2px;
 }
 
 .combo-opt-label {

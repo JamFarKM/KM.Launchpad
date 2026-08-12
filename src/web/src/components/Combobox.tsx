@@ -14,13 +14,15 @@ interface Props {
   placeholder?: string;
   disabled?: boolean;
   loading?: boolean;
+  /** Let the typed text be committed as the value, for lists that can't be exhaustive. */
+  allowCustom?: boolean;
 }
 
 /**
  * A searchable single-select dropdown for long lists. The popup renders in a portal
  * with fixed positioning so it is never clipped by a scrolling modal or overflow parent.
  */
-export function Combobox({ value, options, onChange, placeholder, disabled, loading }: Props) {
+export function Combobox({ value, options, onChange, placeholder, disabled, loading, allowCustom }: Props) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
@@ -61,7 +63,14 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
     ? options.filter((o) => o.label.toLowerCase().includes(needle) || (o.hint ?? "").toLowerCase().includes(needle))
     : options;
 
-  const title = selected ? (selected.hint ? `${selected.label} · ${selected.hint}` : selected.label) : undefined;
+  // A value the options don't cover still has to show. Falling through to the placeholder made a
+  // set value read as empty whenever its list hadn't loaded or no longer contained it.
+  const display = selected ? selected.label : value || (placeholder ?? "— select —");
+  const title = selected
+    ? (selected.hint ? `${selected.label} · ${selected.hint}` : selected.label)
+    : value || undefined;
+
+  const custom = allowCustom && needle && !options.some((o) => o.value === q.trim());
 
   return (
     <div className={`combo ${disabled ? "disabled" : ""}`} ref={wrapRef}>
@@ -72,8 +81,8 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
         title={title}
         onClick={() => { if (!disabled) { setOpen((o) => !o); setQ(""); } }}
       >
-        <span className={selected ? "" : "faint"}>
-          {loading ? "loading…" : selected ? selected.label : (placeholder ?? "— select —")}
+        <span className={selected || value ? "" : "faint"}>
+          {loading ? "loading…" : display}
         </span>
         <span className="combo-caret">▾</span>
       </button>
@@ -92,7 +101,16 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
             onChange={(e) => setQ(e.target.value)}
           />
           <div className="combo-list">
-            {filtered.length === 0 && <div className="combo-empty">No matches</div>}
+            {custom && (
+              <div
+                className="combo-opt combo-custom"
+                title={`Use ${q.trim()}`}
+                onClick={() => { onChange(q.trim()); setOpen(false); }}
+              >
+                <span className="combo-opt-label">Use “{q.trim()}”</span>
+              </div>
+            )}
+            {filtered.length === 0 && !custom && <div className="combo-empty">No matches</div>}
             {filtered.map((o) => (
               <div
                 key={o.value}

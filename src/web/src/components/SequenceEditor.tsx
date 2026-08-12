@@ -160,6 +160,152 @@ function StepConfig({ step, inputs, projects, onChange }: {
   );
 }
 
+/**
+ * A pre-run input's row, plus the source chain that a branch or environment input needs.
+ *
+ * An environment input offers the allowed values of a YAML template parameter, so it has to name
+ * the pipeline those values are scraped from; the run dialog resolves the same three fields when
+ * it collects the value. SEQUENCES §5 lists the table as key/type/default/remove and says nothing
+ * about the chain, so it hangs off the row as a disclosure rather than widening the table for the
+ * two kinds that use it.
+ */
+function InputRow({ input, index, projects, onPatch, onRemove }: {
+  input: SequenceInput;
+  index: number;
+  projects: Project[];
+  onPatch: (patch: Partial<SequenceInput>) => void;
+  onRemove: () => void;
+}) {
+  const sourced = input.kind === "branch" || input.kind === "environment";
+  const pipelinesQ = useQuery<Pipeline[]>({
+    queryKey: ["pipelines", input.sourceProject],
+    queryFn: () => api.pipelines(input.sourceProject!),
+    enabled: sourced && !!input.sourceProject,
+  });
+  const detailQ = useQuery<PipelineDetail>({
+    queryKey: ["detail", input.sourceProject, input.sourcePipelineId],
+    queryFn: () => api.pipelineDetail(input.sourceProject!, input.sourcePipelineId!),
+    enabled: sourced && !!input.sourceProject && !!input.sourcePipelineId,
+  });
+
+  const params = detailQ.data?.parameters ?? [];
+  const envValues = params.find((p) => p.name === input.sourceParameter)?.allowedValues ?? [];
+
+  return (
+    <>
+      <div className="inrow">
+        <input
+          className="fld" value={input.name} aria-label={`Input ${index + 1} key`}
+          onChange={(e) => onPatch({ name: e.target.value })}
+        />
+        {/* The kind drives how the run dialog collects the value, so it's a real
+            choice rather than a static badge. */}
+        <select
+          className="tysel" value={input.kind} aria-label={`Input ${index + 1} type`}
+          onChange={(e) => onPatch({ kind: e.target.value as SequenceInput["kind"] })}
+        >
+          <option value="value">VALUE</option>
+          <option value="branch">BRANCH</option>
+          <option value="environment">ENV</option>
+        </select>
+        {/* Smart-detect was previously only reachable by typing the raw __smart__
+            sentinel, so nobody would ever find it. For a branch input it's now an
+            offered choice, and the sentinel is never shown as text. */}
+        {input.kind === "branch" ? (
+          /* A branch is picked, not typed. smart-detect is the first option rather than a
+             separate button, so the one control answers "what branch by default?" — and
+             allowCustom keeps a branch the source pipeline doesn't list reachable. */
+          <Combobox
+            value={input.default ?? ""}
+            options={[
+              { value: SMART_BRANCH, label: "smart-detect — your last branch", hint: "auto" },
+              ...(detailQ.data?.branches ?? []).map((b) => ({
+                value: b.name,
+                label: b.name,
+                hint: b.isDefault ? "default" : b.mine ? "yours" : undefined,
+              })),
+            ]}
+            loading={detailQ.isLoading}
+            placeholder={input.sourcePipelineId ? "— branch —" : "— branch (pick a pipeline) —"}
+            allowCustom
+            onChange={(v) => onPatch({ default: v })}
+          />
+        ) : input.kind === "environment" && envValues.length > 0 ? (
+          /* The point of naming a parameter: its allowed values become the choices, so the
+             default is picked from what the pipeline actually accepts. */
+          <Combobox
+            value={input.default ?? ""}
+            options={envValues.map((v) => ({ value: v, label: v }))}
+            placeholder="— value —"
+            onChange={(v) => onPatch({ default: v })}
+          />
+        ) : (
+          <input
+            className="fld" value={input.default ?? ""} placeholder="—"
+            aria-label={`Input ${index + 1} default`}
+            onChange={(e) => onPatch({ default: e.target.value })}
+          />
+        )}
+        <button className="xbtn" title="Remove input" aria-label={`Remove input ${input.name}`}
+          onClick={onRemove}>✕</button>
+      </div>
+
+      {sourced && (
+        <div className="insrc">
+          <div className="prow">
+            <span className="pname">{input.kind === "branch" ? "branches from" : "values from"}</span>
+            <span className="pctl">
+              <Combobox
+                value={input.sourceProject ?? ""}
+                options={projects.map((p) => ({ value: p.name, label: p.name }))}
+                placeholder="— project —"
+                onChange={(v) => onPatch({ sourceProject: v, sourcePipelineId: null, sourceParameter: "" })}
+              />
+            </span>
+          </div>
+          <div className="prow">
+            <span className="pname">pipeline</span>
+            <span className="pctl">
+              <Combobox
+                value={input.sourcePipelineId ? String(input.sourcePipelineId) : ""}
+                options={(pipelinesQ.data ?? []).map((p) => ({ value: String(p.id), label: p.name, hint: p.folder ?? undefined }))}
+                disabled={!input.sourceProject}
+                loading={pipelinesQ.isLoading}
+                placeholder="— pipeline —"
+                onChange={(v) => onPatch({ sourcePipelineId: Number(v), sourceParameter: "" })}
+              />
+            </span>
+          </div>
+          {input.kind === "environment" && (
+            <div className="prow">
+              <span className="pname">parameter</span>
+              <span className="pctl">
+                <Combobox
+                  value={input.sourceParameter ?? ""}
+                  options={params.map((p) => ({
+                    value: p.name,
+                    label: p.name,
+                    hint: p.allowedValues?.length ? `${p.allowedValues.length} values` : p.type,
+                  }))}
+                  disabled={!input.sourcePipelineId}
+                  loading={detailQ.isLoading}
+                  placeholder="— parameter —"
+                  onChange={(v) => onPatch({ sourceParameter: v })}
+                />
+              </span>
+            </div>
+          )}
+          {input.kind === "environment" && input.sourceParameter && envValues.length === 0 && !detailQ.isLoading && (
+            <div className="sect-note">
+              That parameter declares no allowed values, so the default stays free text.
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function SequenceEditor({
   draft, usedIn, projects, dirty, saving, onChange, onSave, onDiscard, onClose, onRun, onGoToView,
 }: Props) {
@@ -352,46 +498,13 @@ export function SequenceEditor({
                     <button className="minibtn" onClick={() => setConfirmInput(null)}>Keep</button>
                   </div>
                 )}
-                <div className="inrow">
-                  <input
-                    className="fld" value={input.name} aria-label={`Input ${i + 1} key`}
-                    onChange={(e) => patchInput(i, { name: e.target.value })}
-                  />
-                  {/* The kind drives how the run dialog collects the value, so it's a real
-                      choice rather than a static badge. */}
-                  <select
-                    className="tysel" value={input.kind} aria-label={`Input ${i + 1} type`}
-                    onChange={(e) => patchInput(i, { kind: e.target.value as SequenceInput["kind"] })}
-                  >
-                    <option value="value">VALUE</option>
-                    <option value="branch">BRANCH</option>
-                    <option value="environment">ENV</option>
-                  </select>
-                  {/* Smart-detect was previously only reachable by typing the raw __smart__
-                      sentinel, so nobody would ever find it. For a branch input it's now an
-                      offered choice, and the sentinel is never shown as text. */}
-                  {input.default === SMART_BRANCH ? (
-                    <span className="smartchip" title="Resolves to your most recent branch on the source pipeline">
-                      smart-detect
-                      <button className="xbtn" aria-label="Stop using smart-detect"
-                        onClick={() => patchInput(i, { default: "" })}>✕</button>
-                    </span>
-                  ) : (
-                    <span className="deflt">
-                      <input
-                        className="fld" value={input.default ?? ""} placeholder="—"
-                        aria-label={`Input ${i + 1} default`}
-                        onChange={(e) => patchInput(i, { default: e.target.value })}
-                      />
-                      {input.kind === "branch" && (
-                        <button className="minibtn" title="Use your most recent branch"
-                          onClick={() => patchInput(i, { default: SMART_BRANCH })}>smart</button>
-                      )}
-                    </span>
-                  )}
-                  <button className="xbtn" title="Remove input" aria-label={`Remove input ${input.name}`}
-                    onClick={() => removeInput(i)}>✕</button>
-                </div>
+                <InputRow
+                  input={input}
+                  index={i}
+                  projects={projects}
+                  onPatch={(patch) => patchInput(i, patch)}
+                  onRemove={() => removeInput(i)}
+                />
                 </Fragment>
               ))}
             </>
