@@ -1,7 +1,9 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
+import { Combobox } from "../components/Combobox";
+import type { DiffStats } from "../components/MonacoDiff";
 import type { PrChange, Project, PullRequest, Repo } from "../types";
 
 /**
@@ -42,6 +44,8 @@ export function ReviewPage() {
   const [prId, setPrId] = useState<number | null>(null);
   const [path, setPath] = useState<string | null>(null);
   const [inline, setInline] = useState(false);
+  const [stats, setStats] = useState<DiffStats | null>(null);
+  const onStats = useCallback((s: DiffStats) => setStats(s), []);
 
   useEffect(() => {
     if (!project && projectsQ.data?.length) setProject(projectsQ.data[0].name);
@@ -67,8 +71,9 @@ export function ReviewPage() {
   const prs = prsQ.data ?? [];
   const pr = prs.find((p) => p.id === prId) ?? null;
 
-  // Reset the file selection whenever the PR changes.
-  useEffect(() => { setPath(null); }, [prId]);
+  // Reset the file selection and its stats whenever the PR changes.
+  useEffect(() => { setPath(null); setStats(null); }, [prId]);
+  useEffect(() => { setStats(null); }, [path]);
 
   const changesQ = useQuery<PrChange[]>({
     queryKey: ["pr-changes", project, repoId, prId],
@@ -94,14 +99,23 @@ export function ReviewPage() {
         {/* ---------- pull requests ---------- */}
         <div className="cfg-col">
           <div className="cfg-head">
+            {/* Same searchable pickers as the Sequences page, not bare selects. */}
             <div className="review-pickers">
-              <select className="select" value={project} onChange={(e) => { setProject(e.target.value); setRepoId(""); setPrId(null); }}>
-                {(projectsQ.data ?? []).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
-              </select>
-              <select className="select" value={repoId} onChange={(e) => { setRepoId(e.target.value); setPrId(null); }}
-                disabled={!reposQ.data?.length}>
-                {(reposQ.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
+              <Combobox
+                value={project}
+                options={(projectsQ.data ?? []).map((p) => ({ value: p.name, label: p.name }))}
+                loading={projectsQ.isLoading}
+                placeholder="— project —"
+                onChange={(v) => { setProject(v); setRepoId(""); setPrId(null); }}
+              />
+              <Combobox
+                value={repoId}
+                options={(reposQ.data ?? []).map((r) => ({ value: r.id, label: r.name }))}
+                disabled={!project}
+                loading={reposQ.isLoading}
+                placeholder="— repository —"
+                onChange={(v) => { setRepoId(v); setPrId(null); }}
+              />
             </div>
           </div>
 
@@ -167,7 +181,16 @@ export function ReviewPage() {
         {/* ---------- diff ---------- */}
         <div className="cfg-col review-diff">
           <div className="detail-head">
-            <span className="detail-title" title={path ?? ""}>{path ?? "No file selected"}</span>
+            <span className="detail-title" title={path ?? ""}>
+              {path ? fileName(path) : "No file selected"}
+              {path && <span className="detail-dir">{fileDir(path)}</span>}
+            </span>
+            {stats && path && (
+              <span className="diff-stats" title={`${stats.added} added, ${stats.removed} removed`}>
+                <span className="st-add">+{stats.added}</span>
+                <span className="st-del">−{stats.removed}</span>
+              </span>
+            )}
             <div className="seg">
               <button className={`seg-opt ${!inline ? "active" : ""}`} onClick={() => setInline(false)}>Side by side</button>
               <button className={`seg-opt ${inline ? "active" : ""}`} onClick={() => setInline(true)}>Inline</button>
@@ -175,7 +198,14 @@ export function ReviewPage() {
           </div>
 
           <div className="diff-body">
-            {!path && <div className="faint cfg-note">Select a file to see its diff.</div>}
+            {!path && (
+              <div className="empty">
+                <h3>{prId ? "No file selected" : "No pull request selected"}</h3>
+                <p>{prId
+                  ? "Pick a file from the list to see what changed in it."
+                  : "Choose a pull request on the left to review the files it touches."}</p>
+              </div>
+            )}
             {path && diffQ.isLoading && <div className="center-note"><span className="spin" /> loading diff…</div>}
             {path && diffQ.error && (
               <div className="error cfg-note">
@@ -189,6 +219,7 @@ export function ReviewPage() {
                   before={diffQ.data.before ?? ""}
                   after={diffQ.data.after ?? ""}
                   inline={inline}
+                  onStats={onStats}
                 />
               </Suspense>
             )}

@@ -39,6 +39,11 @@ function defineTheme() {
   const violet = hex("--hue-violet", dark ? "9085e9" : "6b5bd6");
   const aqua = hex("--hue-aqua", dark ? "35b3c4" : "1097a8");
   const orange = hex("--hue-orange", dark ? "e08a4a" : "d9722b");
+  const code = hex("--code-bg", dark ? "131312" : "fafaf8");
+  const surface = hex("--bg-surface", dark ? "1a1a19" : "ffffff");
+  const surface2 = hex("--bg-surface-2", dark ? "212120" : "fbfbf9");
+  const border = hex("--border-strong", dark ? "2e2e2c" : "e3e3df");
+  const accent = hex("--accent", dark ? "3987e5" : "2a78d6");
 
   monaco.editor.defineTheme(THEME, {
     base: dark ? "vs-dark" : "vs",
@@ -53,13 +58,35 @@ function defineTheme() {
       { token: "delimiter", foreground: muted },
     ],
     colors: {
-      "editor.background": `#${hex("--code-bg", dark ? "131312" : "fafaf8")}`,
+      // surfaces — the editor sits on the same code surface as the JSON pane
+      "editor.background": `#${code}`,
       "editor.foreground": `#${ink}`,
-      "editorLineNumber.foreground": `#${muted}`,
+      "editorGutter.background": `#${code}`,
+      "editorWidget.background": `#${surface}`,
+      "editorWidget.border": `#${border}`,
+      "editorWidget.foreground": `#${ink}`,
+      "focusBorder": `#${accent}`,
+
+      // gutter + guides
+      "editorLineNumber.foreground": `#${muted}99`,
       "editorLineNumber.activeForeground": `#${ink}`,
-      "editorGutter.background": `#${hex("--code-bg", dark ? "131312" : "fafaf8")}`,
       "editorIndentGuide.background1": `#${muted}22`,
-      "editorOverviewRuler.border": "#00000000",
+      "editorIndentGuide.activeBackground1": `#${muted}44`,
+      "editorWhitespace.foreground": `#${muted}55`,
+      "editor.lineHighlightBackground": "#00000000",
+      "editor.lineHighlightBorder": "#00000000",
+
+      // selection follows the app's accent-as-selection rule (A1)
+      "editor.selectionBackground": `#${accent}3d`,
+      "editor.inactiveSelectionBackground": `#${accent}1f`,
+      "editor.selectionHighlightBackground": `#${accent}26`,
+
+      // scrollbars — muted, not the OS default slab
+      "scrollbar.shadow": "#00000000",
+      "scrollbarSlider.background": `#${muted}33`,
+      "scrollbarSlider.hoverBackground": `#${muted}55`,
+      "scrollbarSlider.activeBackground": `#${muted}77`,
+
       // Diff colours stay conventional green/added, red/removed. This is a deliberate
       // exception to the "green and red are status only" rule: departing from the universal
       // diff convention would cost more comprehension than the rule buys, and the +/- gutter
@@ -68,9 +95,18 @@ function defineTheme() {
       "diffEditor.removedTextBackground": `#${bad}26`,
       "diffEditor.insertedLineBackground": `#${good}14`,
       "diffEditor.removedLineBackground": `#${bad}14`,
-      "diffEditor.border": `#${hex("--border-strong", dark ? "2e2e2c" : "e3e3df")}`,
+      "diffEditor.border": `#${border}`,
+      "diffEditor.diagonalFill": `#${muted}1f`,
       "diffEditorGutter.insertedLineBackground": `#${good}1f`,
       "diffEditorGutter.removedLineBackground": `#${bad}1f`,
+      "diffEditorOverview.insertedForeground": `#${good}99`,
+      "diffEditorOverview.removedForeground": `#${bad}99`,
+      "editorOverviewRuler.border": "#00000000",
+
+      // collapsed "unchanged region" strips — recessed, like the app's inset surfaces
+      "diffEditor.unchangedRegionBackground": `#${surface2}`,
+      "diffEditor.unchangedRegionForeground": `#${muted}`,
+      "diffEditor.unchangedCodeBackground": `#${muted}0f`,
     },
   });
   monaco.editor.setTheme(THEME);
@@ -89,18 +125,28 @@ function languageOf(path: string): string {
   return map[ext] ?? "plaintext";
 }
 
+export interface DiffStats {
+  added: number;
+  removed: number;
+}
+
 interface Props {
   path: string;
   before: string;
   after: string;
   /** Inline (unified) rather than side-by-side. */
   inline?: boolean;
+  /** Line counts, reported once Monaco has computed the diff. */
+  onStats?: (stats: DiffStats) => void;
 }
 
-export function MonacoDiff({ path, before, after, inline }: Props) {
+export function MonacoDiff({ path, before, after, inline, onStats }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const modelsRef = useRef<{ original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel } | null>(null);
+  // Held in a ref so the editor is created once and never torn down just to swap the callback.
+  const statsRef = useRef(onStats);
+  statsRef.current = onStats;
 
   // Create once; the models and options are updated in place afterwards.
   useEffect(() => {
@@ -122,8 +168,26 @@ export function MonacoDiff({ path, before, after, inline }: Props) {
       minimap: { enabled: false },
       renderWhitespace: "selection",
       guides: { indentation: false },
+      padding: { top: 10, bottom: 10 },
+      lineNumbersMinChars: 4,
+      lineDecorationsWidth: 8,
+      overviewRulerLanes: 2,
+      scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
+      diffAlgorithm: "advanced", // word-level within changed lines
     });
     editorRef.current = editor;
+
+    // Line counts come from Monaco's own diff rather than a second algorithm on our side.
+    const statsSub = editor.onDidUpdateDiff(() => {
+      const changes = editor.getLineChanges() ?? [];
+      let added = 0;
+      let removed = 0;
+      for (const c of changes) {
+        if (c.originalEndLineNumber > 0) removed += c.originalEndLineNumber - c.originalStartLineNumber + 1;
+        if (c.modifiedEndLineNumber > 0) added += c.modifiedEndLineNumber - c.modifiedStartLineNumber + 1;
+      }
+      statsRef.current?.({ added, removed });
+    });
 
     // Re-theme when the app's palette flips (settings dispatches this).
     const onSettings = () => defineTheme();
@@ -131,6 +195,7 @@ export function MonacoDiff({ path, before, after, inline }: Props) {
 
     return () => {
       window.removeEventListener("pl-settings", onSettings);
+      statsSub.dispose();
       editor.dispose();
       modelsRef.current?.original.dispose();
       modelsRef.current?.modified.dispose();
