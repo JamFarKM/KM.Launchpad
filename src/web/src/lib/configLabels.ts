@@ -22,17 +22,20 @@ export interface LabelValue {
 
 export interface KeyGroup {
   key: string;
-  /** Baseline first when present, then named labels alphabetically. */
+  /** No-label value first when present, then named labels alphabetically. */
   labels: LabelValue[];
-  /** The no-label value, or null when the key exists only under named labels (§4). */
-  baseline: LabelValue | null;
+  /** The no-label value. Identity only — it does not decide what counts as a difference. */
+  noLabel: LabelValue | null;
   /**
-   * The value most of this key's labels agree on — the yardstick the others are measured
-   * against. Ties go to the baseline when there is one, otherwise the first label.
+   * The baseline: the value most of this key's labels agree on, which is the sensible thing to
+   * measure the others against. Null when every label holds a different value — there is no
+   * majority to nominate, so nothing is called the baseline and every label is simply marked.
    */
-  common: LabelValue | null;
-  /** Labels whose value differs from `common`. Empty when every label agrees. */
+  baseline: LabelValue | null;
+  /** Labels differing from the baseline; every label when they are all distinct. */
   drift: string[];
+  /** True when no two labels agree, so there is no baseline. */
+  allDistinct: boolean;
   /** How many distinct values the labels hold between them. 1 means they all agree. */
   distinct: number;
   type: ValueType;
@@ -130,15 +133,15 @@ export function groupByKey(settings: ConfigSetting[]): KeyGroup[] {
 
   const out: KeyGroup[] = [];
   for (const [key, entries] of byKey) {
-    const baseline = entries.find((e) => e.label === NO_LABEL) ?? null;
+    const noLabel = entries.find((e) => e.label === NO_LABEL) ?? null;
     const named = entries
       .filter((e) => e.label !== NO_LABEL)
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
 
-    const labels = baseline ? [baseline, ...named] : named;
+    const labels = noLabel ? [noLabel, ...named] : named;
 
-    // Group the labels by what they actually hold, then take the largest group as the common
-    // value. The odd ones out are what you want to see, and that works with or without a baseline.
+    // Group the labels by what they actually hold. The largest group is the baseline, and the
+    // labels outside it are what you want to see — which works with or without a no-label value.
     const buckets: { rep: LabelValue; members: LabelValue[] }[] = [];
     for (const lv of labels) {
       const b = buckets.find((x) => sameValue(x.rep.raw, lv.raw));
@@ -146,20 +149,25 @@ export function groupByKey(settings: ConfigSetting[]): KeyGroup[] {
     }
     const best = buckets.reduce((a, b) => {
       if (b.members.length !== a.members.length) return b.members.length > a.members.length ? b : a;
-      // A tie is settled by the baseline, which is at least the value the app resolves by default.
+      // A tie goes to the no-label value, which is at least what the app resolves by default.
       return a.members.some((m) => m.label === NO_LABEL) ? a
         : b.members.some((m) => m.label === NO_LABEL) ? b : a;
     }, buckets[0]);
 
-    const common = best?.rep ?? null;
-    const drift = common ? labels.filter((l) => !sameValue(l.raw, common.raw)).map((l) => l.label) : [];
+    /* No two labels agree, so no value has a better claim to being the baseline than any other.
+       Nominating one would be arbitrary; every label is marked instead. */
+    const allDistinct = labels.length > 1 && buckets.length === labels.length;
+    const baseline = allDistinct ? null : best?.rep ?? null;
+    const drift = allDistinct
+      ? labels.map((l) => l.label)
+      : baseline ? labels.filter((l) => !sameValue(l.raw, baseline.raw)).map((l) => l.label) : [];
 
     // Typed from the value most labels hold, and reported as MIXED when they don't even agree on
     // the shape — which is a thing worth seeing rather than hiding behind whichever one won.
     const types = new Set(labels.map((l) => valueTypeOf(l.raw)));
     const type: ValueType = types.size === 1 ? [...types][0] : "MIXED";
 
-    out.push({ key, labels, baseline, common, drift, distinct: buckets.length, type });
+    out.push({ key, labels, noLabel, baseline, drift, allDistinct, distinct: buckets.length, type });
   }
   return out.sort((a, b) => a.key.localeCompare(b.key, undefined, { sensitivity: "base" }));
 }

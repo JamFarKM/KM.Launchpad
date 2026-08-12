@@ -16,11 +16,23 @@
 > that are not common to *every* label, and applies to every section rather than only to
 > outliers, since the varying part is worth seeing from both sides.
 >
-> §4's rule on *identity* is unchanged — the baseline is still the no-label value and nothing
-> else, and is still never silently nominated — it just no longer decides what counts as drift.
-> The §6 tag vocabulary becomes `SHARED` / `DIFFERS` / `SAME`, with `BASELINE` remaining as a
-> separate muted marker on the no-label section. The list's value column shows the shared value
-> and is headed `Value (shared)`.
+> **The baseline is the most common value.** Whichever value the most labels hold is what the
+> others are measured against, no-label or not. When *every* label holds a different value there
+> is no majority and nothing is nominated — each label is simply marked, and the list says
+> `all differ`. §4's rule that the no-label value is never *silently* treated as authoritative
+> survives in a stronger form: it now has to earn the position by being the most common, and it
+> only breaks ties. It keeps a separate muted `DEFAULT` marker for identity, since "what resolves
+> when no label is asked for" is still worth knowing.
+>
+> **Not a warning.** §3's `--drift` (an alias of `--status-warn`) is replaced by `--label-diff`,
+> the blue identity hue. Environments holding different values is the normal condition of a
+> config store, not a fault, so the marker is a small dot and the wording is plain — `2 differ`,
+> `all differ`, `4 of 6 differ from the rest`. No caution triangle, no amber, no tinted alert
+> strip. `--status-warn` is left for things that are actually wrong. A4 still holds: the dot is
+> always accompanied by the word.
+>
+> The §6 tag vocabulary is `BASELINE` / `DIFFERS` / `SAME`. The list's value column shows the
+> baseline and is headed `Value (shared)`.
 **Scope:** the Configurations page's key list and detail pane. No change to the namespace pane, the environment pills, or the endpoint strip.
 **Reference files:**
 

@@ -44,13 +44,12 @@ const keyLeaf = (key: string): string => {
   return ns === NS_ROOT ? key : key.slice(ns.length).replace(/^[:/]+/, "") || key;
 };
 
-function DriftIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-      <path d="M8 2.6l5.6 10.3H2.4z" strokeLinejoin="round" />
-      <path d="M8 6.4v3.1M8 11.2v.1" strokeLinecap="round" />
-    </svg>
-  );
+/**
+ * A quiet dot, not a caution sign. Environments holding different values is what a config store
+ * is for — it wants pointing at, not warning about.
+ */
+function DiffDot() {
+  return <span className="diffdot" aria-hidden="true" />;
 }
 
 function ChevronIcon() {
@@ -309,27 +308,31 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
                   <span className="key-name" title={g.key}>{label}</span>
                   <span className="key-labels">
                     <span className="lblcount">{g.labels.length} label{g.labels.length === 1 ? "" : "s"}</span>
-                    {/* Icon *and* word, never colour alone (A4). Reads across the labels, so it
-                        also marks keys that have no baseline to compare against. */}
+                    {/* Dot *and* word, never colour alone (A4). Reads across the labels, so it
+                        marks keys with no no-label value too. */}
                     {g.drift.length > 0 && (
                       <span
-                        className="driftmark"
-                        title={`${g.distinct} distinct values — ${g.drift.join(", ")} differ from the other ${g.labels.length - g.drift.length}`}
+                        className="diffmark"
+                        title={g.allDistinct
+                          ? `All ${g.labels.length} values differ from each other`
+                          : `${g.drift.join(", ")} differ from the other ${g.labels.length - g.drift.length}`}
                       >
-                        <DriftIcon />DIFFERS
+                        <DiffDot />{g.allDistinct ? "all differ" : `${g.drift.length} differ`}
                       </span>
                     )}
                   </span>
-                  {/* The value most labels agree on. For a key with no no-label value that is
-                      still the useful preview — it just isn't a "baseline", and the tooltip
-                      says so rather than implying a resolution order that doesn't exist. */}
+                  {/* The baseline: whichever value most labels agree on. When they all differ
+                      there is no majority, so the no-label value stands in if there is one and
+                      the cell says as much rather than picking a winner. */}
                   <span
                     className={`key-preview ${g.baseline ? "" : "is-nobase"}`}
                     title={g.baseline
-                      ? g.baseline.raw
-                      : `No no-label value. Showing the value shared by most of: ${g.labels.map((l) => l.label).join(", ")}`}
+                      ? `Shared by ${g.labels.length - g.drift.length} of ${g.labels.length} labels`
+                      : `All ${g.labels.length} values differ, so there is no baseline`}
                   >
-                    {preview(g.common?.raw)}
+                    {g.baseline
+                      ? preview(g.baseline.raw)
+                      : g.noLabel ? preview(g.noLabel.raw) : <span className="faint">all differ</span>}
                   </span>
                   <span className={`key-type ty-${g.type}`}>{g.type}</span>
                 </div>
@@ -359,7 +362,7 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
     for (const l of group.labels) {
       // Open what needs looking at: the shared value once for reference, plus every label that
       // departs from it. Labels that agree stay collapsed.
-      if (l.label === NO_LABEL || l === group.common || group.drift.includes(l.label)) open.add(l.label);
+      if (l.label === NO_LABEL || l === group.baseline || group.drift.includes(l.label)) open.add(l.label);
     }
     return open;
   }, [group]);
@@ -389,13 +392,20 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
       </div>
 
       {/* summary strip — how much these labels disagree, and which are the odd ones out */}
-      {group.drift.length > 0 ? (
-        <div className="lbl-summary has-drift">
-          <DriftIcon />
+      {group.drift.length === 0 ? (
+        <div className="lbl-summary">
+          All {group.labels.length} value{group.labels.length === 1 ? "" : "s"} identical.
+        </div>
+      ) : group.allDistinct ? (
+        <div className="lbl-summary has-diff">
+          <DiffDot />
+          <span>All <b>{group.labels.length}</b> values differ from each other.</span>
+        </div>
+      ) : (
+        <div className="lbl-summary has-diff">
+          <DiffDot />
           <span>
-            <b>{group.distinct} distinct values</b> across {group.labels.length} label
-            {group.labels.length === 1 ? "" : "s"}
-            {!group.baseline && <span className="nobase-note"> · no no-label value</span>}
+            <b>{group.drift.length}</b> of {group.labels.length} differ from the rest
           </span>
           <span className="jumps">
             {group.drift.map((l) => (
@@ -403,11 +413,6 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
                 title={`Go to ${l || "no label"}`}>{l || "no label"}</button>
             ))}
           </span>
-        </div>
-      ) : (
-        <div className="lbl-summary">
-          All {group.labels.length} value{group.labels.length === 1 ? "" : "s"} identical.
-          {!group.baseline && <span className="nobase-note"> · no no-label value</span>}
         </div>
       )}
 
@@ -439,12 +444,12 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
 
 /**
  * The tag a label's section carries. Measured against what the other labels hold, so it means the
- * same thing whether or not the key has a no-label value. SHARED marks the value most of them
- * agree on; DIFFERS marks a label that departs from it.
+ * same thing whether or not the key has a no-label value.
  */
 function statusOf(lv: LabelValue, group: KeyGroup) {
   if (group.drift.length === 0) return { kind: "same" as const };
-  return group.drift.includes(lv.label) ? { kind: "differs" as const } : { kind: "shared" as const };
+  if (!group.drift.includes(lv.label)) return { kind: "baseline" as const };
+  return { kind: "differs" as const };
 }
 
 function LabelChip({ label }: { label: string }) {
@@ -472,7 +477,7 @@ function CompactValues({ group, register }: {
         return (
           <div className="lc-row" key={lv.label} ref={(el) => register(lv.label, el)}>
             <LabelChip label={lv.label} />
-            <BaselineMark lv={lv} />
+            <NoLabelMark lv={lv} />
             <StatusTag kind={st.kind} />
             <code className="lc-val">{canonical(lv.raw)}</code>
             <CopyButton value={lv.raw} />
@@ -483,15 +488,19 @@ function CompactValues({ group, register }: {
   );
 }
 
-function StatusTag({ kind }: { kind: "same" | "shared" | "differs" }) {
+function StatusTag({ kind }: { kind: "same" | "baseline" | "differs" }) {
   if (kind === "same") return <span className="lbl-tag is-same">SAME</span>;
-  if (kind === "shared") return <span className="lbl-tag is-same">SHARED</span>;
-  return <span className="lbl-tag is-differs"><DriftIcon />DIFFERS</span>;
+  // Muted and not a pill: it names the value the others are measured against, not a verdict.
+  if (kind === "baseline") return <span className="lbl-tag is-baseline">BASELINE</span>;
+  // Dot plus word, so it survives greyscale (A4) without reading as a caution.
+  return <span className="lbl-tag is-differs"><DiffDot />DIFFERS</span>;
 }
 
-/** Muted, not a pill — it names which value the app resolves by default, not a verdict. */
-function BaselineMark({ lv }: { lv: LabelValue }) {
-  return lv.label === NO_LABEL ? <span className="lbl-tag is-baseline">BASELINE</span> : null;
+/** The value the app resolves when no label is asked for — identity, separate from the baseline. */
+function NoLabelMark({ lv }: { lv: LabelValue }) {
+  return lv.label === NO_LABEL
+    ? <span className="lbl-tag is-nolabel" title="What resolves when no label is requested">DEFAULT</span>
+    : null;
 }
 
 function LabelSection({ lv, group, shared, open, onToggle, register }: {
@@ -516,7 +525,7 @@ function LabelSection({ lv, group, shared, open, onToggle, register }: {
           <ChevronIcon />
         </button>
         <LabelChip label={lv.label} />
-        <BaselineMark lv={lv} />
+        <NoLabelMark lv={lv} />
         <StatusTag kind={st.kind} />
         <span className="sp" />
         <CopyButton value={lv.raw} />

@@ -70,14 +70,14 @@
   --t-int: #35b3c4;
   --t-str: #8b95a3;
 
-  /* configurations: label identity + drift (CONFIG_LABELS §3). The two label hues are the
-     existing slate and violet identities. --drift is an alias of --status-warn, not a new
-     colour: a label differing from the baseline is what labels are *for*, so it is a
-     "look here" state and never --status-bad. That also keeps green and red with pipeline
-     status (A2). */
+  /* configurations: label identity + difference (CONFIG_LABELS §3). The two label hues are the
+     existing slate and violet identities. --label-diff is the blue identity hue, NOT amber:
+     environments holding different values is the normal state of a config store, not a warning,
+     so it gets a quiet marker rather than a caution one. Green and red stay with pipeline
+     status (A2), and --status-warn is left for things that are actually wrong. */
   --label-default: #8b95a3;
   --label-named: #9085e9;
-  --drift: var(--status-warn);
+  --label-diff: var(--hue-blue);
 
   /* configurations: environment identity */
   --env-dev: #4a90e8;
@@ -160,7 +160,7 @@
 
   --label-default: #5c6672;
   --label-named: #6b5bd6;
-  --drift: var(--status-warn);
+  --label-diff: var(--hue-blue);
 
   /* ---- review page (design/DESIGN_SPEC_REVIEW.md §2) ---- */
   --diff-gutter: #f6f6f3;
@@ -2439,23 +2439,26 @@ a {
   white-space: nowrap;
 }
 
-/* Drift is scannable down a column, which is what makes collapsing the rows a net gain rather
-   than a trade. Icon AND word: never colour alone (A4). */
-.driftmark {
+/* Difference is scannable down a column, which is what makes collapsing the rows a net gain
+   rather than a trade. Dot AND word: never colour alone (A4). No pill and no tint — labels
+   holding different values is ordinary, so the marker points rather than warns. */
+.diffmark {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
   flex-shrink: 0;
-  padding: 1px 5px 1px 4px;
-  border-radius: var(--r-small);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  background: color-mix(in oklab, var(--drift) 15%, transparent);
-  color: color-mix(in oklab, var(--drift) 80%, var(--ink-primary));
+  font-size: 10px;
+  color: var(--ink-muted);
+  white-space: nowrap;
 }
 
-.driftmark svg { width: 10px; height: 10px; flex-shrink: 0; }
+.diffdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--label-diff);
+}
 
 .key-preview {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -3700,26 +3703,22 @@ a {
   border-bottom: 1px solid var(--border-hairline);
 }
 
-.lbl-summary.has-drift {
-  background: color-mix(in oklab, var(--drift) 10%, var(--bg-surface));
-  box-shadow: inset 2px 0 0 var(--drift);
+/* Stated, not warned about — hence a hairline rule in the difference hue rather than a tint. */
+.lbl-summary.has-diff {
+  box-shadow: inset 2px 0 0 var(--label-diff);
   color: var(--ink-primary);
 }
 
-.lbl-summary svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--drift); }
+.lbl-summary .diffdot { width: 7px; height: 7px; }
 
-/* Stated, not warned about: plenty of keys legitimately have no no-label value. */
-.nobase-note { color: var(--ink-muted); font-size: 11px; }
-
-/* The shared value stands in for a key that has no no-label value, so it is shown a shade
-   quieter than one that really is the baseline. */
-.key-preview.is-nobase { opacity: 0.8; }
+/* Where no value has a majority, the preview is standing in rather than representing the rest. */
+.key-preview.is-nobase { opacity: 0.75; }
 .lbl-summary .jumps { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 
 .jumpchip {
-  border: 1px solid color-mix(in oklab, var(--drift) 35%, transparent);
+  border: 1px solid color-mix(in oklab, var(--label-diff) 30%, transparent);
   background: transparent;
-  color: color-mix(in oklab, var(--drift) 80%, var(--ink-primary));
+  color: color-mix(in oklab, var(--label-diff) 75%, var(--ink-primary));
   border-radius: var(--r-small);
   padding: 1px 7px;
   font-size: 10.5px;
@@ -3727,7 +3726,7 @@ a {
   cursor: pointer;
 }
 
-.jumpchip:hover { background: color-mix(in oklab, var(--drift) 16%, transparent); }
+.jumpchip:hover { background: color-mix(in oklab, var(--label-diff) 14%, transparent); }
 
 .lbl-scroll { flex: 1; min-height: 0; overflow: auto; }
 
@@ -3797,14 +3796,19 @@ a {
 .lbl-tag.is-differs {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   padding: 1px 6px 1px 5px;
   border-radius: var(--r-small);
-  background: color-mix(in oklab, var(--drift) 15%, transparent);
-  color: color-mix(in oklab, var(--drift) 80%, var(--ink-primary));
+  background: color-mix(in oklab, var(--label-diff) 12%, transparent);
+  color: color-mix(in oklab, var(--label-diff) 75%, var(--ink-primary));
 }
 
-.lbl-tag.is-differs svg { width: 10px; height: 10px; }
+/* Identity, not a verdict — which value the app resolves when no label is asked for. */
+.lbl-tag.is-nolabel {
+  color: var(--ink-muted);
+  font-weight: 600;
+  opacity: 0.75;
+}
 
 .lbl-body {
   margin: 0;
@@ -3824,11 +3828,11 @@ a {
 }
 
 /* Same grammar as the Review page's diff rows (DESIGN_SPEC_REVIEW.md §3): faint tint, and a 2px
-   inset stripe that carries the identification so the background can stay quiet. Amber, because
-   a label differing from the baseline is expected rather than a failure. */
+   inset stripe that carries the identification so the background can stay quiet. In the
+   difference hue rather than amber — this marks "not the same everywhere", not "wrong". */
 .lbl-body .cline.is-drift {
-  background: color-mix(in oklab, var(--drift) 11%, var(--code-bg));
-  box-shadow: inset 2px 0 0 var(--drift);
+  background: color-mix(in oklab, var(--label-diff) 10%, var(--code-bg));
+  box-shadow: inset 2px 0 0 var(--label-diff);
 }
 
 /* ---- §10: compact form when every value for the key is a short one-liner ---- */

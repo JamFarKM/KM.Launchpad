@@ -77,18 +77,42 @@ describe("groupByKey", () => {
     expect(g[1].distinct).toBe(2);
   });
 
-  it("treats the largest agreeing group as the shared value", () => {
+  it("makes the most common value the baseline, even against the no-label one", () => {
     const g = groupByKey([
       s("K", "a"), s("K", "b", "one"), s("K", "b", "two"), s("K", "b", "three"),
     ])[0];
-    expect(g.common?.raw).toBe("b");
+    expect(g.baseline?.raw).toBe("b");
     expect(g.drift).toEqual([""]);
+    expect(g.allDistinct).toBe(false);
   });
 
-  it("breaks a tie towards the baseline, which is what resolves by default", () => {
-    const g = groupByKey([s("K", "a"), s("K", "b", "one")])[0];
-    expect(g.common?.raw).toBe("a");
-    expect(g.drift).toEqual(["one"]);
+  it("breaks a tie towards the no-label value, which is what resolves by default", () => {
+    const g = groupByKey([s("K", "a"), s("K", "a", "one"), s("K", "b", "two"), s("K", "b", "three")])[0];
+    expect(g.baseline?.raw).toBe("a");
+    expect(g.drift).toEqual(["three", "two"]);
+  });
+
+  describe("when every label holds a different value", () => {
+    const g = groupByKey([s("K", "a"), s("K", "b", "one"), s("K", "c", "two")])[0];
+
+    it("nominates no baseline, because none has a better claim", () => {
+      expect(g.allDistinct).toBe(true);
+      expect(g.baseline).toBeNull();
+    });
+
+    it("marks every label instead", () => {
+      expect(g.drift).toEqual(["", "one", "two"]);
+    });
+
+    it("still knows which one is the no-label value", () => {
+      expect(g.noLabel?.raw).toBe("a");
+    });
+
+    it("does not fire for a lone label", () => {
+      const one = groupByKey([s("K", "a")])[0];
+      expect(one.allDistinct).toBe(false);
+      expect(one.drift).toEqual([]);
+    });
   });
 
   it("does not flag drift for a reordered-but-identical label (§7.1)", () => {
@@ -114,8 +138,12 @@ describe("groupByKey", () => {
       s("K", "12", "staging"), s("K", "12", "canary"), s("K", "20", "prod"),
     ])[0];
 
-    it("has no baseline rather than nominating one", () => {
-      expect(only.baseline).toBeNull();
+    it("has no no-label value, and is never silently given one", () => {
+      expect(only.noLabel).toBeNull();
+    });
+
+    it("still gets a baseline, from whichever value most labels hold", () => {
+      expect(only.baseline?.raw).toBe("12");
     });
 
     it("still compares the labels against each other", () => {
