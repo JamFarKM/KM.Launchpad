@@ -525,13 +525,8 @@ export function Dashboard() {
                         <div className="shelf-head" title="Drag to move this shelf around the grid">
                           <span className="shelf-grip">⠿</span>
                           <span className="shelf-title" title={shelf}>{shelf}</span>
-                          {/* Health pill only when something isn't passing — an all-clear shelf stays quiet (§2.2). */}
-                          {hp && hp.failing > 0 && (
-                            <span className="shelf-health fail">{hp.failing} failing</span>
-                          )}
-                          {hp && hp.failing === 0 && hp.running > 0 && (
-                            <span className="shelf-health running">{hp.running} running</span>
-                          )}
+                          {/* The health pill lives in the first card's footer, not here — on a
+                              one-card shelf it left the title almost no room. */}
                           {hiddenCount > 0 && (
                             <span
                               className="shelf-hidden"
@@ -592,6 +587,7 @@ export function Dashboard() {
                                       onRemove={removeItem}
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
+                                      shelfHealth={i === 0 ? hp : undefined}
                                       onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
                                       onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
                                       onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
@@ -604,6 +600,7 @@ export function Dashboard() {
                                       onRemove={removeItem}
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
+                                      shelfHealth={i === 0 ? hp : undefined}
                                       onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
                                       onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
                                     />

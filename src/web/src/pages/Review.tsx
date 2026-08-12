@@ -46,6 +46,18 @@ const fileDir = (p: string) => {
   return segs.join("/");
 };
 
+/** Full word for the badge tooltip, so the letter isn't the only carrier. */
+const CHANGE_WORD: Record<string, string> = {
+  add: "Added", del: "Deleted", edit: "Modified", ren: "Renamed",
+};
+
+/**
+ * Viewed state is keyed by (PR, source commit) so it clears when the author pushes —
+ * §12's open question, resolved: sourceCommit is already on the PR payload.
+ */
+const viewedKey = (prId: number, sourceCommit?: string | null) =>
+  `pl-viewed:${prId}:${sourceCommit ?? "head"}`;
+
 export function ReviewPage() {
   const qc = useQueryClient();
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
@@ -139,13 +151,17 @@ export function ReviewPage() {
      an edit whose every changed line is an addition. */
   const oneSided: "add" | "del" | null = (() => {
     if (!shown) return null;
+    /* A missing side is authoritative: the file was added or deleted outright. This has to be
+       checked BEFORE the line counts, because Monaco diffs an added file against an empty
+       string — one empty line — and so reports a phantom single deletion. Trusting the counts
+       first meant a genuinely added file came back +N/-1 and never qualified. */
+    if (shown.before == null && shown.after != null) return "add";
+    if (shown.after == null && shown.before != null) return "del";
+    // Counts cover the subtler case: an edit whose every changed line is an addition.
     if (stats && !isStale) {
       if (stats.added > 0 && stats.removed === 0) return "add";
       if (stats.removed > 0 && stats.added === 0) return "del";
-      return null;
     }
-    if (shown.before == null && shown.after != null) return "add";
-    if (shown.after == null && shown.before != null) return "del";
     return null;
   })();
 
@@ -186,6 +202,44 @@ export function ReviewPage() {
     await refreshThreads();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, repoId, prId, shown?.path]);
+
+  /* ---- file tree (§7) ---- */
+
+  // Files grouped by folder. This is what disambiguates two files with the same name — they
+  // sit under visibly different headers — and it means filenames rarely need truncating.
+  const fileGroups = useMemo(() => {
+    const m = new Map<string, PrChange[]>();
+    for (const c of changes) {
+      const dir = fileDir(c.path) || "(root)";
+      const list = m.get(dir);
+      if (list) list.push(c); else m.set(dir, [c]);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }));
+  }, [changes]);
+
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+  const [viewed, setViewed] = useState<Set<string>>(new Set());
+
+  // Reload viewed state whenever the PR or its head commit changes.
+  useEffect(() => {
+    if (!prId) { setViewed(new Set()); return; }
+    try {
+      const raw = localStorage.getItem(viewedKey(prId, pr?.sourceCommit));
+      setViewed(new Set<string>(raw ? JSON.parse(raw) : []));
+    } catch { setViewed(new Set()); }
+  }, [prId, pr?.sourceCommit]);
+
+  function toggleViewed(path: string) {
+    if (!prId) return;
+    setViewed((prev) => {
+      const next = new Set(prev);
+      next.has(path) ? next.delete(path) : next.add(path);
+      localStorage.setItem(viewedKey(prId, pr?.sourceCommit), JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  const viewedCount = changes.filter((c) => viewed.has(c.path)).length;
 
   // ---- starred repos ----
   const favouritesQ = useQuery<RepoFavourite[]>({ queryKey: ["repo-favourites"], queryFn: api.repoFavourites });
@@ -333,30 +387,68 @@ export function ReviewPage() {
 
         {/* ---------- changed files (right-hand rail, so the diff stays centred) ---------- */}
         <div className="cfg-col review-files" style={{ order: 3 }}>
-          <div className="keys-head">
+          <div className="keys-head rail-head">
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="keys-title">{pr ? `!${pr.id}` : "Files"}</div>
               <div className="keys-sub">
                 {changes.length} file{changes.length === 1 ? "" : "s"} changed
+                {changes.length > 0 && <> · {viewedCount} of {changes.length} viewed</>}
               </div>
+              {/* The main mechanism for keeping your place in a multi-file review (§7). */}
+              {changes.length > 0 && (
+                <div className="rail-progress" role="progressbar"
+                  aria-valuenow={viewedCount} aria-valuemin={0} aria-valuemax={changes.length}>
+                  <span style={{ width: `${(viewedCount / changes.length) * 100}%` }} />
+                </div>
+              )}
             </div>
           </div>
           <div className="cfg-scroll">
             {changesQ.isLoading && <div className="center-note"><span className="spin" /> loading…</div>}
-            {!prId && <div className="faint cfg-note">Pick a pull request.</div>}
-            {changes.map((c) => {
-              const cl = changeLabel(c.changeType);
-              const n = (threadsQ.data ?? []).filter((t) => t.filePath === c.path && (t.rightLine ?? 0) > 0).length;
+            {fileGroups.map(([dir, files]) => {
+              const collapsed = collapsedDirs.has(dir);
               return (
-                <button key={c.path} className={`file-item ${c.path === path ? "active" : ""}`}
-                  onClick={() => setPath(c.path)} title={c.path}>
-                  <span className={`file-badge ch-${cl.key}`}>{cl.text[0]}</span>
-                  <span className="file-text">
-                    <span className="file-name">{fileName(c.path)}</span>
-                    <span className="file-dir">{fileDir(c.path)}</span>
-                  </span>
-                  {n > 0 && <span className="file-threads" title={`${n} comment thread${n === 1 ? "" : "s"}`}>{n}</span>}
-                </button>
+                <div className="file-group" key={dir}>
+                  <button
+                    className="file-group-head"
+                    onClick={() => setCollapsedDirs((prev) => {
+                      const next = new Set(prev);
+                      next.has(dir) ? next.delete(dir) : next.add(dir);
+                      return next;
+                    })}
+                  >
+                    <span className="fg-chevron">{collapsed ? "▸" : "▾"}</span>
+                    {/* Folder paths truncate at the START — the tail is what distinguishes
+                        them — and may wrap to two lines. Filenames truncate at the end. */}
+                    <span className="fg-path" title={dir}>{dir}</span>
+                    <span className="fg-count">{files.length}</span>
+                  </button>
+
+                  {!collapsed && files.map((c) => {
+                    const cl = changeLabel(c.changeType);
+                    const n = (threadsQ.data ?? []).filter((t) => t.filePath === c.path && (t.rightLine ?? 0) > 0).length;
+                    const isViewed = viewed.has(c.path);
+                    return (
+                      <div key={c.path} className={`file-item ${c.path === path ? "active" : ""} ${isViewed ? "is-viewed" : ""}`}>
+                        <input
+                          type="checkbox"
+                          className="file-viewed"
+                          checked={isViewed}
+                          title={isViewed ? "Mark as not viewed" : "Mark as viewed"}
+                          aria-label={`Mark ${fileName(c.path)} as viewed`}
+                          onChange={() => toggleViewed(c.path)}
+                        />
+                        <button className="file-open" onClick={() => setPath(c.path)} title={c.path}>
+                          <span className={`file-badge ch-${cl.key}`} title={CHANGE_WORD[cl.key] ?? cl.text}>
+                            {cl.text[0]}
+                          </span>
+                          <span className="file-name">{fileName(c.path)}</span>
+                          {n > 0 && <span className="file-threads" title={`${n} comment thread${n === 1 ? "" : "s"}`}>{n}</span>}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               );
             })}
           </div>

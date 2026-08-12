@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { Run, ViewItem } from "../types";
 import { branchShort, duration, runLabel, runTone, timeAgo, timeAgoShort } from "../lib/format";
 import { notify } from "../lib/notify";
-import { CloseIcon, LogsIcon, PlayIcon, StatusGlyph } from "./StatusGlyph";
+import { CloseIcon, LogsIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
 
 interface Props {
   item: ViewItem;
@@ -13,12 +13,14 @@ interface Props {
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
   onToggleLabel: (item: ViewItem, show: boolean) => void;
+  /** Shelf-level health, shown in the footer of the shelf's first card only. */
+  shelfHealth?: { failing: number; running: number };
   onDragCard: (item: ViewItem) => void;
   onReorder: (target: ViewItem) => void;
 }
 
 export function PipelineCard({
-  item, onRun, onOpenRun, onRemove, onRename, onToggleLabel, onDragCard, onReorder,
+  item, onRun, onOpenRun, onRemove, onRename, onToggleLabel, shelfHealth, onDragCard, onReorder,
 }: Props) {
   const [menu, setMenu] = useState(false);
 
@@ -128,6 +130,7 @@ export function PipelineCard({
             <LogsIcon />
           </button>
         )}
+        {shelfHealth && <ShelfHealthPill health={shelfHealth} />}
         <div className="card-menu-wrap">
           <button className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
           {menu && (

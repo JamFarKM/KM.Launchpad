@@ -6,7 +6,7 @@ import { notify } from "../lib/notify";
 import { commonPrefix, stepShort, timeAgo } from "../lib/format";
 import { SequenceRunDialog } from "./SequenceRunDialog";
 import { SequenceLogModal } from "./SequenceLogModal";
-import { CloseIcon, LogsIcon, PlayIcon, StatusGlyph } from "./StatusGlyph";
+import { CloseIcon, LogsIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
 import type { StatusTone } from "../lib/format";
 
 interface Props {
@@ -15,6 +15,8 @@ interface Props {
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
   onToggleLabel: (item: ViewItem, show: boolean) => void;
+  /** Shelf-level health, shown in the footer of the shelf's first card only. */
+  shelfHealth?: { failing: number; running: number };
   onOpenRun: (project: string, buildId: number) => void;
   onDragCard: (item: ViewItem) => void;
   onReorder: (target: ViewItem) => void;
@@ -46,7 +48,7 @@ const isTerminal = (r?: SequenceRun | null) =>
   !!r && (r.status === "succeeded" || r.status === "failed" || r.status === "canceled");
 
 export function SequenceCard({
-  item, sequence, onRemove, onRename, onToggleLabel, onOpenRun, onDragCard, onReorder,
+  item, sequence, onRemove, onRename, onToggleLabel, shelfHealth, onOpenRun, onDragCard, onReorder,
 }: Props) {
   const seqId = item.sequenceId!;
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -200,6 +202,7 @@ export function SequenceCard({
             <LogsIcon />
           </button>
         )}
+        {shelfHealth && <ShelfHealthPill health={shelfHealth} />}
         <div className="card-menu-wrap">
           <button className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
           {menu && (

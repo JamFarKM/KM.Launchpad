@@ -2160,19 +2160,88 @@ a {
   max-width: 45%;
 }
 
-/* ---- changed files ---- */
+/* ---- changed files: grouped by folder (§7) ---- */
+.rail-head {
+  align-items: flex-start;
+}
+
+/* n of m viewed, as a thin bar — the mechanism for keeping your place in a long review. */
+.rail-progress {
+  margin-top: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-hairline);
+  overflow: hidden;
+}
+
+.rail-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--hue-aqua);
+  transition: width 0.18s ease;
+}
+
+.file-group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px 5px;
+  background: var(--bg-surface-2);
+  border: none;
+  border-top: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+  cursor: pointer;
+  font: inherit;
+  min-width: 0;
+}
+
+.file-group:first-child .file-group-head {
+  border-top: none;
+}
+
+.fg-chevron {
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 1.7;
+  color: var(--ink-muted);
+}
+
+/* Folder paths truncate at the START — the tail is what tells two of them apart — and are
+   allowed two lines. Filenames truncate at the end. The asymmetry is deliberate (§7). */
+.fg-path {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--ink-secondary);
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.fg-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .file-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   width: 100%;
-  text-align: left;
-  padding: 7px 12px;
-  background: transparent;
-  border: none;
+  padding: 0 10px 0 8px;
   border-left: 2px solid transparent;
-  cursor: pointer;
-  font: inherit;
   min-width: 0;
 }
 
@@ -2183,6 +2252,37 @@ a {
 .file-item.active {
   background: var(--accent-tint);
   border-left-color: var(--accent);
+}
+
+/* Viewed rows dim, so what's left to read stands out. */
+.file-item.is-viewed {
+  opacity: 0.45;
+}
+
+.file-item.is-viewed:hover,
+.file-item.active.is-viewed {
+  opacity: 0.75;
+}
+
+.file-viewed {
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--hue-aqua);
+}
+
+.file-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 7px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
 }
 
 /* Change kind by letter as well as hue, so it survives greyscale (A4). */
@@ -2198,10 +2298,13 @@ a {
   font-weight: 700;
 }
 
-.file-badge.ch-add { background: color-mix(in oklab, var(--status-good) 16%, transparent); color: var(--status-good); }
-.file-badge.ch-del { background: color-mix(in oklab, var(--status-bad) 16%, transparent); color: var(--status-bad); }
-.file-badge.ch-edit { background: color-mix(in oklab, var(--hue-blue) 16%, transparent); color: var(--hue-blue); }
-.file-badge.ch-ren { background: color-mix(in oklab, var(--hue-violet) 16%, transparent); color: var(--hue-violet); }
+/* File change type is IDENTITY, not health, so these use the --ft-* hues and deliberately
+   avoid status green and accent blue (§1). Green-A beside blue-E read as a pass/fail signal.
+   The letter stays as a second encoding so the badge passes the colour-alone test. */
+.file-badge.ch-add { background: color-mix(in oklab, var(--ft-add) 16%, transparent); color: var(--ft-add); }
+.file-badge.ch-edit { background: color-mix(in oklab, var(--ft-mod) 16%, transparent); color: var(--ft-mod); }
+.file-badge.ch-del { background: color-mix(in oklab, var(--ft-del) 18%, transparent); color: var(--ft-del); }
+.file-badge.ch-ren { background: color-mix(in oklab, var(--hue-magenta) 16%, transparent); color: var(--hue-magenta); }
 
 .file-text {
   display: flex;
