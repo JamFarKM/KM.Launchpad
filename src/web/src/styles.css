@@ -2729,6 +2729,27 @@ a {
   opacity: 1;
 }
 
+/* Collapsed unchanged regions (§5). Monaco supplies all three expand controls -- the thin
+   strip above shows 25 more lines up, the strip below 25 down, and the glyph in the middle
+   shows the whole region -- but it draws the glyph as codicon `unfold`, which reads as a
+   snowflake. Swapped for a chevron, and the strips are given a resting hairline so they read
+   as controls rather than as nothing at all. */
+.review-diff .monaco-editor .diff-hidden-lines .center .codicon-unfold::before {
+  content: "\eab4"; /* codicon chevron-down */
+}
+
+.review-diff .monaco-editor .diff-hidden-lines .top,
+.review-diff .monaco-editor .diff-hidden-lines .bottom {
+  border-bottom-color: var(--border-hairline);
+}
+
+/* Side by side, Monaco draws the widget once per pane, so the count and the control appear
+   twice for one hunk. The original pane keeps its band -- so the row still reads as spanning
+   the full width -- but drops the duplicate label and chevron, leaving one set of controls. */
+.review-diff .editor.original .diff-hidden-lines .center > * {
+  visibility: hidden;
+}
+
 /* Positioning context for the composer overlay, which floats over the editor rather than
    displacing it (§6). */
 .monaco-shell {

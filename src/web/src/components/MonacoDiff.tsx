@@ -214,7 +214,8 @@ export function MonacoDiff({
       // deletions distinguishable in greyscale (§11). Present in both view modes.
       renderIndicators: true,
       ignoreTrimWhitespace: false,
-      hideUnchangedRegions: { enabled: true },
+      // 25 lines per step, matching the spec's expand-up/expand-down increments (§5).
+      hideUnchangedRegions: { enabled: true, revealLineCount: 25 },
       scrollBeyondLastLine: false,
       fontSize: 12,
       lineHeight: 19,
