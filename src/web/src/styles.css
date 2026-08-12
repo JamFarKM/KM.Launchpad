@@ -70,6 +70,15 @@
   --t-int: #35b3c4;
   --t-str: #8b95a3;
 
+  /* configurations: label identity + drift (CONFIG_LABELS §3). The two label hues are the
+     existing slate and violet identities. --drift is an alias of --status-warn, not a new
+     colour: a label differing from the baseline is what labels are *for*, so it is a
+     "look here" state and never --status-bad. That also keeps green and red with pipeline
+     status (A2). */
+  --label-default: #8b95a3;
+  --label-named: #9085e9;
+  --drift: var(--status-warn);
+
   /* configurations: environment identity */
   --env-dev: #4a90e8;
   --env-test: #9085e9;
@@ -148,6 +157,10 @@
   --env-dev: #2a78d6;
   --env-test: #6b5bd6;
   --env-prod: #d9722b;
+
+  --label-default: #5c6672;
+  --label-named: #6b5bd6;
+  --drift: var(--status-warn);
 
   /* ---- review page (design/DESIGN_SPEC_REVIEW.md §2) ---- */
   --diff-gutter: #f6f6f3;
@@ -2103,8 +2116,10 @@ a {
   transition: grid-template-columns 0.18s ease;
 }
 
+/* 520px, not 470: the pane now stacks a section per label rather than showing one value
+   (CONFIG_LABELS §3). */
 .cfg.is-detail-open {
-  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 470px;
+  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 520px;
 }
 
 .cfg-col {
@@ -2308,7 +2323,9 @@ a {
 .keys-colhead,
 .key-row {
   display: grid;
-  grid-template-columns: minmax(0, 200px) 96px minmax(0, 1fr) 62px;
+  /* CONFIG_LABELS §3: the Label column becomes Labels — a count plus a drift marker — so it
+     needs a little more room than a single label tag did. */
+  grid-template-columns: minmax(0, 200px) 104px minmax(0, 1fr) 62px;
   gap: 12px;
 }
 
@@ -2407,6 +2424,38 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---- CONFIG_LABELS §5: the Labels column ---- */
+.key-labels {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lblcount {
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+/* Drift is scannable down a column, which is what makes collapsing the rows a net gain rather
+   than a trade. Icon AND word: never colour alone (A4). */
+.driftmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 1px 5px 1px 4px;
+  border-radius: var(--r-small);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: color-mix(in oklab, var(--drift) 15%, transparent);
+  color: color-mix(in oklab, var(--drift) 80%, var(--ink-primary));
+}
+
+.driftmark svg { width: 10px; height: 10px; flex-shrink: 0; }
 
 .key-preview {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -3623,16 +3672,181 @@ a {
   color: var(--ink-primary);
 }
 
-.json-view .j-key { color: #1c5cab; }
-.json-view .j-num { color: #9a6a00; }
-.json-view .j-str { color: #0a7d0a; }
-.json-view .j-bool { color: var(--hue-violet); }
-.json-view .j-null { color: var(--ink-muted); }
-.json-view .j-punct { color: var(--ink-muted); }
+.json-view .j-key, .lbl-body .j-key { color: #1c5cab; }
+.json-view .j-num, .lbl-body .j-num { color: #9a6a00; }
+.json-view .j-str, .lbl-body .j-str { color: #0a7d0a; }
+.json-view .j-bool, .lbl-body .j-bool { color: var(--hue-violet); }
+.json-view .j-null, .lbl-body .j-null { color: var(--ink-muted); }
+.json-view .j-punct, .lbl-body .j-punct { color: var(--ink-muted); }
 
-:root[data-theme="dark"] .json-view .j-key { color: #6da7ec; }
-:root[data-theme="dark"] .json-view .j-num { color: #eda100; }
-:root[data-theme="dark"] .json-view .j-str { color: #4fc94f; }
+:root[data-theme="dark"] .json-view .j-key, :root[data-theme="dark"] .lbl-body .j-key { color: #6da7ec; }
+:root[data-theme="dark"] .json-view .j-num, :root[data-theme="dark"] .lbl-body .j-num { color: #eda100; }
+:root[data-theme="dark"] .json-view .j-str, :root[data-theme="dark"] .lbl-body .j-str { color: #4fc94f; }
+
+/* ================= CONFIG_LABELS §6: labels stacked in the detail pane ================= */
+
+/* Summary strip. Drift gets the tint and a 2px left rule; no drift stays neutral, because a key
+   whose labels all agree is the quiet case and shouldn't look like an alert. */
+.lbl-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 9px 14px;
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  background: var(--bg-surface-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.lbl-summary.has-drift {
+  background: color-mix(in oklab, var(--drift) 10%, var(--bg-surface));
+  box-shadow: inset 2px 0 0 var(--drift);
+  color: var(--ink-primary);
+}
+
+.lbl-summary svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--drift); }
+.lbl-summary .jumps { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+
+.jumpchip {
+  border: 1px solid color-mix(in oklab, var(--drift) 35%, transparent);
+  background: transparent;
+  color: color-mix(in oklab, var(--drift) 80%, var(--ink-primary));
+  border-radius: var(--r-small);
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jumpchip:hover { background: color-mix(in oklab, var(--drift) 16%, transparent); }
+
+.lbl-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* ---- one section per label ---- */
+.lbl-sect { border-bottom: 1px solid var(--border-hairline); }
+
+.lbl-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  background: var(--bg-surface-2);
+}
+
+.lbl-head .sp { flex: 1; }
+
+.lbl-chev {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 2px;
+  transform: rotate(-90deg);
+  transition: transform 0.12s ease;
+}
+
+.lbl-sect.open .lbl-chev { transform: rotate(0deg); }
+.lbl-chev svg { width: 11px; height: 11px; }
+
+/* Label identity: slate for the baseline, violet for a named label (§3). */
+.lblchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-small);
+  white-space: nowrap;
+}
+
+.lblchip .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.lblchip.is-base { background: color-mix(in oklab, var(--label-default) 14%, transparent); color: var(--label-default); }
+.lblchip.is-base .dot { background: var(--label-default); }
+.lblchip.is-named { background: color-mix(in oklab, var(--label-named) 14%, transparent); color: var(--label-named); }
+.lblchip.is-named .dot { background: var(--label-named); }
+
+/* BASELINE is muted text rather than a pill — it names the reference, it isn't a verdict. */
+.lbl-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.lbl-tag.is-baseline { color: var(--ink-muted); }
+
+.lbl-tag.is-same {
+  padding: 1px 6px;
+  border-radius: var(--r-small);
+  background: var(--bg-3);
+  color: var(--ink-muted);
+}
+
+.lbl-tag.is-differs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 5px;
+  border-radius: var(--r-small);
+  background: color-mix(in oklab, var(--drift) 15%, transparent);
+  color: color-mix(in oklab, var(--drift) 80%, var(--ink-primary));
+}
+
+.lbl-tag.is-differs svg { width: 10px; height: 10px; }
+
+.lbl-body {
+  margin: 0;
+  padding: 10px 0;
+  background: var(--code-bg);
+  font: 12px/1.65 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ink-primary);
+  overflow-x: auto;
+}
+
+/* Each line is its own block so a changed one can carry the tint and stripe across the row. */
+.lbl-body .cline {
+  display: block;
+  padding: 0 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Same grammar as the Review page's diff rows (DESIGN_SPEC_REVIEW.md §3): faint tint, and a 2px
+   inset stripe that carries the identification so the background can stay quiet. Amber, because
+   a label differing from the baseline is expected rather than a failure. */
+.lbl-body .cline.is-drift {
+  background: color-mix(in oklab, var(--drift) 11%, var(--code-bg));
+  box-shadow: inset 2px 0 0 var(--drift);
+}
+
+/* ---- §10: compact form when every value for the key is a short one-liner ---- */
+.lbl-compact { padding: 4px 0; }
+
+.lc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.lc-row:last-child { border-bottom: none; }
+
+.lc-val {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--ink-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .cfg-table {
   width: 100%;

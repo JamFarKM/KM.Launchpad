@@ -30,6 +30,7 @@ Specs live in `src/web/design/`. Read the relevant one **before** changing any U
 | `DESIGN_SPEC.md` | Global chrome, Views board, shelves, cards, Configurations page |
 | `DESIGN_SPEC_REVIEW.md` | Review page (diff, PR list, file tree) — addendum to the above |
 | `DESIGN_SPEC_SEQUENCES.md` | Sequences folded into Views: library drawer, sequence editor — addendum |
+| `DESIGN_SPEC_CONFIG_LABELS.md` | Configurations: one row per key, labels stacked in the detail pane — addendum |
 | `launchpad-tokens.css` | All tokens. Single source of truth for colour, spacing, radii, type |
 | `*-redesign-*.html` | Interactive mockups. Ground truth when a spec is silent. Open in a browser |
 
@@ -48,6 +49,8 @@ The mockups have a black harness bar at the top with option toggles. **That bar 
 - **No green and no red in the syntax palette.** The diff tint owns those hues; code that uses them becomes unreadable on a tinted row. See `DESIGN_SPEC_REVIEW.md` §3.
 - **A sequence is a library object, not view-local.** The same sequence appears on shelves across several views, which is why it keeps a global list in the library drawer and why the editor must disclose which views use it. Do not make sequences owned by a view, and do not collapse "sequence" into "shelf with run-in-order" — see `DESIGN_SPEC_SEQUENCES.md` §3 for why that was rejected.
 - **A binding picker never offers a later step.** Only steps strictly earlier than the current one, which is what makes a cycle inexpressible rather than merely validated against.
+- **Config drift is amber, and compared on parsed values.** A label differing from the no-label baseline is expected, not a failure — it uses `--status-warn`, never `--status-bad`. And compare *parsed* values, never strings: reordered JSON keys or reformatted whitespace must not register as a difference. See `DESIGN_SPEC_CONFIG_LABELS.md` §7.
+- **Reuse the diff row grammar for any "this line changed" marking**, anywhere in the app: faint tint plus a 2px inset gutter stripe. Do not invent a second visual language for it.
 
 ### Working style for UI changes
 

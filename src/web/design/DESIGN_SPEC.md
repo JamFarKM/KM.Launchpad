@@ -93,6 +93,8 @@ Colour here is functional, not decorative:
 
 One scroll context per pane. No modal. No nested scrollbars.
 
+> **The Keys and Detail rows above are superseded by `DESIGN_SPEC_CONFIG_LABELS.md`.** The keys table becomes one row per *key* (not per key+label), with a label count and a drift marker in place of the Label column; the detail pane widens to 520px and stacks one collapsible section per label. Read that addendum before touching either pane. Everything else in this section — the namespace pane, environment identity, value-type badges, the key-count ramp — still stands.
+
 ---
 
 ## 3. Removed / replaced
