@@ -2465,6 +2465,20 @@ a {
   .monaco-host { transition: none; }
 }
 
+/* Explains an automatic view choice (§4). Aqua, because it's information — not a status,
+   and not an action. */
+.auto-chip {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+  white-space: nowrap;
+  cursor: help;
+  color: var(--hue-aqua);
+  background: color-mix(in oklab, var(--hue-aqua) 14%, transparent);
+}
+
 /* Segmented side-by-side / inline switch. */
 .seg {
   display: inline-flex;

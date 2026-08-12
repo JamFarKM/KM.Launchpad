@@ -56,6 +56,9 @@ export function ReviewPage() {
   const [inline, setInline] = useState(false);
   const [stats, setStats] = useState<DiffStats | null>(null);
   const onStats = useCallback((s: DiffStats) => setStats(s), []);
+  /* Set the moment the user touches the view toggle: from then on their choice wins and
+     auto-selection stops. Reset when the selected file changes (§4). */
+  const [viewLocked, setViewLocked] = useState(false);
 
   useEffect(() => {
     if (!project && projectsQ.data?.length) setProject(projectsQ.data[0].name);
@@ -83,7 +86,7 @@ export function ReviewPage() {
 
   // Reset the file selection and its stats whenever the PR changes.
   useEffect(() => { setPath(null); setStats(null); }, [prId]);
-  useEffect(() => { setStats(null); }, [path]);
+  useEffect(() => { setStats(null); setViewLocked(false); }, [path]);
 
   const changesQ = useQuery<PrChange[]>({
     queryKey: ["pr-changes", project, repoId, prId],
@@ -111,6 +114,28 @@ export function ReviewPage() {
   // so the two only disagree for the moment a new file is in flight (and it's dimmed).
   const shown = diffQ.data;
   const isStale = !!shown && shown.path !== path;
+
+  /* Auto-inline (§4). A file that is 100% additions or 100% deletions leaves one pane empty
+     and squeezes the code into half the width, so it opens Inline instead.
+
+     Monaco's line counts only arrive once it has diffed, which would show a visible flip, so
+     the one-sided case is also derived from the payload: a missing side means the file was
+     added or deleted outright. Stats take over when present, which covers the subtler case of
+     an edit whose every changed line is an addition. */
+  const oneSided: "add" | "del" | null = (() => {
+    if (!shown) return null;
+    if (stats && !isStale) {
+      if (stats.added > 0 && stats.removed === 0) return "add";
+      if (stats.removed > 0 && stats.added === 0) return "del";
+      return null;
+    }
+    if (shown.before == null && shown.after != null) return "add";
+    if (shown.after == null && shown.before != null) return "del";
+    return null;
+  })();
+
+  const autoInline = !viewLocked && oneSided !== null;
+  const effectiveInline = autoInline ? true : inline;
 
   // ---- comment threads ----
   const threadsQ = useQuery<PrThread[]>({
@@ -332,9 +357,29 @@ export function ReviewPage() {
                 <span className="st-del">−{stats.removed}</span>
               </span>
             )}
+            {/* Never silently change a mode the user can see a control for: say why, and say
+                that the toggle overrides. Rendered only while the auto-choice is in effect. */}
+            {autoInline && (
+              <span
+                className="auto-chip"
+                title={`This file is ${oneSided === "add" ? "entirely additions" : "entirely deletions"}, so side-by-side would leave one pane empty. Opened inline — use the toggle to override.`}
+              >
+                {oneSided === "add" ? "all additions" : "all deletions"} · inline
+              </span>
+            )}
             <div className="seg">
-              <button className={`seg-opt ${!inline ? "active" : ""}`} onClick={() => setInline(false)}>Side by side</button>
-              <button className={`seg-opt ${inline ? "active" : ""}`} onClick={() => setInline(true)}>Inline</button>
+              <button
+                className={`seg-opt ${!effectiveInline ? "active" : ""}`}
+                onClick={() => { setViewLocked(true); setInline(false); }}
+              >
+                Side by side
+              </button>
+              <button
+                className={`seg-opt ${effectiveInline ? "active" : ""}`}
+                onClick={() => { setViewLocked(true); setInline(true); }}
+              >
+                Inline
+              </button>
             </div>
           </div>
 
@@ -361,7 +406,7 @@ export function ReviewPage() {
                   path={shown.path}
                   before={shown.before ?? ""}
                   after={shown.after ?? ""}
-                  inline={inline}
+                  inline={effectiveInline}
                   stale={isStale}
                   onStats={onStats}
                   threads={fileThreads}
