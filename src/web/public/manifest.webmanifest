@@ -1,5 +1,5 @@
 {
-  "name": "Pipeline Launchpad",
+  "name": "Launchpad",
   "short_name": "Launchpad",
   "description": "Browse and run your Azure DevOps pipelines.",
   "start_url": "/",

@@ -287,8 +287,8 @@ export function ReviewPage() {
           </div>
         </div>
 
-        {/* ---------- changed files ---------- */}
-        <div className="cfg-col review-files">
+        {/* ---------- changed files (right-hand rail, so the diff stays centred) ---------- */}
+        <div className="cfg-col review-files" style={{ order: 3 }}>
           <div className="keys-head">
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="keys-title">{pr ? `!${pr.id}` : "Files"}</div>
@@ -319,7 +319,7 @@ export function ReviewPage() {
         </div>
 
         {/* ---------- diff ---------- */}
-        <div className="cfg-col review-diff">
+        <div className="cfg-col review-diff" style={{ order: 2 }}>
           <div className="detail-head">
             <span className="detail-title" title={path ?? ""}>
               {path ? fileName(path) : "No file selected"}

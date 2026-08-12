@@ -1940,9 +1940,11 @@ a {
 /* ---------- review: pull requests -> files -> diff ----------
    Same three-pane discipline as Configurations: one scroll context per pane, no modal.
    The file pane only appears once a PR is selected, so the list gets the full width first. */
+/* PRs on the left, diff in the middle, file list on the right — so the code sits centred
+   in the window rather than shunted right by two stacked lists. */
 .review {
   display: grid;
-  grid-template-columns: var(--w-sidebar) 0 minmax(0, 1fr);
+  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 0;
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -1951,7 +1953,7 @@ a {
 }
 
 .review.has-files {
-  grid-template-columns: var(--w-sidebar) 280px minmax(0, 1fr);
+  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 280px;
 }
 
 .review-pickers {
@@ -2124,8 +2126,16 @@ a {
 }
 
 /* ---- diff pane ---- */
-.review-diff .detail-head {
+.review-diff,
+.review-diff .detail-head,
+.review-diff .json-view {
   border-left: none;
+}
+
+/* The file rail sits last, so its divider belongs on its leading edge. */
+.review-files {
+  border-right: none;
+  border-left: 1px solid var(--border-hairline);
 }
 
 /* File name leads, its folder trails in muted type — same idea as the card title/sub pair. */
@@ -2190,8 +2200,34 @@ a {
   background: var(--hue-violet);
 }
 
+/* Follows the pointer down the gutter: the visible way in to leaving a comment. */
+.diff-glyph-add {
+  cursor: pointer;
+}
+
+.diff-glyph-add::before {
+  content: "+";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin: 2px auto 0;
+  border-radius: var(--r-small);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Monaco renders .view-lines after .view-zones, so an unpositioned zone is painted over by
+   the code. Lifting it into its own layer puts the thread in front, where it belongs. */
 .diff-zone {
+  position: relative;
+  z-index: 6;
   padding: 6px 10px 6px 46px; /* clear the gutter so threads line up with the code */
+  background: var(--code-bg);  /* opaque: nothing shows through from the lines beneath */
 }
 
 .dthread {

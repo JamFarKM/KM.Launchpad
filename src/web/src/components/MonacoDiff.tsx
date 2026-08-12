@@ -164,6 +164,8 @@ export function MonacoDiff({
   const pendingReveal = useRef(true);
   /** Line the "new comment" composer is open on, if any. */
   const [composerLine, setComposerLine] = useState<number | null>(null);
+  /** Line under the pointer, so the gutter can offer a "+" to comment on it. */
+  const [hoverLine, setHoverLine] = useState<number | null>(null);
 
   // Create once; the models and options are updated in place afterwards.
   useEffect(() => {
@@ -255,17 +257,55 @@ export function MonacoDiff({
 
   // ---- comment threads, rendered inline as view zones on the modified (right) side ----
 
-  // Offer "comment on this line" from the glyph margin.
+  // Offer "comment on this line" from the glyph margin, with a "+" that follows the pointer
+  // down the gutter so the affordance is visible rather than something you have to know about.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !onNewThread) return;
-    const sub = editor.getModifiedEditor().onMouseDown((e) => {
+    const right = editor.getModifiedEditor();
+
+    const down = right.onMouseDown((e) => {
       if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
       const line = e.target.position?.lineNumber;
       if (line) setComposerLine((cur) => (cur === line ? null : line));
     });
-    return () => sub.dispose();
+
+    const GUTTER = new Set<number>([
+      monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN,
+      monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS,
+      monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS,
+      monaco.editor.MouseTargetType.CONTENT_TEXT,
+      monaco.editor.MouseTargetType.CONTENT_EMPTY,
+    ]);
+    const move = right.onMouseMove((e) => {
+      const line = GUTTER.has(e.target.type) ? e.target.position?.lineNumber ?? null : null;
+      setHoverLine((cur) => (cur === line ? cur : line));
+    });
+    const leave = right.onMouseLeave(() => setHoverLine(null));
+
+    return () => { down.dispose(); move.dispose(); leave.dispose(); };
   }, [onNewThread]);
+
+  // Kept in its own collection so hovering doesn't churn the thread markers or view zones.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !onNewThread) return;
+    const right = editor.getModifiedEditor();
+    const hasThread = new Set((threads ?? []).map((t) => t.rightLine));
+    const show = hoverLine && !hasThread.has(hoverLine) && hoverLine !== composerLine;
+    const dec = right.createDecorationsCollection(
+      show
+        ? [{
+            range: new monaco.Range(hoverLine, 1, hoverLine, 1),
+            options: {
+              glyphMarginClassName: "diff-glyph-add",
+              glyphMarginHoverMessage: { value: "Comment on this line" },
+            },
+          }]
+        : [],
+    );
+    return () => dec.clear();
+  }, [hoverLine, threads, composerLine, onNewThread]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -281,34 +321,37 @@ export function MonacoDiff({
       })),
     );
 
-    // One React root per zone. Monaco needs a pixel height up front, so each node is measured
-    // after render and the zone re-laid out — otherwise tall threads clip.
-    const mounted: { id: string; root: Root; node: HTMLElement; ro: ResizeObserver }[] = [];
+    // One React root per zone. Monaco needs a pixel height up front, so the node is measured
+    // after React paints and the zone re-laid out in place — mutating the descriptor and
+    // calling layoutZone, rather than removing and re-adding, which would churn the zone id.
+    const mounted: { id: string; root: Root; ro: ResizeObserver }[] = [];
 
     const addZone = (afterLineNumber: number, render: (node: HTMLElement) => Root) => {
       const node = document.createElement("div");
       node.className = "diff-zone";
+      const zone: monaco.editor.IViewZone = {
+        afterLineNumber,
+        domNode: node,
+        heightInPx: 0,
+        suppressMouseDown: true, // let the thread's own inputs take the click
+      };
       let zoneId = "";
-      right.changeViewZones((a) => {
-        zoneId = a.addZone({ afterLineNumber, domNode: node, heightInPx: 120, suppressMouseDown: true });
-      });
+      right.changeViewZones((a) => { zoneId = a.addZone(zone); });
+
       const root = render(node);
-      const ro = new ResizeObserver(() => {
+      const sync = () => {
         const h = node.scrollHeight;
-        right.changeViewZones((a) => a.layoutZone(zoneId));
-        void h;
-      });
+        if (h > 0 && h !== zone.heightInPx) {
+          zone.heightInPx = h;
+          right.changeViewZones((a) => a.layoutZone(zoneId));
+        }
+      };
+      // Re-measure as the thread grows (typing a reply, a long comment wrapping).
+      const ro = new ResizeObserver(sync);
       ro.observe(node);
-      // Height is read from the DOM once React has painted.
-      requestAnimationFrame(() => {
-        right.changeViewZones((a) => {
-          a.removeZone(zoneId);
-          zoneId = a.addZone({
-            afterLineNumber, domNode: node, heightInPx: node.scrollHeight + 8, suppressMouseDown: true,
-          });
-        });
-      });
-      mounted.push({ id: zoneId, root, node, ro });
+      requestAnimationFrame(sync);
+
+      mounted.push({ id: zoneId, root, ro });
     };
 
     for (const t of list) {

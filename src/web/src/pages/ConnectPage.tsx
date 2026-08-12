@@ -30,7 +30,7 @@ export function ConnectPage({ onConnected }: { onConnected: (u: User) => void })
     <div className="connect">
       <form className="panel" onSubmit={submit}>
         <h1>
-          Pipeline <span>Launchpad</span>
+          <span>Launchpad</span>
         </h1>
         <p className="lede">
           Connect with an Azure DevOps personal access token to browse and run

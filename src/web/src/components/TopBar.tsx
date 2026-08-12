@@ -149,7 +149,7 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
 
   return (
     <div className="topbar" ref={barRef}>
-      <div className="brand">Pipeline <span>Launchpad</span></div>
+      <div className="brand"><span>Launchpad</span></div>
       <span className="faint">·</span>
       <span className="muted">{user.org}</span>
 
