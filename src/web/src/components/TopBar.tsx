@@ -34,17 +34,10 @@ const NAV: { id: Page; label: string; icon: JSX.Element }[] = [
       </svg>
     ),
   },
-  {
-    id: "sequences", label: "Sequences",
-    icon: (
-      <svg className="nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <circle cx="3" cy="3.5" r="1.4" strokeWidth="1.3" />
-        <circle cx="3" cy="8" r="1.4" strokeWidth="1.3" />
-        <circle cx="3" cy="12.5" r="1.4" strokeWidth="1.3" />
-        <path d="M6.5 3.5H14M6.5 8H14M6.5 12.5H14" strokeWidth="1.3" strokeLinecap="round" />
-      </svg>
-    ),
-  },
+  /* No Sequences tab (SEQUENCES §1): sequences are reached from the library drawer, which is
+     where the things you put on shelves live. The `sequences` page id stays in the union — the
+     drawer still routes to it — and /sequences keeps returning the app via the server's
+     index.html fallback rather than 404-ing, so old bookmarks land on the board. */
   {
     id: "review", label: "Review",
     icon: (
