@@ -713,6 +713,7 @@ export function Dashboard() {
           <SequenceEditor
             draft={editDraft}
             usedIn={usedIn}
+            projects={projectsQ.data ?? []}
             dirty={editDirty}
             saving={saveEdit.isPending}
             onChange={(next) => { setEditDraft(next); setEditDirty(true); }}

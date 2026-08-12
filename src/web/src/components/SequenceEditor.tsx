@@ -1,6 +1,9 @@
 import { Fragment, useMemo, useRef, useState } from "react";
-import type { Sequence, SequenceInput, SequenceStep } from "../types";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api/client";
+import type { Pipeline, PipelineDetail, Project, Sequence, SequenceInput, SequenceStep } from "../types";
 import { STEP_OUTPUTS } from "../types";
+import { Combobox, type ComboOption } from "./Combobox";
 import { commonPrefix, stepShort } from "../lib/format";
 import { applyParams, paramsOf, remapAfterReorder, resolve, type Param, type Src } from "../lib/bindings";
 import { PlayIcon } from "./StatusGlyph";
@@ -19,6 +22,8 @@ interface Props {
   draft: Sequence;
   /** Names of the views whose shelves reference this sequence (§7). */
   usedIn: string[];
+  /** For the per-step project picker. */
+  projects: Project[];
   dirty: boolean;
   saving: boolean;
   onChange: (next: Sequence) => void;
@@ -64,17 +69,99 @@ function InfoIcon() {
   );
 }
 
-/** Which pre-run input, if any, feeds this step's branch — the one binding the model already has. */
-function branchSummary(step: SequenceStep, seq: Sequence): string {
-  if (step.branchInputId) {
-    const input = seq.inputs.find((i) => i.id === step.branchInputId);
-    return input ? `input: ${input.name}` : "input: (missing)";
-  }
-  return step.branch?.trim() || "default branch";
+const SMART_BRANCH = "__smart__";
+
+/**
+ * Which pipeline a step runs, and on which branch. Its own component so each step queries only
+ * its own project's pipelines and its own pipeline's branches, rather than the panel fetching
+ * every combination up front.
+ */
+function StepConfig({ step, inputs, projects, onChange }: {
+  step: SequenceStep;
+  inputs: SequenceInput[];
+  projects: Project[];
+  onChange: (patch: Partial<SequenceStep>) => void;
+}) {
+  const pipelinesQ = useQuery<Pipeline[]>({
+    queryKey: ["pipelines", step.project],
+    queryFn: () => api.pipelines(step.project),
+    enabled: !!step.project,
+  });
+  const detailQ = useQuery<PipelineDetail>({
+    queryKey: ["detail", step.project, step.pipelineId],
+    queryFn: () => api.pipelineDetail(step.project, step.pipelineId),
+    enabled: !!step.project && step.pipelineId > 0,
+  });
+
+  // One control for what are three storage fields, because they're mutually exclusive: a branch
+  // comes from an input, or a literal ref, or the smart sentinel, or the pipeline's default.
+  const branchValue = step.branch === SMART_BRANCH ? "smart"
+    : step.branchInputId ? `input:${step.branchInputId}`
+    : step.branch ? `branch:${step.branch}` : "";
+
+  const branchOptions: ComboOption[] = [
+    { value: "", label: "(default branch)" },
+    { value: "smart", label: "smart-detect — your last branch", hint: "auto" },
+    ...inputs.filter((i) => i.kind === "branch")
+      .map((i) => ({ value: `input:${i.id}`, label: `input: ${i.name || "(unnamed)"}`, hint: "pre-run" })),
+    ...(detailQ.data?.branches ?? [])
+      .map((b) => ({ value: `branch:${b.name}`, label: b.name, hint: b.isDefault ? "default" : undefined })),
+  ];
+
+  const onBranch = (v: string) => {
+    if (v === "smart") onChange({ branchInputId: "", branch: SMART_BRANCH });
+    else if (v.startsWith("input:")) onChange({ branchInputId: v.slice(6), branch: "" });
+    else if (v.startsWith("branch:")) onChange({ branchInputId: "", branch: v.slice(7) });
+    else onChange({ branchInputId: "", branch: "" });
+  };
+
+  return (
+    <>
+      <div className="prow">
+        <span className="pname">project</span>
+        <span className="pctl">
+          <Combobox
+            value={step.project}
+            options={projects.map((p) => ({ value: p.name, label: p.name }))}
+            placeholder="— project —"
+            onChange={(v) => onChange({ project: v, pipelineId: 0, name: "" })}
+          />
+        </span>
+      </div>
+      <div className="prow">
+        <span className="pname">pipeline</span>
+        <span className="pctl">
+          <Combobox
+            value={step.pipelineId ? String(step.pipelineId) : ""}
+            options={(pipelinesQ.data ?? []).map((p) => ({ value: String(p.id), label: p.name, hint: p.folder ?? undefined }))}
+            disabled={!step.project}
+            loading={pipelinesQ.isLoading}
+            placeholder="— pipeline —"
+            onChange={(v) => {
+              const p = pipelinesQ.data?.find((x) => x.id === Number(v));
+              onChange({ pipelineId: Number(v), name: p?.name ?? "" });
+            }}
+          />
+        </span>
+      </div>
+      <div className="prow">
+        <span className="pname">branch</span>
+        <span className="pctl">
+          <Combobox
+            value={branchValue}
+            options={branchOptions}
+            disabled={step.pipelineId <= 0}
+            loading={detailQ.isLoading}
+            onChange={onBranch}
+          />
+        </span>
+      </div>
+    </>
+  );
 }
 
 export function SequenceEditor({
-  draft, usedIn, dirty, saving, onChange, onSave, onDiscard, onClose, onRun, onGoToView,
+  draft, usedIn, projects, dirty, saving, onChange, onSave, onDiscard, onClose, onRun, onGoToView,
 }: Props) {
   /* Collapsed by default: you open the one or two steps you're touching, not all of them.
      Held here rather than on the draft — which step is expanded is not part of the sequence. */
@@ -156,6 +243,28 @@ export function SequenceEditor({
     const params = paramsOf(draft.steps[picker.step]);
     setParams(picker.step, params.map((p, j) => (j === picker.param ? { ...p, target } : p)));
     setPicker(null);
+  };
+
+  /* A new step opens expanded — it has nothing configured, so collapsing it would hide the
+     pickers you need. Every other step stays as you left it. */
+  const addStep = () => {
+    const id = crypto.randomUUID();
+    setOpen((s) => new Set(s).add(id));
+    onChange({
+      ...draft,
+      steps: [...draft.steps, {
+        id, project: "", pipelineId: 0, name: "", alias: "", branch: "", branchInputId: "",
+        templateParameters: {}, variables: {}, bindings: [], link: { mode: "none", key: "" },
+      }],
+    });
+  };
+
+  /* Removing a step shifts every later index, so the same remap the reorder path uses applies
+     here: bindings follow the step they meant, and one that would now point at a later step
+     reads as broken rather than being quietly redirected. */
+  const removeStep = (i: number) => {
+    const order = draft.steps.map((_, j) => j).filter((j) => j !== i);
+    onChange({ ...draft, steps: remapAfterReorder(draft.steps, order) });
   };
 
   // ---- reorder (§10) ----
@@ -258,11 +367,28 @@ export function SequenceEditor({
                     <option value="branch">BRANCH</option>
                     <option value="environment">ENV</option>
                   </select>
-                  <input
-                    className="fld" value={input.default ?? ""} placeholder="—"
-                    aria-label={`Input ${i + 1} default`}
-                    onChange={(e) => patchInput(i, { default: e.target.value })}
-                  />
+                  {/* Smart-detect was previously only reachable by typing the raw __smart__
+                      sentinel, so nobody would ever find it. For a branch input it's now an
+                      offered choice, and the sentinel is never shown as text. */}
+                  {input.default === SMART_BRANCH ? (
+                    <span className="smartchip" title="Resolves to your most recent branch on the source pipeline">
+                      smart-detect
+                      <button className="xbtn" aria-label="Stop using smart-detect"
+                        onClick={() => patchInput(i, { default: "" })}>✕</button>
+                    </span>
+                  ) : (
+                    <span className="deflt">
+                      <input
+                        className="fld" value={input.default ?? ""} placeholder="—"
+                        aria-label={`Input ${i + 1} default`}
+                        onChange={(e) => patchInput(i, { default: e.target.value })}
+                      />
+                      {input.kind === "branch" && (
+                        <button className="minibtn" title="Use your most recent branch"
+                          onClick={() => patchInput(i, { default: SMART_BRANCH })}>smart</button>
+                      )}
+                    </span>
+                  )}
                   <button className="xbtn" title="Remove input" aria-label={`Remove input ${input.name}`}
                     onClick={() => removeInput(i)}>✕</button>
                 </div>
@@ -275,6 +401,7 @@ export function SequenceEditor({
         <div className="sect">
           <div className="sect-h">
             <span className="t">Steps — run in order</span>
+            <button className="minibtn" onClick={addStep}><PlusIcon />Add step</button>
           </div>
           <div className="sect-note">
             Each step waits for the previous to succeed. The <b>display name</b> is what shows on
@@ -318,6 +445,8 @@ export function SequenceEditor({
                     />
                     <div className="realname" title={step.name}>{step.name || "Pick a pipeline…"}</div>
                   </span>
+                  <button className="xbtn" title="Remove step" aria-label={`Remove step ${i + 1}`}
+                    onClick={(e) => { e.stopPropagation(); removeStep(i); }}>✕</button>
                   <span className="chev"><ChevronIcon /></span>
                 </div>
 
@@ -332,14 +461,12 @@ export function SequenceEditor({
                 )}
 
                 <div className="step-b">
-                  <div className="prow">
-                    <span className="pname">project</span>
-                    <span className="pval">{step.project || "—"}</span>
-                  </div>
-                  <div className="prow">
-                    <span className="pname">branch</span>
-                    <span className="pval">{branchSummary(step, draft)}</span>
-                  </div>
+                  <StepConfig
+                    step={step}
+                    inputs={draft.inputs}
+                    projects={projects}
+                    onChange={(patch) => patchStep(i, patch)}
+                  />
 
                   {params.map((p, pi) => {
                     const r = resolve(p.src, draft, i);

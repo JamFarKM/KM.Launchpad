@@ -787,6 +787,32 @@ a {
 .pval { color: var(--ink-secondary); }
 
 .pactions { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Pickers inside a step row. Wider than the value column they replace, since a pipeline name is
+   the longest thing in the panel. */
+.pctl { min-width: 0; width: 250px; }
+.pctl .combo-input { height: 26px; font-size: 11.5px; }
+
+.deflt { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.deflt .fld { flex: 1; min-width: 0; }
+.deflt .minibtn { height: 26px; flex-shrink: 0; }
+
+/* Smart-detect shown as a named choice rather than the raw __smart__ sentinel. */
+.smartchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--r-small);
+  font-size: 10.5px;
+  font-weight: 600;
+  background: color-mix(in oklab, var(--hue-aqua) 14%, transparent);
+  color: var(--hue-aqua);
+  min-width: 0;
+}
+
+.smartchip .xbtn { width: 18px; height: 18px; color: inherit; }
 .prow-add { border-bottom: none; padding-top: 8px; }
 
 /* A step whose parameters no longer resolve. The border is one of three carriers — the warning
