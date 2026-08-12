@@ -117,6 +117,8 @@ export interface PullRequest {
   createdAt?: string | null;
   sourceCommit?: string | null;
   targetCommit?: string | null;
+  /** ADO's own merge state; "conflicts" is the one worth flagging in the list. */
+  mergeStatus?: string | null;
   /** 10 approved · 5 with suggestions · 0 none · -5 waiting for author · -10 rejected. */
   myVote: number;
 }

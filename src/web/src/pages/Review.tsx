@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
@@ -7,11 +7,28 @@ import type { DiffStats } from "../components/MonacoDiff";
 import type { PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
 
 /** ADO's vote scale, as review actions. */
-const VOTES: { vote: number; label: string; tone: string }[] = [
-  { vote: 10, label: "Approve", tone: "ok" },
-  { vote: 5, label: "Approve with suggestions", tone: "ok-soft" },
-  { vote: -5, label: "Waiting for author", tone: "warn" },
-  { vote: -10, label: "Reject", tone: "bad" },
+/* Approve is the only solid fill: "approve" genuinely is a good/bad axis and it's a single
+   button, not a palette, so A2 allows it. Reject tints red on hover only — a permanently red
+   destructive button in the primary position invites misclicks (§1). Each gets a 12px icon so
+   the row is scannable without reading. "Approve with suggestions" shortens, since the row is
+   already the widest thing on the page (§5). */
+const VOTES: { vote: number; label: string; tone: string; icon: JSX.Element }[] = [
+  {
+    vote: 10, label: "Approve", tone: "ok",
+    icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3.5 8.5l3 3 6-7" /></svg>,
+  },
+  {
+    vote: 5, label: "With suggestions", tone: "ok-soft",
+    icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8.5l2.5 2.5 5-6" /><path d="M9.5 12.5h4" /></svg>,
+  },
+  {
+    vote: -5, label: "Waiting for author", tone: "warn",
+    icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="8" cy="8" r="5.5" /><path d="M8 5.2v3.2l2.2 1.3" /></svg>,
+  },
+  {
+    vote: -10, label: "Reject", tone: "bad",
+    icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg>,
+  },
 ];
 const voteLabel = (v: number) => VOTES.find((x) => x.vote === v)?.label ?? "No vote";
 
@@ -64,6 +81,7 @@ export function ReviewPage() {
   const [project, setProject] = useState("");
   const [repoId, setRepoId] = useState("");
   const [prId, setPrId] = useState<number | null>(null);
+  const [prFilter, setPrFilter] = useState("");
   const [path, setPath] = useState<string | null>(null);
   const [inline, setInline] = useState(false);
   const [stats, setStats] = useState<DiffStats | null>(null);
@@ -108,8 +126,18 @@ export function ReviewPage() {
     enabled: !!project && !!repoId,
   });
 
-  const prs = prsQ.data ?? [];
-  const pr = prs.find((p) => p.id === prId) ?? null;
+  const all = prsQ.data ?? [];
+  const prs = useMemo(() => {
+    const q = prFilter.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((p) =>
+      String(p.id).includes(q) ||
+      p.title.toLowerCase().includes(q) ||
+      (p.author ?? "").toLowerCase().includes(q));
+  }, [all, prFilter]);
+  // Look the selected PR up in the unfiltered list — filtering it out of the rail shouldn't
+  // tear down the diff you're reading.
+  const pr = all.find((p) => p.id === prId) ?? null;
 
   // Reset the file selection and its stats whenever the PR changes.
   useEffect(() => { setPath(null); setStats(null); }, [prId]);
@@ -263,23 +291,67 @@ export function ReviewPage() {
 
   return (
     <div className="body review-wrap">
-      {/* Starred repos: project -> repo is too many clicks for something used all day. */}
-      {favourites.length > 0 && (
-        <div className="quicklinks">
-          <span className="ql-label">Starred</span>
-          {favourites.map((f) => (
-            <button
-              key={f.id}
-              className={`ql-chip ${f.project === project && f.repoId === repoId ? "active" : ""}`}
-              title={`${f.project} / ${f.repoName}`}
-              onClick={() => { setProject(f.project); setRepoId(f.repoId); setPrId(null); }}
-            >
-              <span className="ql-repo">{f.repoName}</span>
-              <span className="ql-project">{f.project}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Context bar: pickers, star, then the starred chips on the same row — the STARRED row
+          previously spent a full row on one chip (§5). It spans the window rather than sitting
+          in the PR panel's header, so the chips have somewhere to go and the whole row survives
+          collapsing the left panel. The PROJ/REPO prefixes cost nothing and remove the
+          ambiguity when two names collide. */}
+      <div className="ctxbar">
+        <span className="picker-wrap" title="Azure DevOps project">
+          <span className="picker-tag">Proj</span>
+          <Combobox
+            value={project}
+            options={(projectsQ.data ?? []).map((p) => ({ value: p.name, label: p.name }))}
+            loading={projectsQ.isLoading}
+            placeholder="— project —"
+            onChange={(v) => { setProject(v); setRepoId(""); setPrId(null); }}
+          />
+        </span>
+        <span className="picker-wrap" title="Repository">
+          <span className="picker-tag">Repo</span>
+          <Combobox
+            value={repoId}
+            options={(reposQ.data ?? []).map((r) => ({ value: r.id, label: r.name }))}
+            disabled={!project}
+            loading={reposQ.isLoading}
+            placeholder="— repository —"
+            onChange={(v) => { setRepoId(v); setPrId(null); }}
+          />
+        </span>
+        <button
+          className={`star-btn ${currentFavourite ? "on" : ""}`}
+          disabled={!repoId || toggleFavourite.isPending}
+          title={currentFavourite ? "Remove from starred" : "Star this repository"}
+          aria-pressed={!!currentFavourite}
+          onClick={() => toggleFavourite.mutate()}
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"
+            fill={currentFavourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.4"
+            strokeLinejoin="round">
+            <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
+          </svg>
+        </button>
+
+        {favourites.length > 0 && (
+          <>
+            <span className="ctx-divider" />
+            <span className="ql-label">Starred</span>
+            <span className="quicklinks">
+              {favourites.map((f) => (
+                <button
+                  key={f.id}
+                  className={`ql-chip ${f.project === project && f.repoId === repoId ? "active" : ""}`}
+                  title={`${f.project} / ${f.repoName}`}
+                  onClick={() => { setProject(f.project); setRepoId(f.repoId); setPrId(null); }}
+                >
+                  <b>{f.repoName}</b>
+                  <span>{f.project}</span>
+                </button>
+              ))}
+            </span>
+          </>
+        )}
+      </div>
 
       {/* PR-level actions live here, above the panes, because they apply to the whole PR. */}
       {pr && (
@@ -295,15 +367,20 @@ export function ReviewPage() {
           )}
           <div className="pr-votes">
             {VOTES.map((v) => (
-              <button
-                key={v.vote}
-                className={`vote-btn ${v.tone} ${pr.myVote === v.vote ? "active" : ""}`}
-                disabled={vote.isPending}
-                title={v.label}
-                onClick={() => vote.mutate(v.vote)}
-              >
-                {v.label}
-              </button>
+              <Fragment key={v.vote}>
+                {/* Reject is separated from the three non-destructive votes so it can't be
+                    hit on the way to "Waiting for author". */}
+                {v.vote === -10 && <span className="vote-divider" />}
+                <button
+                  className={`vote-btn ${v.tone} ${pr.myVote === v.vote ? "active" : ""}`}
+                  disabled={vote.isPending}
+                  title={v.label}
+                  onClick={() => vote.mutate(v.vote)}
+                >
+                  <span className="vote-ico">{v.icon}</span>
+                  {v.label}
+                </button>
+              </Fragment>
             ))}
             {pr.myVote !== 0 && (
               <button className="btn ghost small" disabled={vote.isPending} onClick={() => vote.mutate(0)}>
@@ -321,38 +398,16 @@ export function ReviewPage() {
       >
         {/* ---------- pull requests ---------- */}
         <div className="cfg-col">
+          {/* An active repo can carry dozens of PRs; scanning for "the one about sport ids"
+              shouldn't mean scrolling. Matches id, title or author (§8). */}
           <div className="cfg-head">
-            {/* Same searchable pickers as the Sequences page, not bare selects. */}
-            <div className="review-pickers">
-              <Combobox
-                value={project}
-                options={(projectsQ.data ?? []).map((p) => ({ value: p.name, label: p.name }))}
-                loading={projectsQ.isLoading}
-                placeholder="— project —"
-                onChange={(v) => { setProject(v); setRepoId(""); setPrId(null); }}
-              />
-              <Combobox
-                value={repoId}
-                options={(reposQ.data ?? []).map((r) => ({ value: r.id, label: r.name }))}
-                disabled={!project}
-                loading={reposQ.isLoading}
-                placeholder="— repository —"
-                onChange={(v) => { setRepoId(v); setPrId(null); }}
-              />
-              <button
-                className={`star-btn ${currentFavourite ? "on" : ""}`}
-                disabled={!repoId || toggleFavourite.isPending}
-                title={currentFavourite ? "Remove from starred" : "Star this repository"}
-                aria-pressed={!!currentFavourite}
-                onClick={() => toggleFavourite.mutate()}
-              >
-                <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"
-                  fill={currentFavourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.4"
-                  strokeLinejoin="round">
-                  <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
-                </svg>
-              </button>
-            </div>
+            <input
+              className="input pr-search"
+              type="search"
+              placeholder="Filter pull requests…"
+              value={prFilter}
+              onChange={(e) => setPrFilter(e.target.value)}
+            />
           </div>
 
           <div className="cfg-scroll">
@@ -369,7 +424,14 @@ export function ReviewPage() {
               <button key={p.id} className={`pr-item ${p.id === prId ? "active" : ""}`} onClick={() => setPrId(p.id)}>
                 <div className="pr-top">
                   <span className="pr-id">!{p.id}</span>
-                  {p.isDraft && <span className="pr-draft">draft</span>}
+                  {/* Both flags change whether the PR is worth opening at all, so they sit on
+                      the title line. Draft is slate — it's a state, not a problem (§8). */}
+                  {p.isDraft && <span className="pr-flag draft">Draft</span>}
+                  {p.mergeStatus === "conflicts" && (
+                    <span className="pr-flag conflicts" title="Merge conflicts with the target branch">
+                      Conflicts
+                    </span>
+                  )}
                   <span className="pr-title" title={p.title}>{p.title}</span>
                 </div>
                 <div className="pr-sub">

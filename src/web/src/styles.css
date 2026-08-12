@@ -1839,17 +1839,75 @@ a {
   min-height: 0;
 }
 
+/* Context bar: project + repo pickers, star, and the starred chips, all on one row (§5).
+   Spans the window so the chips have room and the row survives collapsing the PR panel. */
+.ctxbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.picker-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--h-control);
+  padding: 0 4px 0 10px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  max-width: 230px;
+  flex-shrink: 0;
+}
+
+/* The prefix is a label, not a value — muted and small so the repo name still reads first. */
+.picker-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+/* The combobox supplies its own frame; inside a picker the wrapper owns it instead. */
+.picker-wrap .combo { min-width: 0; flex: 1; }
+
+.picker-wrap .combo-input {
+  border: none;
+  background: transparent;
+  height: 26px;
+  min-width: 0;
+  width: 100%;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 0 4px 0 0;
+}
+
+.picker-wrap .combo-input:hover:not(:disabled) { background: transparent; }
+.picker-wrap:has(.combo-input:not(:disabled)):hover { background: var(--hover-wash); }
+
+.ctx-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-hairline);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
 /* Starred project+repo combos. Browsing project -> repo is too many clicks for
    something used all day, so the ones you live in sit one click away. */
 .quicklinks {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border-hairline);
-  background: var(--bg-surface);
+  min-width: 0;
   overflow-x: auto;
-  flex-shrink: 0;
+  scrollbar-width: none;
 }
 
 .ql-label {
@@ -1865,8 +1923,9 @@ a {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--r-control);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 100px;
   border: 1px solid var(--border-hairline);
   background: var(--bg-surface-2);
   color: var(--ink-secondary);
@@ -1888,9 +1947,9 @@ a {
   color: var(--accent);
 }
 
-.ql-repo { font-weight: 600; }
-.ql-project { font-size: 10.5px; color: var(--ink-muted); }
-.ql-chip.active .ql-project { color: inherit; opacity: 0.8; }
+.ql-chip b { font-weight: 600; }
+.ql-chip span { font-size: 10.5px; color: var(--ink-muted); }
+.ql-chip.active span { color: inherit; opacity: 0.8; }
 
 .star-btn {
   flex-shrink: 0;
@@ -1981,10 +2040,52 @@ a {
 
 .vote-btn:hover:not(:disabled) { background: var(--hover-wash); color: var(--ink-primary); }
 .vote-btn:disabled { opacity: 0.55; cursor: default; }
-.vote-btn.ok.active { background: var(--status-good); border-color: var(--status-good); color: #fff; }
-.vote-btn.ok-soft.active { background: color-mix(in oklab, var(--status-good) 20%, transparent); border-color: var(--status-good); color: var(--status-good); }
-.vote-btn.warn.active { background: color-mix(in oklab, var(--status-warn) 22%, transparent); border-color: var(--status-warn); color: var(--status-warn); }
-.vote-btn.bad.active { background: var(--status-bad); border-color: var(--status-bad); color: #fff; }
+
+.vote-ico {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  vertical-align: -1.5px;
+  margin-right: 5px;
+}
+.vote-ico svg { width: 12px; height: 12px; display: block; }
+
+/* Hierarchy (§5): Approve is the one solid button, so the row has a single obvious primary.
+   The other three stay outline, and Reject only reddens on hover — a resting red fill in a
+   row you click all day is a misclick waiting to happen. */
+.vote-btn.ok {
+  background: var(--status-good);
+  border-color: var(--status-good);
+  color: #fff;
+}
+.vote-btn.ok:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--status-good) 88%, #000);
+  color: #fff;
+}
+
+.vote-btn.bad:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--status-bad) 14%, transparent);
+  border-color: color-mix(in oklab, var(--status-bad) 55%, transparent);
+  color: var(--status-bad);
+}
+
+/* The cast vote reads as state, not as another call to action. */
+.vote-btn.active { box-shadow: inset 0 0 0 1px currentColor; }
+.vote-btn.ok-soft.active { border-color: var(--status-good); color: var(--status-good); }
+.vote-btn.warn.active { border-color: var(--status-warn); color: var(--status-warn); }
+.vote-btn.bad.active {
+  background: color-mix(in oklab, var(--status-bad) 14%, transparent);
+  border-color: var(--status-bad);
+  color: var(--status-bad);
+}
+
+.vote-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--border-hairline);
+  flex-shrink: 0;
+}
 
 /* ---------- review: pull requests -> files -> diff ----------
    Same three-pane discipline as Configurations: one scroll context per pane, no modal.
@@ -2107,16 +2208,32 @@ a {
   flex-shrink: 0;
 }
 
-.pr-draft {
+/* Row flags (§8). Draft takes slate because it's a state of the PR, not a fault; conflicts
+   takes --status-warn because it's the one thing that stops you merging. */
+.pr-flag {
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 1px 5px;
   border-radius: var(--r-tag);
-  color: var(--ink-secondary);
-  background: var(--hover-wash);
   flex-shrink: 0;
+}
+
+.pr-flag.draft {
+  color: var(--hue-slate);
+  background: color-mix(in oklab, var(--hue-slate) 15%, transparent);
+}
+
+.pr-flag.conflicts {
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 16%, transparent);
+}
+
+.pr-search {
+  width: 100%;
+  height: var(--h-control);
+  font-size: 12.5px;
 }
 
 .pr-title {
