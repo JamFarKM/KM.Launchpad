@@ -6,6 +6,7 @@ import { STEP_OUTPUTS } from "../types";
 import { Combobox, type ComboOption } from "./Combobox";
 import { commonPrefix, stepShort } from "../lib/format";
 import { applyParams, paramsOf, remapAfterReorder, resolve, type Param, type Src } from "../lib/bindings";
+import { placePopup } from "../lib/popup";
 import { PlayIcon } from "./StatusGlyph";
 
 /**
@@ -71,13 +72,23 @@ function InfoIcon() {
 
 const SMART_BRANCH = "__smart__";
 
+/** What a link passes along. `tag` composes the image tag a build does: <lastBranchSeg>.<buildNumber>. */
+const LINK_SOURCES: ComboOption[] = [
+  { value: "buildNumber", label: "build number" },
+  { value: "runId", label: "run id" },
+  { value: "tag", label: "image tag", hint: "branch.buildNumber" },
+  { value: "branch", label: "branch" },
+];
+
 /**
  * Which pipeline a step runs, and on which branch. Its own component so each step queries only
  * its own project's pipelines and its own pipeline's branches, rather than the panel fetching
  * every combination up front.
  */
-function StepConfig({ step, inputs, projects, onChange }: {
+function StepConfig({ step, prev, inputs, projects, onChange }: {
   step: SequenceStep;
+  /** The immediately previous step, if any — a link can only ever read that one. */
+  prev: SequenceStep | null;
   inputs: SequenceInput[];
   projects: Project[];
   onChange: (patch: Partial<SequenceStep>) => void;
@@ -113,6 +124,45 @@ function StepConfig({ step, inputs, projects, onChange }: {
     else if (v.startsWith("input:")) onChange({ branchInputId: v.slice(6), branch: "" });
     else if (v.startsWith("branch:")) onChange({ branchInputId: "", branch: v.slice(7) });
     else onChange({ branchInputId: "", branch: "" });
+  };
+
+  /* Consuming the previous step's build. The runner's link always reads the immediately previous
+     step, so a declared `resources: pipelines:` entry naming that step's pipeline is a link the
+     app can propose outright rather than making you know the alias and type it. */
+  const resources = detailQ.data?.resources ?? [];
+  const matches = (r: { source?: string | null; project?: string | null }) => {
+    if (!prev?.name || !r.source) return false;
+    const a = r.source.toLowerCase(), b = prev.name.toLowerCase();
+    return a === b || a.endsWith(b) || b.endsWith(a);
+  };
+
+  const linkValue = !step.link || step.link.mode === "none" ? ""
+    : step.link.mode === "resource" || step.link.mode === "container"
+      ? `${step.link.mode}:${step.link.key ?? ""}`
+      : step.link.mode;
+
+  const linkOptions: ComboOption[] = [
+    { value: "", label: "not used" },
+    ...resources.map((r) => ({
+      value: `resource:${r.alias}`,
+      label: `as pipeline resource: ${r.alias}`,
+      hint: matches(r) ? `matches ${prev?.alias?.trim() || prev?.name}` : r.source ?? "declared",
+    })),
+    ...(step.link?.mode === "container" && step.link.key
+      ? [{ value: `container:${step.link.key}`, label: `as container: ${step.link.key}`, hint: "image tag" }]
+      : []),
+    { value: "parameter", label: "as a template parameter…", hint: "pick below" },
+    { value: "variable", label: "as a variable…", hint: "pick below" },
+  ];
+
+  // A declared resource naming the previous step's pipeline is the intended wiring, so it leads.
+  linkOptions.sort((a, b) => Number(b.hint?.startsWith("matches") ?? false) - Number(a.hint?.startsWith("matches") ?? false));
+
+  const onLink = (v: string) => {
+    if (!v) return onChange({ link: { mode: "none", key: "", source: step.link?.source ?? "buildNumber" } });
+    if (v.startsWith("resource:")) return onChange({ link: { mode: "resource", key: v.slice(9), source: "buildNumber" } });
+    if (v.startsWith("container:")) return onChange({ link: { mode: "container", key: v.slice(10), source: "tag" } });
+    onChange({ link: { mode: v as "parameter" | "variable", key: step.link?.key ?? "", source: step.link?.source ?? "buildNumber" } });
   };
 
   return (
@@ -156,6 +206,56 @@ function StepConfig({ step, inputs, projects, onChange }: {
           />
         </span>
       </div>
+      {prev && (
+        <div className="prow">
+          <span className="pname">previous build</span>
+          <span className="pctl">
+            <Combobox
+              value={linkValue}
+              options={linkOptions}
+              disabled={step.pipelineId <= 0}
+              loading={detailQ.isLoading}
+              onChange={onLink}
+            />
+          </span>
+        </div>
+      )}
+      {/* The alias has to match the YAML exactly, so when the scrape found nothing there is
+          nothing to pick from and typing it is the only route left. */}
+      {prev && step.pipelineId > 0 && !detailQ.isLoading && resources.length === 0 && (
+        <div className="prow">
+          <span className="pname" />
+          <span className="pctl sect-note" style={{ width: 250 }}>
+            This pipeline's YAML declares no pipeline resources.
+          </span>
+        </div>
+      )}
+      {prev && (step.link?.mode === "parameter" || step.link?.mode === "variable") && (
+        <>
+          <div className="prow">
+            <span className="pname">…as</span>
+            <span className="pctl">
+              <Combobox
+                value={step.link.key ?? ""}
+                options={(detailQ.data?.parameters ?? []).map((p) => ({ value: p.name, label: p.name, hint: p.kind }))}
+                placeholder={step.link.mode === "parameter" ? "— parameter —" : "— variable —"}
+                allowCustom
+                onChange={(v) => onChange({ link: { ...step.link!, key: v } })}
+              />
+            </span>
+          </div>
+          <div className="prow">
+            <span className="pname">value</span>
+            <span className="pctl">
+              <Combobox
+                value={step.link.source ?? "buildNumber"}
+                options={LINK_SOURCES}
+                onChange={(v) => onChange({ link: { ...step.link!, source: v } })}
+              />
+            </span>
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -361,7 +461,9 @@ export function SequenceEditor({
   };
 
   /** Which chip's picker is open, and where to anchor it. */
-  const [picker, setPicker] = useState<{ step: number; param: number; x: number; y: number } | null>(null);
+  const [picker, setPicker] = useState<
+    { step: number; param: number; x: number; top?: number; bottom?: number; maxHeight: number } | null
+  >(null);
   /** Draft text for the picker's two inline fields, seeded from the parameter it opened on. */
   const [literal, setLiteral] = useState("");
   const [rename, setRename] = useState("");
@@ -371,7 +473,10 @@ export function SequenceEditor({
     const p = paramsOf(draft.steps[step])[param];
     setLiteral(p?.src.kind === "literal" ? p.src.ref : "");
     setRename(p?.name ?? "");
-    setPicker({ step, param, x: r.right - 264, y: r.bottom + 4 });
+    // The menu is tall and a step's parameters sit near the panel footer, so anchoring it
+    // strictly below put it off the bottom of the window with no way to reach the lower half.
+    const { top, bottom, maxHeight } = placePopup(r, 340);
+    setPicker({ step, param, x: r.right - 264, top, bottom, maxHeight });
   };
   const setSrc = (src: Src) => {
     if (!picker) return;
@@ -576,6 +681,7 @@ export function SequenceEditor({
                 <div className="step-b">
                   <StepConfig
                     step={step}
+                    prev={i > 0 ? draft.steps[i - 1] : null}
                     inputs={draft.inputs}
                     projects={projects}
                     onChange={(patch) => patchStep(i, patch)}
@@ -620,7 +726,13 @@ export function SequenceEditor({
       {picker && (
         <>
           <div className="bmenu-scrim" onClick={() => setPicker(null)} />
-          <div className="bmenu" style={{ left: Math.max(8, picker.x), top: picker.y }}>
+          <div
+            className="bmenu"
+            style={{
+              left: Math.max(8, picker.x),
+              top: picker.top, bottom: picker.bottom, maxHeight: picker.maxHeight,
+            }}
+          >
             <div className="menu-lbl">Pre-run inputs</div>
             {draft.inputs.length === 0 ? (
               <div className="bmi is-none">none defined</div>

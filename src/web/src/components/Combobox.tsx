@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { placePopup } from "../lib/popup";
 
 export interface ComboOption {
   value: string;
@@ -25,7 +26,9 @@ interface Props {
 export function Combobox({ value, options, onChange, placeholder, disabled, loading, allowCustom }: Props) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [rect, setRect] = useState<
+    { left: number; width: number; maxHeight: number; top?: number; bottom?: number } | null
+  >(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
@@ -35,7 +38,8 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ left: r.left, top: r.bottom + 4, width: r.width });
+    const { top, bottom, maxHeight } = placePopup(r, 320);
+    setRect({ left: r.left, width: r.width, top, bottom, maxHeight });
   }
 
   useLayoutEffect(() => { if (open) reposition(); }, [open]);
@@ -91,7 +95,10 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
         <div
           className="combo-pop"
           ref={popRef}
-          style={{ position: "fixed", left: rect.left, top: rect.top, width: rect.width }}
+          style={{
+            position: "fixed", left: rect.left, width: rect.width,
+            top: rect.top, bottom: rect.bottom, maxHeight: rect.maxHeight,
+          }}
         >
           <input
             className="input combo-search"
