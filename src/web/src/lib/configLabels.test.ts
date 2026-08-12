@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ConfigSetting } from "../types";
 import {
-  canonical, groupByKey, isCompact, markLines, preview, sameValue, valueTypeOf,
+  canonical, commonLines, groupByKey, isCompact, markLines, preview, sameValue, valueTypeOf,
 } from "./configLabels";
 
 const s = (key: string, value: string, label?: string): ConfigSetting => ({ key, value, label: label ?? null });
@@ -72,7 +72,23 @@ describe("groupByKey", () => {
   it("reports drift only for labels that actually differ", () => {
     const g = groupByKey(settings);
     expect(g[0].drift).toEqual([]);
-    expect(g[1].drift).toEqual(["canary", "staging"]);
+    // canary and staging agree with each other, so the lone baseline is the odd one out.
+    expect(g[1].drift).toEqual([""]);
+    expect(g[1].distinct).toBe(2);
+  });
+
+  it("treats the largest agreeing group as the shared value", () => {
+    const g = groupByKey([
+      s("K", "a"), s("K", "b", "one"), s("K", "b", "two"), s("K", "b", "three"),
+    ])[0];
+    expect(g.common?.raw).toBe("b");
+    expect(g.drift).toEqual([""]);
+  });
+
+  it("breaks a tie towards the baseline, which is what resolves by default", () => {
+    const g = groupByKey([s("K", "a"), s("K", "b", "one")])[0];
+    expect(g.common?.raw).toBe("a");
+    expect(g.drift).toEqual(["one"]);
   });
 
   it("does not flag drift for a reordered-but-identical label (§7.1)", () => {
@@ -83,24 +99,38 @@ describe("groupByKey", () => {
     expect(g[0].drift).toEqual([]);
   });
 
-  it("takes the type from the baseline, not an arbitrary label", () => {
+  it("reports MIXED when the labels don't even agree on the shape", () => {
     const g = groupByKey([s("K", "12"), s("K", '{"a":1}', "staging")]);
+    expect(g[0].type).toBe("MIXED");
+  });
+
+  it("reports the one type when every label agrees on it", () => {
+    const g = groupByKey([s("K", "12"), s("K", "20", "staging")]);
     expect(g[0].type).toBe("INT");
   });
 
   describe("a key with only named labels (§4)", () => {
-    const only = groupByKey([s("K", "12", "staging"), s("K", "20", "canary")])[0];
+    const only = groupByKey([
+      s("K", "12", "staging"), s("K", "12", "canary"), s("K", "20", "prod"),
+    ])[0];
 
     it("has no baseline rather than nominating one", () => {
       expect(only.baseline).toBeNull();
     });
 
-    it("reports no drift, because there is nothing to differ from", () => {
-      expect(only.drift).toEqual([]);
+    it("still compares the labels against each other", () => {
+      expect(only.drift).toEqual(["prod"]);
+      expect(only.distinct).toBe(2);
+    });
+
+    it("says nothing differs when they all agree", () => {
+      const g = groupByKey([s("K", "12", "staging"), s("K", "12", "canary")])[0];
+      expect(g.drift).toEqual([]);
+      expect(g.distinct).toBe(1);
     });
 
     it("still lists every label, alphabetically", () => {
-      expect(only.labels.map((l) => l.label)).toEqual(["canary", "staging"]);
+      expect(only.labels.map((l) => l.label)).toEqual(["canary", "prod", "staging"]);
     });
 
     it("reports the shared type when labels agree", () => {
@@ -114,23 +144,36 @@ describe("groupByKey", () => {
   });
 });
 
-describe("markLines", () => {
-  it("marks only the lines that differ", () => {
-    const lines = markLines('{"a":1,"b":9}', '{"a":1,"b":2}');
-    expect(lines.filter((l) => l.changed).map((l) => l.text.trim())).toEqual(['"b": 9']);
+describe("commonLines / markLines — what varies across the labels", () => {
+  it("marks the line that differs, in every label that holds a variant", () => {
+    const values = ['{"a":1,"b":2}', '{"a":1,"b":9}'];
+    const shared = commonLines(values);
+    expect(markLines(values[0], shared).filter((l) => l.changed).map((l) => l.text.trim()))
+      .toEqual(['"b": 2']);
+    expect(markLines(values[1], shared).filter((l) => l.changed).map((l) => l.text.trim()))
+      .toEqual(['"b": 9']);
   });
 
-  it("marks nothing when the values match despite key order", () => {
-    expect(markLines('{"b":2,"a":1}', '{"a":1,"b":2}').some((l) => l.changed)).toBe(false);
+  it("marks nothing when every label agrees, despite key order", () => {
+    const shared = commonLines(['{"b":2,"a":1}', '{"a":1,"b":2}']);
+    expect(markLines('{"b":2,"a":1}', shared).some((l) => l.changed)).toBe(false);
+  });
+
+  it("keeps a line shared by all three unmarked while marking the one that varies", () => {
+    const values = ['{"a":1,"b":1}', '{"a":1,"b":2}', '{"a":1,"b":3}'];
+    const shared = commonLines(values);
+    const marks = markLines(values[1], shared);
+    expect(marks.filter((l) => l.changed).map((l) => l.text.trim())).toEqual(['"b": 2']);
+    expect(marks.some((l) => !l.changed && l.text.includes('"a"'))).toBe(true);
   });
 
   it("produces no blank line between rows", () => {
-    expect(markLines('{"a":1}', '{"a":1}').some((l) => l.text === "")).toBe(false);
+    expect(markLines('{"a":1}', commonLines(['{"a":1}'])).some((l) => l.text === "")).toBe(false);
   });
 
-  it("marks a duplicated line the baseline has only once", () => {
-    const lines = markLines("[1,1]", "[1]");
-    expect(lines.filter((l) => l.changed)).toHaveLength(1);
+  it("marks a line one label repeats more often than the others", () => {
+    const shared = commonLines(["[1]", "[1,1]"]);
+    expect(markLines("[1,1]", shared).filter((l) => l.changed)).toHaveLength(1);
   });
 });
 

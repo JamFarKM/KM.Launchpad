@@ -26,8 +26,15 @@ export interface KeyGroup {
   labels: LabelValue[];
   /** The no-label value, or null when the key exists only under named labels (§4). */
   baseline: LabelValue | null;
-  /** Named labels whose value differs from the baseline. Empty when there is no baseline. */
+  /**
+   * The value most of this key's labels agree on — the yardstick the others are measured
+   * against. Ties go to the baseline when there is one, otherwise the first label.
+   */
+  common: LabelValue | null;
+  /** Labels whose value differs from `common`. Empty when every label agrees. */
   drift: string[];
+  /** How many distinct values the labels hold between them. 1 means they all agree. */
+  distinct: number;
   type: ValueType;
 }
 
@@ -105,10 +112,13 @@ export function valueTypeOf(raw: string | null | undefined): Exclude<ValueType, 
 /**
  * Reshape the flat per-label settings into one entry per key.
  *
- * §4: the baseline is the no-label value and nothing else. A key that exists only under named
- * labels has no baseline — it is *not* silently given one, because nominating a label as the
- * baseline would imply a resolution order the store does not have. Such a key shows every label
- * as a peer and no SAME/DIFFERS tags, since there is nothing to differ from.
+ * The comparison is **between the labels**, not against the baseline. Labels are environments
+ * here, and the question the page is opened to answer is "do these environments differ from each
+ * other?" — which a baseline-relative comparison cannot answer at all for the many keys that have
+ * no no-label value.
+ *
+ * §4 still holds for *identity*: the baseline is the no-label value and nothing else, and a key
+ * that has none is not silently given one. It just no longer decides what counts as drift.
  */
 export function groupByKey(settings: ConfigSetting[]): KeyGroup[] {
   const byKey = new Map<string, LabelValue[]>();
@@ -126,19 +136,30 @@ export function groupByKey(settings: ConfigSetting[]): KeyGroup[] {
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
 
     const labels = baseline ? [baseline, ...named] : named;
-    const drift = baseline ? named.filter((n) => !sameValue(n.raw, baseline.raw)).map((n) => n.label) : [];
 
-    // With no baseline there is no value to derive the row's type from, so it is only reported
-    // when every label agrees.
-    let type: ValueType;
-    if (baseline) {
-      type = valueTypeOf(baseline.raw);
-    } else {
-      const types = new Set(labels.map((l) => valueTypeOf(l.raw)));
-      type = types.size === 1 ? [...types][0] : "MIXED";
+    // Group the labels by what they actually hold, then take the largest group as the common
+    // value. The odd ones out are what you want to see, and that works with or without a baseline.
+    const buckets: { rep: LabelValue; members: LabelValue[] }[] = [];
+    for (const lv of labels) {
+      const b = buckets.find((x) => sameValue(x.rep.raw, lv.raw));
+      if (b) b.members.push(lv); else buckets.push({ rep: lv, members: [lv] });
     }
+    const best = buckets.reduce((a, b) => {
+      if (b.members.length !== a.members.length) return b.members.length > a.members.length ? b : a;
+      // A tie is settled by the baseline, which is at least the value the app resolves by default.
+      return a.members.some((m) => m.label === NO_LABEL) ? a
+        : b.members.some((m) => m.label === NO_LABEL) ? b : a;
+    }, buckets[0]);
 
-    out.push({ key, labels, baseline, drift, type });
+    const common = best?.rep ?? null;
+    const drift = common ? labels.filter((l) => !sameValue(l.raw, common.raw)).map((l) => l.label) : [];
+
+    // Typed from the value most labels hold, and reported as MIXED when they don't even agree on
+    // the shape — which is a thing worth seeing rather than hiding behind whichever one won.
+    const types = new Set(labels.map((l) => valueTypeOf(l.raw)));
+    const type: ValueType = types.size === 1 ? [...types][0] : "MIXED";
+
+    out.push({ key, labels, baseline, common, drift, distinct: buckets.length, type });
   }
   return out.sort((a, b) => a.key.localeCompare(b.key, undefined, { sensitivity: "base" }));
 }
@@ -150,22 +171,42 @@ export interface DiffLine {
   changed: boolean;
 }
 
+const lineCounts = (raw: string | null | undefined): Map<string, number> => {
+  const m = new Map<string, number>();
+  for (const l of canonical(raw).split("\n")) m.set(l, (m.get(l) ?? 0) + 1);
+  return m;
+};
+
 /**
- * Canonical lines of `raw`, flagging those that don't appear in `base`.
- *
- * Counted rather than set-tested so a line repeated more often than the baseline has it still
- * reads as a change.
+ * The lines every one of these values holds, as a multiset — the shared skeleton of the key.
+ * Anything outside it is a line that varies somewhere, which is exactly what wants highlighting.
  */
-export function markLines(raw: string | null | undefined, base: string | null | undefined): DiffLine[] {
-  const lines = canonical(raw).split("\n");
-  if (base === null || base === undefined) return lines.map((text) => ({ text, changed: false }));
+export function commonLines(values: (string | null | undefined)[]): Map<string, number> {
+  if (values.length === 0) return new Map();
+  let acc = lineCounts(values[0]);
+  for (const v of values.slice(1)) {
+    const c = lineCounts(v);
+    const next = new Map<string, number>();
+    for (const [line, n] of acc) {
+      const shared = Math.min(n, c.get(line) ?? 0);
+      if (shared > 0) next.set(line, shared);
+    }
+    acc = next;
+  }
+  return acc;
+}
 
-  const remaining = new Map<string, number>();
-  for (const l of canonical(base).split("\n")) remaining.set(l, (remaining.get(l) ?? 0) + 1);
-
-  return lines.map((text) => {
-    const n = remaining.get(text) ?? 0;
-    if (n > 0) { remaining.set(text, n - 1); return { text, changed: false }; }
+/**
+ * Canonical lines of `raw`, flagging those that aren't part of the shared skeleton.
+ *
+ * Counted rather than set-tested, so a line one label repeats more often than the others still
+ * reads as a difference.
+ */
+export function markLines(raw: string | null | undefined, common: Map<string, number>): DiffLine[] {
+  const budget = new Map(common);
+  return canonical(raw).split("\n").map((text) => {
+    const n = budget.get(text) ?? 0;
+    if (n > 0) { budget.set(text, n - 1); return { text, changed: false }; }
     return { text, changed: true };
   });
 }

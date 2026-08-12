@@ -3707,6 +3707,13 @@ a {
 }
 
 .lbl-summary svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--drift); }
+
+/* Stated, not warned about: plenty of keys legitimately have no no-label value. */
+.nobase-note { color: var(--ink-muted); font-size: 11px; }
+
+/* The shared value stands in for a key that has no no-label value, so it is shown a shade
+   quieter than one that really is the baseline. */
+.key-preview.is-nobase { opacity: 0.8; }
 .lbl-summary .jumps { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 
 .jumpchip {

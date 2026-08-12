@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import type { ConfigRegistry, ConfigSetting, ConfigSettings } from "../types";
 import {
-  canonical, groupByKey, isCompact, markLines, preview, NO_LABEL,
+  canonical, commonLines, groupByKey, isCompact, markLines, preview, NO_LABEL,
   type KeyGroup, type LabelValue,
 } from "../lib/configLabels";
 
@@ -270,7 +270,7 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
 
         <div className="keys-table">
           <div className="keys-colhead">
-            <span>Key</span><span>Labels</span><span>Value (baseline)</span>
+            <span>Key</span><span>Labels</span><span>Value (shared)</span>
             <span style={{ textAlign: "center" }}>Type</span>
           </div>
 
@@ -309,17 +309,27 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
                   <span className="key-name" title={g.key}>{label}</span>
                   <span className="key-labels">
                     <span className="lblcount">{g.labels.length} label{g.labels.length === 1 ? "" : "s"}</span>
-                    {/* Icon *and* word, never colour alone (A4). */}
+                    {/* Icon *and* word, never colour alone (A4). Reads across the labels, so it
+                        also marks keys that have no baseline to compare against. */}
                     {g.drift.length > 0 && (
-                      <span className="driftmark" title={`Differs from the baseline: ${g.drift.join(", ")}`}>
+                      <span
+                        className="driftmark"
+                        title={`${g.distinct} distinct values — ${g.drift.join(", ")} differ from the other ${g.labels.length - g.drift.length}`}
+                      >
                         <DriftIcon />DIFFERS
                       </span>
                     )}
                   </span>
-                  <span className="key-preview" title={g.baseline?.raw ?? ""}>
-                    {g.baseline
-                      ? preview(g.baseline.raw)
-                      : <span className="faint">no baseline</span>}
+                  {/* The value most labels agree on. For a key with no no-label value that is
+                      still the useful preview — it just isn't a "baseline", and the tooltip
+                      says so rather than implying a resolution order that doesn't exist. */}
+                  <span
+                    className={`key-preview ${g.baseline ? "" : "is-nobase"}`}
+                    title={g.baseline
+                      ? g.baseline.raw
+                      : `No no-label value. Showing the value shared by most of: ${g.labels.map((l) => l.label).join(", ")}`}
+                  >
+                    {preview(g.common?.raw)}
                   </span>
                   <span className={`key-type ty-${g.type}`}>{g.type}</span>
                 </div>
@@ -347,8 +357,9 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
   const initialOpen = useMemo(() => {
     const open = new Set<string>();
     for (const l of group.labels) {
-      if (l.label === NO_LABEL) open.add(l.label);
-      else if (!group.baseline || group.drift.includes(l.label)) open.add(l.label);
+      // Open what needs looking at: the shared value once for reference, plus every label that
+      // departs from it. Labels that agree stay collapsed.
+      if (l.label === NO_LABEL || l === group.common || group.drift.includes(l.label)) open.add(l.label);
     }
     return open;
   }, [group]);
@@ -359,14 +370,16 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
   const sectionRefs = useRef(new Map<string, HTMLDivElement>());
   const compact = isCompact(group);
 
+  /* The lines every label holds. Everything outside it is what varies between environments —
+     computed once for the key and handed to each section, so all of them mark the same lines. */
+  const shared = useMemo(() => commonLines(group.labels.map((l) => l.raw)), [group]);
+
   const jumpTo = (label: string) => {
     setOpen((s) => new Set(s).add(label));
     // After the section has had a frame to expand, or it scrolls to its collapsed position.
     requestAnimationFrame(() =>
       sectionRefs.current.get(label)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   };
-
-  const named = group.labels.filter((l) => l.label !== NO_LABEL);
 
   return (
     <>
@@ -375,27 +388,27 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
         <button className="btn ghost small icon-btn" title="Close" onClick={onClose}>✕</button>
       </div>
 
-      {/* summary strip */}
-      {!group.baseline ? (
-        <div className="lbl-summary">
-          No no-label value, so there is no baseline to compare against — every label is shown as
-          a peer.
-        </div>
-      ) : group.drift.length > 0 ? (
+      {/* summary strip — how much these labels disagree, and which are the odd ones out */}
+      {group.drift.length > 0 ? (
         <div className="lbl-summary has-drift">
           <DriftIcon />
           <span>
-            <b>{group.drift.length} of {named.length}</b> named label{named.length === 1 ? "" : "s"}
-            {group.drift.length === 1 ? " differs" : " differ"} from the baseline
+            <b>{group.distinct} distinct values</b> across {group.labels.length} label
+            {group.labels.length === 1 ? "" : "s"}
+            {!group.baseline && <span className="nobase-note"> · no no-label value</span>}
           </span>
           <span className="jumps">
             {group.drift.map((l) => (
-              <button key={l} className="jumpchip" onClick={() => jumpTo(l)} title={`Go to ${l}`}>{l}</button>
+              <button key={l} className="jumpchip" onClick={() => jumpTo(l)}
+                title={`Go to ${l || "no label"}`}>{l || "no label"}</button>
             ))}
           </span>
         </div>
       ) : (
-        <div className="lbl-summary">All {group.labels.length} values identical.</div>
+        <div className="lbl-summary">
+          All {group.labels.length} value{group.labels.length === 1 ? "" : "s"} identical.
+          {!group.baseline && <span className="nobase-note"> · no no-label value</span>}
+        </div>
       )}
 
       <div className="lbl-scroll">
@@ -409,6 +422,7 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
               key={lv.label}
               lv={lv}
               group={group}
+              shared={shared}
               open={open.has(lv.label)}
               onToggle={() => setOpen((s) => {
                 const n = new Set(s);
@@ -423,11 +437,14 @@ function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }
   );
 }
 
-/** The tag a label's section carries — see the §6 table. */
+/**
+ * The tag a label's section carries. Measured against what the other labels hold, so it means the
+ * same thing whether or not the key has a no-label value. SHARED marks the value most of them
+ * agree on; DIFFERS marks a label that departs from it.
+ */
 function statusOf(lv: LabelValue, group: KeyGroup) {
-  if (lv.label === NO_LABEL) return { kind: "baseline" as const };
-  if (!group.baseline) return { kind: "peer" as const };
-  return group.drift.includes(lv.label) ? { kind: "differs" as const } : { kind: "same" as const };
+  if (group.drift.length === 0) return { kind: "same" as const };
+  return group.drift.includes(lv.label) ? { kind: "differs" as const } : { kind: "shared" as const };
 }
 
 function LabelChip({ label }: { label: string }) {
@@ -455,6 +472,7 @@ function CompactValues({ group, register }: {
         return (
           <div className="lc-row" key={lv.label} ref={(el) => register(lv.label, el)}>
             <LabelChip label={lv.label} />
+            <BaselineMark lv={lv} />
             <StatusTag kind={st.kind} />
             <code className="lc-val">{canonical(lv.raw)}</code>
             <CopyButton value={lv.raw} />
@@ -465,24 +483,30 @@ function CompactValues({ group, register }: {
   );
 }
 
-function StatusTag({ kind }: { kind: "baseline" | "same" | "differs" | "peer" }) {
-  if (kind === "baseline") return <span className="lbl-tag is-baseline">BASELINE</span>;
+function StatusTag({ kind }: { kind: "same" | "shared" | "differs" }) {
   if (kind === "same") return <span className="lbl-tag is-same">SAME</span>;
-  if (kind === "differs") return <span className="lbl-tag is-differs"><DriftIcon />DIFFERS</span>;
-  return <span className="lbl-tag is-peer" />;
+  if (kind === "shared") return <span className="lbl-tag is-same">SHARED</span>;
+  return <span className="lbl-tag is-differs"><DriftIcon />DIFFERS</span>;
 }
 
-function LabelSection({ lv, group, open, onToggle, register }: {
+/** Muted, not a pill — it names which value the app resolves by default, not a verdict. */
+function BaselineMark({ lv }: { lv: LabelValue }) {
+  return lv.label === NO_LABEL ? <span className="lbl-tag is-baseline">BASELINE</span> : null;
+}
+
+function LabelSection({ lv, group, shared, open, onToggle, register }: {
   lv: LabelValue;
   group: KeyGroup;
+  /** Lines every label holds; anything else is what varies between them. */
+  shared: Map<string, number>;
   open: boolean;
   onToggle: () => void;
   register: (el: HTMLDivElement | null) => void;
 }) {
   const st = statusOf(lv, group);
-  // Only a differing label is line-marked, and only ever against the baseline.
-  const base = st.kind === "differs" ? group.baseline?.raw ?? null : null;
-  const lines = useMemo(() => markLines(lv.raw, base), [lv.raw, base]);
+  /* Every section is marked, not just the departing ones: seeing which lines vary is as useful
+     from the shared value's side as from an outlier's. When all labels agree, nothing marks. */
+  const lines = useMemo(() => markLines(lv.raw, shared), [lv.raw, shared]);
 
   return (
     <div className={`lbl-sect ${open ? "open" : ""}`} ref={register}>
@@ -492,6 +516,7 @@ function LabelSection({ lv, group, open, onToggle, register }: {
           <ChevronIcon />
         </button>
         <LabelChip label={lv.label} />
+        <BaselineMark lv={lv} />
         <StatusTag kind={st.kind} />
         <span className="sp" />
         <CopyButton value={lv.raw} />

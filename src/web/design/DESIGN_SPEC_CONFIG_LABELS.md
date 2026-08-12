@@ -1,7 +1,26 @@
 # Configurations: one row per key, labels stacked in the detail pane
 ### Design spec — addendum to DESIGN_SPEC.md
 
-**Status:** approved mockup, ready to implement
+**Status:** implemented, with one amendment to the comparison model (below)
+
+> ### Amendment — drift is measured *between the labels*, not against the baseline
+>
+> As written, this doc compares each named label to the no-label baseline. Built against the real
+> Dev store, that turned out to answer the wrong question. Labels here are environments
+> (`AKS-GLI`, `AKS-INT`, `AKS-TEST1`, `Development`, …), and what the page is opened to ask is
+> **"do these environments differ from each other?"** — which a baseline-relative comparison
+> cannot answer at all for the **475 keys that have no no-label value**.
+>
+> So: labels are grouped by the value they hold, the largest group is the **shared** value, and
+> the labels outside it are the drift. Ties go to the baseline. Line marking highlights the lines
+> that are not common to *every* label, and applies to every section rather than only to
+> outliers, since the varying part is worth seeing from both sides.
+>
+> §4's rule on *identity* is unchanged — the baseline is still the no-label value and nothing
+> else, and is still never silently nominated — it just no longer decides what counts as drift.
+> The §6 tag vocabulary becomes `SHARED` / `DIFFERS` / `SAME`, with `BASELINE` remaining as a
+> separate muted marker on the no-label section. The list's value column shows the shared value
+> and is headed `Value (shared)`.
 **Scope:** the Configurations page's key list and detail pane. No change to the namespace pane, the environment pills, or the endpoint strip.
 **Reference files:**
 
