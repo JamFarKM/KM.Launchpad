@@ -99,19 +99,18 @@ export function Dashboard() {
   const [editDraft, setEditDraft] = useState<Sequence | null>(null);
   const [editDirty, setEditDirty] = useState(false);
 
+  /* Deliberate deviation from §5, at James's request: the drawer stays as you left it. The spec
+     auto-collapses it on the grounds that drawer + board + editor is one pane too many, but
+     you're often dragging from the library while editing. Do not "restore" this. */
   function openEditor(id: string) {
     const seq = (sequencesQ.data ?? []).find((s) => s.id === id);
     if (!seq) return;
-    // Both attributes in the same commit, so drawer-out and panel-in read as one transition
-    // rather than two things fighting (§5). Drawer + board + editor is one pane too many.
-    setPoolCollapsed(true);
     setEditDraft(structuredClone(seq));
     setEditDirty(false);
   }
   /* A new sequence is an unsaved draft with no id, not a record created up front — cancelling
      out of it should leave nothing behind. Save routes to create rather than update. */
   function newSequence() {
-    setPoolCollapsed(true);
     setEditDraft({ id: "", name: "", inputs: [], steps: [] });
     setEditDirty(true);
   }
