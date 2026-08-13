@@ -2080,7 +2080,11 @@ a {
 }
 
 .combo-pop {
-  /* positioned via inline fixed coords from a portal so it escapes modal overflow */
+  /* positioned via inline fixed coords from a portal so it escapes modal overflow.
+     Width comes from the content, bounded by the inline min-width (the anchor, so the popup is
+     never narrower than the control) and max-width (the room to the viewport edge). Pinning it to
+     the anchor truncated every option to `Acq…` on the short PROJ picker. */
+  width: max-content;
   z-index: 100;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
