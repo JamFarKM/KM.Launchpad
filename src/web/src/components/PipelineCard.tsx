@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { Run, ViewItem } from "../types";
 import { branchShort, duration, runLabel, runTone, timeAgo, timeAgoShort } from "../lib/format";
+import { groupConsecutive } from "../lib/truncate";
 import { notify } from "../lib/notify";
-import { CloseIcon, LogsIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
+import { CloseIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
 import { Truncated } from "./Truncated";
 
 interface Props {
@@ -102,23 +103,36 @@ export function PipelineCard({
         {!runsQ.isLoading && runs.length === 0 && (
           <div className="faint" style={{ fontSize: 12 }}>No runs yet.</div>
         )}
-        {runs.map((r) => (
-          <div
-            className="run-line"
-            key={r.id}
-            onClick={() => onOpenRun(item.project, r.id)}
-            style={{ cursor: "pointer" }}
-            title={`${r.branch ?? "—"} — ${timeAgo(r.startTime ?? r.queueTime)}`}
-          >
-            <span className={`rl-dot ${runTone(r)}`} />
-            {/* Middle-truncated (POLISH §1.1): four runs on branches sharing a prefix were four
-                identical rows of `acca-bonus-lad…`. The tail is what tells them apart. */}
-            <Truncated className="rl-branch" text={branchShort(r.branch)} title={r.branch ?? undefined} />
-            <span className="rl-meta">
-              {r.state === "completed" ? duration(r) : r.state === "inProgress" ? "running" : "queued"}
-              {" · "}
-              {timeAgoShort(r.startTime ?? r.queueTime)}
-            </span>
+        {/* POLISH §1.3: consecutive runs on one branch state it once. On real data all four runs
+            on a card usually share a branch, so repeating it four times spent the whole row on
+            nothing and left the timings cramped. Consecutive only — run history is chronological,
+            and merging non-adjacent groups would misrepresent it. */}
+        {groupConsecutive(runs, (r) => r.branch ?? "—").map((group) => (
+          <div className="run-group" key={`${group.key}:${group.items[0].id}`}>
+            <div className="rg-head">
+              {/* Full branch name at full card width; only middle-truncated if it still overflows. */}
+              <Truncated
+                className="rg-branch"
+                text={branchShort(group.key)}
+                title={group.key}
+              />
+              {/* A single-run group still gets a count, per §1.3 — consistency beats compactness. */}
+              <span className="rg-count">×{group.items.length}</span>
+            </div>
+            {group.items.map((r) => (
+              <div
+                className="run-line"
+                key={r.id}
+                onClick={() => onOpenRun(item.project, r.id)}
+                title={`${r.branch ?? "—"} — ${timeAgo(r.startTime ?? r.queueTime)}`}
+              >
+                <span className={`rl-dot ${runTone(r)}`} />
+                <span className="rl-dur">
+                  {r.state === "completed" ? duration(r) : r.state === "inProgress" ? "running" : "queued"}
+                </span>
+                <span className="rl-when">{timeAgoShort(r.startTime ?? r.queueTime)}</span>
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -127,10 +141,13 @@ export function PipelineCard({
         <button className="run-btn ghost" title="Run" onClick={() => onRun(item)}>
           <PlayIcon />
         </button>
+        {/* POLISH §2: the word, not a glyph. Detail dies below ~16px and two enclosed circles
+            with an internal gap is past that limit — the binoculars rendered as `6d`. It sits on
+            every card, so it was the most-repeated unclear element in the product. */}
         {latest && (
-          <button className="btn small icon-only" title="View logs" aria-label="View logs"
+          <button className="btn small logs-btn" title="View logs" aria-label="View logs"
             onClick={() => onOpenRun(item.project, latest.id)}>
-            <LogsIcon />
+            LOGS
           </button>
         )}
         {shelfHealth && <ShelfHealthPill health={shelfHealth} />}

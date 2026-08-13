@@ -7,7 +7,7 @@ import { commonPrefix, stepShort, timeAgo } from "../lib/format";
 import { clearLastResult, isCleared, onCleared } from "../lib/seqDismiss";
 import { SequenceRunDialog } from "./SequenceRunDialog";
 import { SequenceLogModal } from "./SequenceLogModal";
-import { CloseIcon, LogsIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
+import { CloseIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
 import type { StatusTone } from "../lib/format";
 
 interface Props {
@@ -218,10 +218,11 @@ export function SequenceCard({
           {busy ? <span className="spin" /> : <PlayIcon />}
         </button>
         {running && <button className="btn small" onClick={cancel}>Cancel</button>}
+        {/* Same word as the pipeline card's (POLISH §2) — it was the same unreadable glyph. */}
         {run && (
-          <button className="btn small icon-only" title="View this sequence run's logs"
+          <button className="btn small logs-btn" title="View this sequence run's logs"
             aria-label="View logs" onClick={() => setShowLog(true)}>
-            <LogsIcon />
+            LOGS
           </button>
         )}
         {shelfHealth && <ShelfHealthPill health={shelfHealth} />}

@@ -45,15 +45,20 @@ export function timeAgo(iso?: string | null): string {
 }
 
 /** Short relative time for the single-line run row: "4h", "12d". */
-export function timeAgoShort(iso?: string | null): string {
+export function timeAgoShort(iso?: string | null, now: number = Date.now()): string {
   if (!iso) return "";
-  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  const then = new Date(iso).getTime();
+  const secs = Math.max(0, Math.floor((now - then) / 1000));
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
+  const days = Math.floor(hrs / 24);
+  /* Past a month, degrade to a date rather than growing into `418d` — which is both wide and
+     unreadable, and is the kind of string that ends up clipped mid-unit (POLISH §1.4). */
+  if (days <= 30) return `${days}d`;
+  return new Date(then).toLocaleDateString();
 }
 
 /**
@@ -93,12 +98,28 @@ export function commonPrefix(names: string[]): string {
   return first.slice(0, i).join("");
 }
 
+/**
+ * Elapsed time, short form: `52s`, `1m 3s`, `1h 4m`.
+ *
+ * Hours matter: without them a 90-minute run read as `90m 5s`, which is both wrong-looking and
+ * wide enough to get clipped in a run row (POLISH §1.4).
+ */
+export function durationShort(ms: number): string {
+  const secs = Math.max(0, Math.floor(ms / 1000));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  if (m < 60) {
+    const s = secs % 60;
+    return s ? `${m}m ${s}s` : `${m}m`;
+  }
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? `${h}h ${rm}m` : `${h}h`;
+}
+
 export function duration(run: Run): string {
   if (!run.startTime) return "";
   const start = new Date(run.startTime).getTime();
   const end = run.finishTime ? new Date(run.finishTime).getTime() : Date.now();
-  const secs = Math.max(0, Math.floor((end - start) / 1000));
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  return durationShort(end - start);
 }
