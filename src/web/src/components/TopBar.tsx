@@ -193,20 +193,21 @@ export function TopBar({ user, page, hidden, onNav, onDisconnect, onImported }: 
         </button>
         {menu === "transfer" && (
           <div className="dropdown">
+            {/* Arrow direction relative to the tray carries the meaning, so it has to match the
+                verb: import points DOWN into the tray, export points UP out of it. These two were
+                the wrong way round. */}
             <button className="menu-item" onClick={() => { setMenu(null); fileRef.current?.click(); }}>
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 10.5v-8M5.2 5.3L8 2.5l2.8 2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2" />
+                <path d="M8 2.5v8M5.2 7.7L8 10.5l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2" />
               </svg>
               Import configuration…
             </button>
             <button className="menu-item" onClick={() => { setMenu(null); onExport(); }}>
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 2.5v8M5.2 7.7L8 10.5l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2" />
+                <path d="M8 10.5v-8M5.2 5.3L8 2.5l2.8 2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2" />
               </svg>
               Export current view
             </button>
-            <div className="dropdown-sep" />
-            <button className="menu-item" disabled title="Not implemented yet">Export all views</button>
           </div>
         )}
       </div>
