@@ -80,7 +80,10 @@ export interface LogEntry {
   state: string;
   result?: string | null;
   lineCount?: number | null;
+  /** The job the step ran in. */
   group?: string | null;
+  /** The stage that job ran in, when the pipeline has stages. */
+  stage?: string | null;
 }
 
 export interface LogContent {
@@ -99,6 +102,70 @@ export interface ViewItem {
   showLabel?: boolean | null; // per-card "Show project label" opt-in (§2.3)
 }
 
+// ----- pull requests (code review) -----
+export interface Repo {
+  id: string;
+  name: string;
+  defaultBranch?: string | null;
+}
+
+export interface PullRequest {
+  id: number;
+  title: string;
+  author?: string | null;
+  sourceRef?: string | null;
+  targetRef?: string | null;
+  status?: string | null;
+  isDraft: boolean;
+  createdAt?: string | null;
+  sourceCommit?: string | null;
+  targetCommit?: string | null;
+  /** ADO's own merge state; "conflicts" is the one worth flagging in the list. */
+  mergeStatus?: string | null;
+  /** 10 approved · 5 with suggestions · 0 none · -5 waiting for author · -10 rejected. */
+  myVote: number;
+}
+
+export interface RepoFavourite {
+  id: string;
+  project: string;
+  repoId: string;
+  repoName: string;
+}
+
+export interface PrChange {
+  path: string;
+  changeType: string;
+  originalPath?: string | null;
+}
+
+export interface PrFileDiff {
+  path: string;
+  before?: string | null;
+  after?: string | null;
+}
+
+export interface PrComment {
+  id: number;
+  parentId: number;
+  author?: string | null;
+  content: string;
+  publishedAt?: string | null;
+  commentType?: string | null;
+  isDeleted: boolean;
+}
+
+/** filePath/rightLine are null for ADO's own system threads ("X voted…"). */
+export interface PrThread {
+  id: number;
+  status?: string | null;
+  filePath?: string | null;
+  rightLine?: number | null;
+  leftLine?: number | null;
+  isDeleted: boolean;
+  comments: PrComment[];
+}
+
 // ----- sequences -----
 export type LinkMode = "none" | "resource" | "container" | "parameter" | "variable";
 
@@ -108,10 +175,26 @@ export interface StepLink {
   source?: string | null; // parameter/variable value: "runId" | "buildNumber" | "tag" | "branch"
 }
 
+/** What an earlier step supplies. Run properties, not named pipeline outputs — ADO exposes no
+ *  queryable output contract, so there is nothing else that could be resolved. */
+export const STEP_OUTPUTS = ["runId", "buildNumber", "tag", "branch"] as const;
+export type StepOutput = (typeof STEP_OUTPUTS)[number];
+
+export type BindingKind = "input" | "step" | "literal";
+
+/**
+ * One source per step parameter (SEQUENCES §6). `kind` is absent on bindings written before that
+ * change, which are input bindings by definition — `inputId` is the source there.
+ *
+ * Step references are stored by **index**, as `"<stepIndex>.<output>"`, never by display name, so
+ * renaming a step cannot break a binding that points at it.
+ */
 export interface ParamBinding {
   target: "parameter" | "variable";
   name: string;
-  inputId: string;
+  inputId?: string | null;
+  kind?: BindingKind | null;
+  ref?: string | null;
 }
 
 export interface SequenceInput {
@@ -206,6 +289,13 @@ export interface ConfigSetting {
   label?: string | null;
   contentType?: string | null;
   lastModified?: string | null;
+}
+
+export interface ConfigSettings {
+  settings: ConfigSetting[];
+  /** The read hit its backstop, so keys past this point in key order are missing. */
+  truncated: boolean;
+  limit: number;
 }
 
 export interface VaultRegistry {

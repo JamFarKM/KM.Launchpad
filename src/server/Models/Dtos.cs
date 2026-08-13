@@ -55,8 +55,51 @@ public record RunDto(
     DateTime? FinishTime,
     string WebUrl);
 
-public record LogEntryDto(int Id, string Name, string State, string? Result, int? LineCount, string? Group);
+public record LogEntryDto(
+    int Id, string Name, string State, string? Result, int? LineCount,
+    string? Group,      // the Job the step ran in
+    string? Stage);     // the Stage that job ran in, when the pipeline has stages
 public record LogContentDto(int Id, string Name, string Content);
+
+// ----- pull requests (code review) -----
+public record RepoDto(string Id, string Name, string? DefaultBranch);
+
+public record PullRequestDto(
+    int Id,
+    string Title,
+    string? Author,
+    string? SourceRef,
+    string? TargetRef,
+    string? Status,
+    bool IsDraft,
+    DateTime? CreatedAt,
+    string? SourceCommit,   // the PR's head — the "after" side of a diff
+    string? TargetCommit,   // the branch it merges into — the "before" side
+    int MyVote,             // 10 approved · 5 with suggestions · 0 none · -5 waiting · -10 rejected
+    string? MergeStatus);   // "conflicts" when the branch no longer merges cleanly
+
+public record VoteRequest(int Vote);
+
+public record RepoFavouriteDto(string Id, string Project, string RepoId, string RepoName);
+public record AddRepoFavouriteRequest(string Project, string RepoId, string RepoName);
+
+public record PrChangeDto(string Path, string ChangeType, string? OriginalPath);
+
+/// <summary>Both sides of one file, ready to hand to a diff editor. Null = absent at that commit.</summary>
+public record PrFileDiffDto(string Path, string? Before, string? After);
+
+public record PrCommentDto(
+    int Id, int ParentId, string? Author, string Content,
+    DateTime? PublishedAt, string? CommentType, bool IsDeleted);
+
+/// <summary>A comment thread. FilePath/RightLine are null for ADO's own system threads.</summary>
+public record PrThreadDto(
+    int Id, string? Status, string? FilePath,
+    int? RightLine, int? LeftLine, bool IsDeleted, List<PrCommentDto> Comments);
+
+public record NewThreadRequest(string FilePath, int Line, string Content, bool OnLeft);
+public record ReplyRequest(string Content);
+public record ThreadStatusRequest(string Status);
 
 // ----- sequences -----
 
@@ -66,11 +109,35 @@ public record StepLinkDto(
     string? Key,      // resource alias, or template-parameter / variable name
     string? Source);  // value to pass (parameter/variable): "runId" | "buildNumber" | "tag" | "branch"
 
-/// <summary>Binds a step's template parameter / variable to a pre-run input's value.</summary>
+/// <summary>
+/// Binds a step's template parameter / variable to exactly one source (SEQUENCES §6).
+///
+/// Originally this could only name a pre-run input, and step-to-step values went through
+/// <see cref="StepLinkDto"/> — one link per step, always reading the immediately previous one.
+/// Kind/Ref generalises that: a binding can now name any earlier step, per parameter.
+///
+/// Kind is null on bindings written before this change, which are input bindings by definition;
+/// the runner falls back to InputId there rather than needing a migration.
+/// </summary>
 public record ParamBindingDto(
-    string Target,   // "parameter" | "variable"
-    string Name,     // the parameter / variable name on the pipeline
-    string InputId); // which pre-run input supplies the value
+    string Target,    // "parameter" | "variable"
+    string Name,      // the parameter / variable name on the pipeline
+    string? InputId,  // legacy input binding (Kind == null)
+    string? Kind,     // "input" | "step" | "literal"
+    string? Ref);     // input id | "<stepIndex>.<output>" | the literal value
+
+/// <summary>
+/// What an earlier step can supply. These are properties of its run, not named pipeline outputs:
+/// ADO exposes no queryable output contract, so there is nothing else that could be resolved.
+/// </summary>
+public static class StepOutputs
+{
+    public const string RunId = "runId";
+    public const string BuildNumber = "buildNumber";
+    public const string Tag = "tag";
+    public const string Branch = "branch";
+    public static readonly string[] All = [RunId, BuildNumber, Tag, Branch];
+}
 
 /// <summary>A value collected before the sequence runs (branch, environment, …).</summary>
 public class SequenceInputDto
@@ -128,6 +195,8 @@ public record SequenceRunDto(
 public record ConfigRegistryDto(string Id, string Name, string Endpoint);
 public record UpsertConfigRegistryRequest(string Name, string Connection);
 public record ConfigSettingDto(string Key, string? Value, string? Label, string? ContentType, DateTimeOffset? LastModified);
+/// <summary>Wraps the list so a capped read can say so rather than looking like a complete one.</summary>
+public record ConfigSettingsDto(List<ConfigSettingDto> Settings, bool Truncated, int Limit);
 
 // ----- azure service principal (for Key Vault + endpoint-URL App Config) -----
 public record AzureCredentialDto(bool Configured, string? TenantId, string? ClientId);

@@ -78,6 +78,9 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
             }
 
             RunDto? previous = null;
+            /* Every completed run, by step index — a binding can now name any earlier step, not
+               just the immediately previous one (§6), so `previous` alone is no longer enough. */
+            var completed = new List<RunDto?>();
 
             for (var i = 0; i < steps.Count && i < def.Count; i++)
             {
@@ -106,10 +109,14 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                     var resources = new Dictionary<string, string>();
                     var containers = new Dictionary<string, string>();
 
-                    // Bindings: pre-run input values plugged into this step's params/variables.
+                    /* Bindings: one source per parameter (§6). Kind==null is a pre-change input
+                       binding, so InputId is the source. A binding that can't be resolved is
+                       skipped rather than passed as an empty string — the editor flags those
+                       live, and sending "" would look like a deliberate blank. */
                     foreach (var b in step.Bindings ?? new())
                     {
-                        if (!resolvedInputs.TryGetValue(b.InputId, out var val) || val == "") continue;
+                        var val = ResolveBinding(b, resolvedInputs, completed, i);
+                        if (val is null or "") continue;
                         if (b.Target == "variable") vars[b.Name] = val;
                         else tps[b.Name] = val;
                     }
@@ -149,6 +156,9 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                 }
 
                 previous = final;
+                // Indexed by step position, so `completed[n]` is step n+1's view of step n.
+                while (completed.Count < i) completed.Add(null);
+                completed.Add(final);
                 await SaveAsync(db, run, steps, "running", ct);
             }
 
@@ -215,6 +225,52 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                 return current with { Result = "failed" };
 
             await DelayAsync(ct);
+        }
+    }
+
+    /// <summary>The value an earlier step's run supplies for a named output.</summary>
+    private static string OutputOf(RunDto run, string? output)
+    {
+        // "tag" composes the image tag the way a build does: <SourceBranchName>.<BuildNumber>.
+        static string LastSeg(string? b) => string.IsNullOrEmpty(b) ? "" : b.Split('/')[^1];
+        return output switch
+        {
+            StepOutputs.BuildNumber => run.BuildNumber ?? run.Id.ToString(),
+            StepOutputs.Tag => $"{LastSeg(run.Branch)}.{run.BuildNumber}",
+            StepOutputs.Branch => run.Branch ?? "",
+            _ => run.Id.ToString(), // runId
+        };
+    }
+
+    /// <summary>
+    /// Resolves one binding, or null when it can't be resolved. A step reference at or after the
+    /// current index is refused rather than resolved: that's the cycle guard holding at run time
+    /// as well as in the picker, so a hand-edited or reordered sequence can't smuggle one in.
+    /// </summary>
+    private static string? ResolveBinding(
+        ParamBindingDto b, Dictionary<string, string> inputs, List<RunDto?> completed, int currentStep)
+    {
+        switch (b.Kind)
+        {
+            case "literal":
+                return b.Ref;
+
+            case "step":
+            {
+                var dot = (b.Ref ?? "").IndexOf('.');
+                if (dot <= 0) return null;
+                if (!int.TryParse(b.Ref![..dot], out var idx)) return null;
+                if (idx < 0 || idx >= currentStep || idx >= completed.Count) return null;
+                var run = completed[idx];
+                return run is null ? null : OutputOf(run, b.Ref[(dot + 1)..]);
+            }
+
+            case "input":
+                return b.Ref is not null && inputs.TryGetValue(b.Ref, out var v) ? v : null;
+
+            default:
+                // Pre-change binding: an input, addressed by InputId.
+                return b.InputId is not null && inputs.TryGetValue(b.InputId, out var legacy) ? legacy : null;
         }
     }
 

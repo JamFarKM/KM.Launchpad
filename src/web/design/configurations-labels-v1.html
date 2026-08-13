@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Launchpad — Configurations, one row per key</title>
+<style>
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; height:100%; overflow:hidden;
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  button,input { font-family:inherit; }
+
+  /* ===== harness (not product) ===== */
+  .harness { position:fixed; inset:0 0 auto 0; z-index:200; display:flex; align-items:center;
+    justify-content:space-between; gap:14px; background:#1a1a19; color:#fff; padding:8px 16px; font-size:12.5px; }
+  .harness .lbl { color:#898781; font-size:11.5px; }
+  .tg { display:inline-flex; background:rgba(255,255,255,.08); border-radius:8px; padding:3px; gap:2px; }
+  .tg button { border:none; background:transparent; color:#c3c2b7; font-size:12px; font-weight:600;
+    padding:5px 10px; border-radius:6px; cursor:pointer; }
+  .tg button.on { background:#fff; color:#0b0b0b; }
+  .hbtn { border:1px solid rgba(255,255,255,.2); background:transparent; color:#fff; font-size:12px;
+    padding:6px 12px; border-radius:6px; cursor:pointer; }
+  .hbtn:hover { background:rgba(255,255,255,.1); }
+  .panel { position:fixed; top:37px; left:0; right:0; z-index:199; background:#fcfcfb; color:#52514e;
+    border-bottom:1px solid #e1e0d9; padding:14px 20px; font-size:12.5px; display:none; max-height:62vh; overflow:auto; }
+  .panel.open { display:block; }
+  .panel ul { margin:6px 0 0; padding-left:18px; columns:2; column-gap:28px; }
+  .panel li { margin-bottom:6px; break-inside:avoid; }
+  .panel strong { color:#0b0b0b; }
+  .panel code { background:rgba(0,0,0,.06); padding:1px 5px; border-radius:4px; }
+
+  /* ===== tokens ===== */
+  .app {
+    --bg-page:#f7f7f5; --bg-surface:#fff; --bg-surface-2:#fbfbf9; --code-bg:#fcfcfb;
+    --border-hairline:rgba(11,11,11,.09); --border-strong:rgba(11,11,11,.14);
+    --ink-primary:#0b0b0b; --ink-secondary:#52514e; --ink-muted:#8b8a84;
+    --accent:#2a78d6; --accent-hover:#1c5cab; --accent-tint:#eaf1fc;
+    --status-good:#0ca30c; --status-bad:#d03b3b; --status-warn:#e59400;
+    --hover-wash:#f2f1ec; --shadow-pop:0 10px 28px rgba(16,24,32,.16);
+    --hue-violet:#6b5bd6; --hue-aqua:#1097a8; --hue-slate:#5c6672; --hue-orange:#d9722b; --hue-blue:#2a78d6;
+    --t-json:#2a78d6; --t-bool:#6b5bd6; --t-int:#1097a8; --t-str:#5c6672;
+    --env-dev:#2a78d6; --env-test:#6b5bd6; --env-prod:#d9722b;
+    --syn-key:#1c5cab; --syn-num:#5d4bb8; --syn-str:#a35a12; --syn-punct:#8b8a84;
+    /* NEW — label identity + drift */
+    --label-default:#5c6672;      /* the no-label value: the baseline */
+    --label-named:#6b5bd6;        /* a named label                   */
+    --drift:#e59400;             /* differs from baseline            */
+    background:var(--bg-page); color:var(--ink-primary);
+  }
+  [data-theme="dark"] .app {
+    --bg-page:#0d0d0d; --bg-surface:#1a1a19; --bg-surface-2:#212120; --code-bg:#161615;
+    --border-hairline:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.18);
+    --ink-primary:#fff; --ink-secondary:#c3c2b7; --ink-muted:#8b8a84;
+    --accent:#3987e5; --accent-hover:#5aa2ee; --accent-tint:rgba(57,135,229,.16);
+    --status-good:#1abd1a; --status-bad:#e66767; --status-warn:#fab219;
+    --hover-wash:rgba(255,255,255,.06); --shadow-pop:0 12px 32px rgba(0,0,0,.5);
+    --hue-violet:#9085e9; --hue-aqua:#35b3c4; --hue-slate:#8b95a3; --hue-orange:#e08a4a; --hue-blue:#4a90e8;
+    --t-json:#6da7ec; --t-bool:#9085e9; --t-int:#35b3c4; --t-str:#8b95a3;
+    --env-dev:#4a90e8; --env-test:#9085e9; --env-prod:#e08a4a;
+    --syn-key:#6da7ec; --syn-num:#b3a6f0; --syn-str:#e0a86a; --syn-punct:#8b8a84;
+    --label-default:#8b95a3; --label-named:#9085e9; --drift:#fab219;
+  }
+
+  /* ===== shell ===== */
+  .app { position:fixed; inset:37px 0 0 0; display:flex; flex-direction:column; overflow:hidden; }
+  .topnav { display:flex; align-items:center; justify-content:space-between; padding:0 20px; height:56px;
+    background:var(--bg-surface); border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .brand { font-weight:700; font-size:14.5px; } .brand .a { color:var(--accent); }
+  .dsep { color:var(--ink-muted); margin:0 8px; }
+  .org { color:var(--ink-secondary); font-size:13.5px; font-weight:500; }
+  .tabs { display:flex; gap:2px; margin-left:14px; }
+  .tabs a { font-size:13.5px; color:var(--ink-secondary); padding:17px 11px; border-bottom:2px solid transparent;
+    font-weight:500; display:flex; align-items:center; gap:7px; cursor:pointer; }
+  .tabs a.on { color:var(--ink-primary); border-bottom-color:var(--ink-primary); font-weight:600; }
+  .tabs svg { width:14px; height:14px; }
+  .nav-r { display:flex; align-items:center; gap:10px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:none; background:transparent;
+    color:var(--ink-secondary); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .iconbtn:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .iconbtn svg { width:16px; height:16px; }
+  .ghost { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 11px; border-radius:7px;
+    border:1px solid var(--border-hairline); background:transparent; color:var(--ink-secondary);
+    font-size:12.5px; font-weight:600; cursor:pointer; }
+  .ghost:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .ghost svg { width:13px; height:13px; }
+  .avatar { width:22px; height:22px; border-radius:6px; background:var(--accent); color:#fff;
+    font-size:10.5px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .who { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500; }
+  .signout { color:var(--ink-secondary); font-size:13px; text-decoration:none; }
+  .menuwrap { position:relative; }
+  .menu { position:absolute; top:38px; right:0; min-width:200px; background:var(--bg-surface);
+    border:1px solid var(--border-hairline); border-radius:10px; box-shadow:var(--shadow-pop); padding:7px; display:none; z-index:160; }
+  .menu.open { display:block; }
+  .menu-lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); padding:7px 8px 4px; }
+  .seg { display:flex; gap:4px; padding:2px 8px 6px; }
+  .seg div { flex:1; text-align:center; font-size:12px; font-weight:600; padding:6px 0; border-radius:6px;
+    cursor:pointer; border:1px solid var(--border-hairline); color:var(--ink-secondary); background:var(--bg-surface-2); }
+  .seg div.on { background:var(--ink-primary); color:var(--bg-surface); border-color:var(--ink-primary); }
+
+  /* ===== three panes ===== */
+  .cfg { flex:1; display:grid; min-height:0;
+    grid-template-columns:258px minmax(0,1fr) var(--wd,0px); transition:grid-template-columns .18s ease; }
+  .cfg[data-detail="on"] { --wd:520px; }
+  .col { display:flex; flex-direction:column; min-width:0; overflow:hidden; background:var(--bg-surface);
+    border-right:1px solid var(--border-hairline); }
+  .col.last { border-right:none; border-left:1px solid var(--border-hairline); }
+
+  /* left */
+  .chead { padding:12px 14px; border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .envrow { display:flex; gap:6px; margin-bottom:10px; }
+  .envpill { font-size:12px; font-weight:600; padding:5px 12px; border-radius:7px; cursor:pointer;
+    color:var(--ink-secondary); border:1px solid var(--border-hairline); background:var(--bg-surface-2);
+    display:inline-flex; align-items:center; gap:6px; }
+  .envpill::before { content:""; width:7px; height:7px; border-radius:2px; background:var(--ec); }
+  .envpill.on { color:#fff; border-color:transparent; background:var(--ec); }
+  .envpill.on::before { background:rgba(255,255,255,.85); }
+  .endpoint { font-size:10.5px; font-family:ui-monospace,"SF Mono",Menlo,monospace; padding:5px 9px;
+    border-radius:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    background:color-mix(in oklab,var(--ea) 12%,transparent);
+    color:color-mix(in oklab,var(--ea) 70%,var(--ink-primary)); border-left:3px solid var(--ea); }
+  .search { width:100%; height:30px; padding:0 10px; border-radius:7px; border:1px solid var(--border-hairline);
+    font-size:12.5px; background:var(--bg-surface-2); color:var(--ink-primary); }
+  .search:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .scroll { flex:1; overflow-y:auto; }
+  .ns { display:flex; align-items:center; gap:9px; padding:8px 14px; font-size:13px; cursor:pointer;
+    border-left:2px solid transparent; color:var(--ink-primary); }
+  .ns:hover { background:var(--hover-wash); }
+  .ns.on { background:var(--accent-tint); border-left-color:var(--accent); color:var(--accent); font-weight:600; }
+  .ns .n { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cnt { font-size:10.5px; font-variant-numeric:tabular-nums; border-radius:100px; padding:1px 7px; font-weight:600; flex-shrink:0; }
+  .z1{background:#eef4fd;color:#4a7cb5}.z2{background:#dbe9fb;color:#2a6cbd}
+  .z3{background:#c3daf8;color:#1f5ca8}.z4{background:#a8c9f4;color:#17498a}
+  [data-theme="dark"] .z1{background:rgba(57,135,229,.10);color:#7fb0ee}
+  [data-theme="dark"] .z2{background:rgba(57,135,229,.18);color:#94bef2}
+  [data-theme="dark"] .z3{background:rgba(57,135,229,.28);color:#b3d2f7}
+  [data-theme="dark"] .z4{background:rgba(57,135,229,.40);color:#d5e6fb}
+
+  /* middle: ONE ROW PER KEY */
+  .khead { display:flex; align-items:center; gap:10px; padding:12px 16px; flex-shrink:0;
+    border-bottom:1px solid var(--border-hairline); }
+  .ktitle { font-size:15px; font-weight:700; }
+  .ksub { font-size:12px; color:var(--ink-muted); }
+  .kcolhead, .krow { display:grid; grid-template-columns:200px 104px minmax(0,1fr) 62px; gap:12px; padding:9px 16px; align-items:center; }
+  .kcolhead { position:sticky; top:0; z-index:2; padding:7px 16px; font-size:10px; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--ink-muted); background:var(--bg-surface-2);
+    border-bottom:1px solid var(--border-hairline); }
+  .krow { border-bottom:1px solid var(--border-hairline); cursor:pointer; font-size:12.5px;
+    border-left:2px solid transparent; }
+  .krow:hover { background:var(--hover-wash); }
+  .krow.on { background:var(--accent-tint); border-left-color:var(--accent); }
+  .kname { font-family:ui-monospace,Menlo,monospace; font-size:12px; font-weight:600;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kprev { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:var(--ink-muted);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ktype { font-size:9.5px; font-weight:700; letter-spacing:.04em; padding:2px 6px; border-radius:5px; text-align:center; }
+  .ty-JSON{background:color-mix(in oklab,var(--t-json) 13%,transparent);color:var(--t-json)}
+  .ty-BOOL{background:color-mix(in oklab,var(--t-bool) 13%,transparent);color:var(--t-bool)}
+  .ty-INT {background:color-mix(in oklab,var(--t-int) 15%,transparent);color:var(--t-int)}
+  .ty-STR {background:color-mix(in oklab,var(--t-str) 14%,transparent);color:var(--t-str)}
+  /* label-count cell: count + drift marker. Never colour alone. */
+  .lcell { display:flex; align-items:center; gap:5px; }
+  .lcount { font-size:11px; color:var(--ink-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .driftmark { display:inline-flex; align-items:center; gap:3px; font-size:9.5px; font-weight:700;
+    padding:2px 5px; border-radius:4px; letter-spacing:.03em;
+    background:color-mix(in oklab,var(--drift) 16%,transparent); color:var(--drift); }
+  .driftmark svg { width:9px; height:9px; }
+
+  /* right: stacked label sections */
+  .dhead { display:flex; align-items:center; gap:8px; padding:12px 14px; flex-shrink:0;
+    border-bottom:1px solid var(--border-hairline); }
+  .dtitle { flex:1; min-width:0; font-family:ui-monospace,Menlo,monospace; font-size:12.5px; font-weight:700;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dsummary { padding:10px 14px; border-bottom:1px solid var(--border-hairline); flex-shrink:0;
+    font-size:11.5px; color:var(--ink-secondary); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .dsummary.hasdrift { background:color-mix(in oklab,var(--drift) 9%,transparent);
+    border-left:2px solid var(--drift); }
+  .dsummary svg { width:13px; height:13px; flex-shrink:0; }
+  .jump { display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 8px; border-radius:100px;
+    font-size:10.5px; font-weight:600; border:1px solid var(--border-hairline); background:var(--bg-surface);
+    color:var(--ink-secondary); cursor:pointer; font-family:ui-monospace,Menlo,monospace; }
+  .jump:hover { color:var(--ink-primary); border-color:var(--border-strong); }
+  .jump .sw { width:5px; height:5px; border-radius:2px; flex-shrink:0; }
+
+  .lsec { border-bottom:1px solid var(--border-hairline); }
+  .lsec-h { display:flex; align-items:center; gap:8px; padding:9px 14px; cursor:pointer; background:var(--bg-surface-2); }
+  .lsec-h:hover { background:var(--hover-wash); }
+  .lsec-h .chev { color:var(--ink-muted); transition:transform .15s; flex-shrink:0; }
+  .lsec-h .chev svg { width:12px; height:12px; }
+  .lsec.shut .chev { transform:rotate(-90deg); }
+  .lsec.shut .lsec-b { display:none; }
+  .lchip { display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 9px; border-radius:100px;
+    font-size:11px; font-weight:600; font-family:ui-monospace,Menlo,monospace; flex-shrink:0; }
+  .lchip .sw { width:6px; height:6px; border-radius:2px; }
+  .lchip.def { background:color-mix(in oklab,var(--label-default) 15%,transparent); color:var(--label-default); }
+  .lchip.def .sw { background:var(--label-default); }
+  .lchip.named { background:color-mix(in oklab,var(--label-named) 15%,transparent); color:var(--label-named); }
+  .lchip.named .sw { background:var(--label-named); }
+  .baseline { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-muted); flex-shrink:0; }
+  .same, .differs { font-size:9.5px; font-weight:700; letter-spacing:.03em; padding:2px 6px; border-radius:4px; flex-shrink:0;
+    display:inline-flex; align-items:center; gap:3px; }
+  .same { background:var(--hover-wash); color:var(--ink-muted); }
+  .differs { background:color-mix(in oklab,var(--drift) 16%,transparent); color:var(--drift); }
+  .differs svg { width:9px; height:9px; }
+  .lsec-h .sp { margin-left:auto; }
+  .lsec-h .mini { width:22px; height:22px; border-radius:5px; border:none; background:transparent;
+    color:var(--ink-muted); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .lsec-h .mini:hover { background:var(--border-hairline); color:var(--ink-primary); }
+  .lsec-h .mini svg { width:12px; height:12px; }
+
+  .lsec-b { padding:0; }
+  .code { margin:0; padding:12px 14px; background:var(--code-bg); font-family:ui-monospace,Menlo,monospace;
+    font-size:12px; line-height:1.65; white-space:pre; overflow-x:auto; }
+  .code .k{color:var(--syn-key)} .code .n{color:var(--syn-num)}
+  .code .s{color:var(--syn-str)} .code .p{color:var(--syn-punct)}
+  /* changed line marker — faint tint + gutter stripe, same grammar as the diff spec */
+  .code .ln { display:block; margin:0 -14px; padding:0 14px; }
+  .code .ln.chg { background:color-mix(in oklab,var(--drift) 12%,transparent);
+    box-shadow:inset 2px 0 0 var(--drift); }
+  .dscroll { flex:1; overflow-y:auto; }
+
+  .empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+    color:var(--ink-muted); font-size:12.5px; padding:40px; text-align:center; background:var(--bg-page); }
+  .empty svg { width:30px; height:30px; opacity:.5; }
+  .empty b { font-size:14px; font-weight:600; color:var(--ink-secondary); }
+</style>
+</head>
+<body data-theme="light">
+
+<div class="harness">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="lbl">Key list:</span>
+    <div class="tg">
+      <button id="m-old" onclick="setMode('old')">Current — row per label</button>
+      <button id="m-new" class="on" onclick="setMode('new')">Proposed — row per key</button>
+    </div>
+    <span class="lbl">Try AccaBonus and Flexicut · theme in the ⚙ gear →</span>
+  </div>
+  <button class="hbtn" onclick="document.getElementById('p').classList.toggle('open')">What changed?</button>
+</div>
+
+<div class="panel" id="p">
+  <strong>Configurations — one row per key, labels stacked in the detail pane</strong>
+  <ul>
+    <li><strong>The middle pane lists each key once.</strong> A key carrying three labels was three rows; it is now one. Flip the toggle above to compare — <code>AccaBonus</code> goes from 5 rows to 3.</li>
+    <li><strong>The Label column becomes a label <em>count</em></strong> (<code>3 labels</code>), plus a <code>DIFFERS</code> marker when those labels don't all agree. Drift becomes scannable from the list without opening anything.</li>
+    <li><strong>Value preview comes from the baseline</strong> — the no-label value, which is what the app resolves when no label is requested.</li>
+    <li><strong>The detail pane stacks one collapsible section per label.</strong> The baseline sits first and is marked <code>BASELINE</code>; named labels follow, each tagged <code>SAME</code> or <code>DIFFERS</code> against it.</li>
+    <li><strong>Differing lines are marked inside the JSON</strong> with a faint tint and a gutter stripe — the same grammar as the Review page's diff rows, so the two pages read as one system.</li>
+    <li><strong>A summary strip</strong> above the sections names which labels differ, with jump chips. Sections that match the baseline start collapsed; ones that differ start open, so the page opens on what you need to look at.</li>
+    <li><strong>Drift is never colour alone</strong> — every marker carries a word (<code>SAME</code> / <code>DIFFERS</code>) and an icon (invariant A4).</li>
+    <li><strong>Amber, not red.</strong> A label differing from the baseline is normal and expected, not a failure — so it uses <code>--status-warn</code>, and green/red stay with pipeline status (invariant A2).</li>
+    <li><strong>Detail pane widened to 520px</strong> from 470 — it now holds several values rather than one.</li>
+  </ul>
+</div>
+
+<div class="app">
+  <div class="topnav">
+    <div style="display:flex;align-items:center;">
+      <span class="brand">Pipeline <span class="a">Launchpad</span></span><span class="dsep">·</span>
+      <span class="org">BetagyDevOps</span>
+      <div class="tabs">
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.5"/></svg>Views</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="8" r="2"/><path d="M4 6v4M6 4h3a3 3 0 0 1 3 3v0" stroke-linecap="round"/></svg>Review</a>
+        <a class="on"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4h12M2 8h12M2 12h12" stroke-linecap="round"/><circle cx="5.5" cy="4" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>Configurations</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="7" width="10" height="7" rx="1.8"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>Key Vault</a>
+      </div>
+    </div>
+    <div class="nav-r">
+      <button class="ghost"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 2.5v7M5.2 6.8L8 9.6l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2"/></svg>Transfer</button>
+      <div class="menuwrap">
+        <button class="iconbtn" onclick="pop(event,'setm')" title="Settings">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M4.6 15.4L6 14M14 6l1.4-1.4" stroke-linecap="round"/></svg>
+        </button>
+        <div class="menu" id="setm">
+          <div class="menu-lbl">Appearance</div>
+          <div class="seg"><div class="on" id="tl" onclick="theme('light')">☀ Light</div><div id="td" onclick="theme('dark')">☾ Dark</div></div>
+        </div>
+      </div>
+      <div class="who"><span class="avatar">JF</span>James Farrugia</div>
+      <a href="#" class="signout">Sign out</a>
+    </div>
+  </div>
+
+  <div class="cfg" id="cfg" data-detail="off" style="--ea:var(--env-dev)">
+    <div class="col">
+      <div class="chead">
+        <div class="envrow">
+          <span class="envpill on" style="--ec:var(--env-dev)"  onclick="setEnv('dev',this)">Dev</span>
+          <span class="envpill"    style="--ec:var(--env-test)" onclick="setEnv('test',this)">Test</span>
+          <span class="envpill"    style="--ec:var(--env-prod)" onclick="setEnv('prod',this)">Prod</span>
+        </div>
+        <div class="endpoint" id="ep">cfg-sportstech-test-weu-common.azconfig.io</div>
+      </div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--border-hairline)">
+        <input class="search" placeholder="Filter namespaces…" oninput="fns(this.value)">
+      </div>
+      <div class="scroll" id="nslist"></div>
+    </div>
+
+    <div class="col">
+      <div class="khead">
+        <div style="flex:1;min-width:0">
+          <div class="ktitle" id="kt">AccaBonus</div>
+          <div class="ksub" id="ks"></div>
+        </div>
+        <input class="search" style="width:200px" placeholder="Filter keys…" oninput="fk(this.value)">
+        <button class="iconbtn" title="Refresh">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/><path d="M13.6 1.8v2.6h-2.6"/></svg>
+        </button>
+      </div>
+      <div class="scroll" id="ktab"></div>
+    </div>
+
+    <div class="col last" id="detail"></div>
+  </div>
+</div>
+
+<script>
+/* ================= data ================= */
+const NS = [['AccaBonus',5],['BetBot',12],['BetPlacedRelay',53],['Betting',122],['BookingCodes',9],
+  ['CashoutApi',152],['CashoutEngine',103],['ConfigRegistryApi',63],['ExtraMetrics',18],
+  ['Flexicut',9],['Formulas',8],['Generosity',17],['Importer',264],['MTS',23],['Placement',290]];
+
+/* values keyed by [key][label]; '' = the no-label baseline */
+const J = (minOdd, mode, mult) => ({minOdd, mode, mult});
+const DATA = {
+  AccaBonus: {
+    type:'JSON',
+    keys:{
+      '10000000': { '':J(1.35,'progressive',12), 'staging':J(1.35,'progressive',12) },
+      '20050000': { '':J(1.35,'progressive',12), 'staging':J(1.20,'progressive',16), 'canary':J(1.20,'flat',16) },
+      '20060000': { '':J(1.50,'flat',8) },
+    }},
+  Flexicut: {
+    type:'MIXED',
+    keys:{
+      'Enabled':       { '':'true', 'staging':'true' },
+      'MaxSelections': { '':'12',   'staging':'20' },
+      'DefaultTier':   { '':'"standard"' },
+      'CutRules':      { '':J(1.10,'tiered',6), 'staging':J(1.10,'tiered',6), 'canary':J(1.05,'tiered',10) },
+    }},
+  Formulas: {
+    type:'MIXED',
+    keys:{
+      'AccaBoost':    { '':J(1.25,'stepped',10) },
+      'RoundingMode': { '':'"half-up"' },
+      'Precision':    { '':'4' },
+    }},
+};
+const EP = {dev:'cfg-sportstech-test-weu-common.azconfig.io',
+  test:'cfg-sportstech-uat-weu-common.azconfig.io', prod:'cfg-sportstech-prod-weu-common.azconfig.io'};
+
+let mode='new', ns='AccaBonus', sel=null, env='Dev', shut={};
+
+/* ================= helpers ================= */
+function typeOf(v){
+  if(typeof v==='object') return 'JSON';
+  if(v==='true'||v==='false') return 'BOOL';
+  if(/^-?\d+(\.\d+)?$/.test(v)) return 'INT';
+  return 'STR';
+}
+function labelsOf(k){ return Object.keys(DATA[ns].keys[k]); }
+function baseline(k){ const m=DATA[ns].keys[k]; return m[''] ?? m[labelsOf(k)[0]]; }
+function same(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
+function driftLabels(k){
+  const m=DATA[ns].keys[k], b=baseline(k);
+  return labelsOf(k).filter(l=>l!=='' && !same(m[l],b));
+}
+function preview(v){
+  if(typeof v==='object') return '{ minOdd, mode, multipliers }';
+  return String(v);
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+/* render a value as highlighted lines; mark lines that differ from base */
+function codeHtml(v, base){
+  const lines = (typeof v==='object')
+    ? ['{',
+       `  "MinOdd": ${v.minOdd},`,
+       `  "Mode": "${v.mode}",`,
+       `  "MultipliersPerSelectionCount": {`,
+       ...Array.from({length:3},(_,i)=>`    "${5+i}": ${(0.05*(i+1)).toFixed(2)},`),
+       `    "${v.mult}": ${(0.05*v.mult).toFixed(2)}`,
+       `  }`,
+       '}']
+    : [String(v)];
+  const bl = base && typeof base==='object'
+    ? ['{',
+       `  "MinOdd": ${base.minOdd},`,
+       `  "Mode": "${base.mode}",`,
+       `  "MultipliersPerSelectionCount": {`,
+       ...Array.from({length:3},(_,i)=>`    "${5+i}": ${(0.05*(i+1)).toFixed(2)},`),
+       `    "${base.mult}": ${(0.05*base.mult).toFixed(2)}`,
+       `  }`,
+       '}']
+    : base!=null ? [String(base)] : null;
+
+  return lines.map((ln,i)=>{
+    const changed = bl && bl[i]!==ln;
+    let h = esc(ln)
+      .replace(/"([A-Za-z0-9_]+)":/g,'<span class="k">"$1"</span><span class="p">:</span>')
+      .replace(/: (-?\d+(?:\.\d+)?)/g,': <span class="n">$1</span>')
+      .replace(/: (&quot;[^&]*&quot;|"[^"]*")/g,': <span class="s">$1</span>');
+    /* every line is a block so the changed-row tint can bleed full width;
+       joined with '' because block spans already break the line — a \n here
+       would render an extra blank row per line. */
+    return `<span class="ln${changed?' chg':''}">${h || '&nbsp;'}</span>`;
+  }).join('');
+}
+
+/* ================= left ================= */
+function zc(c){ return c<20?'z1':c<80?'z2':c<200?'z3':'z4'; }
+function renderNS(){
+  document.getElementById('nslist').innerHTML = NS.map(([n,c])=>
+    `<div class="ns ${n===ns?'on':''}" data-n="${n}" onclick="pick('${n}')">
+      <span class="n">${n}</span><span class="cnt ${zc(c)}">${c}</span></div>`).join('');
+}
+function fns(q){ q=q.toLowerCase();
+  document.querySelectorAll('.ns').forEach(e=>e.style.display=e.dataset.n.toLowerCase().includes(q)?'flex':'none'); }
+function pick(n){ ns=n; sel=null; renderNS(); renderKeys(); closeDetail(); }
+
+/* ================= middle ================= */
+function renderKeys(){
+  const d = DATA[ns];
+  document.getElementById('kt').textContent = ns;
+  const t = document.getElementById('ktab');
+  if(!d){ document.getElementById('ks').textContent='';
+    t.innerHTML = `<div class="empty"><b>Not stubbed</b><span>Try AccaBonus, Flexicut or Formulas.</span></div>`; return; }
+
+  const keys = Object.keys(d.keys);
+  const rowsTotal = keys.reduce((a,k)=>a+labelsOf(k).length,0);
+  document.getElementById('ks').textContent = mode==='new'
+    ? `${keys.length} keys · ${rowsTotal} label values · ${env}`
+    : `${rowsTotal} rows · ${env}`;
+
+  if(mode==='old'){
+    /* CURRENT behaviour: one row per key+label */
+    t.innerHTML = `<div class="kcolhead"><span>Key</span><span>Label</span><span>Value</span><span style="text-align:center">Type</span></div>`
+      + keys.flatMap(k=>labelsOf(k).map(l=>{
+          const v=d.keys[k][l];
+          return `<div class="krow ${sel===k+'|'+l?'on':''}" onclick="openOld('${k}','${l}')">
+            <span class="kname">${k}</span>
+            <span class="kprev" style="font-size:11px">${l===''?'<span style="opacity:.6">no label</span>':l}</span>
+            <span class="kprev">${esc(preview(v))}</span>
+            <span class="ktype ty-${typeOf(v)}">${typeOf(v)}</span></div>`;
+        })).join('');
+    return;
+  }
+
+  /* PROPOSED: one row per key */
+  t.innerHTML = `<div class="kcolhead"><span>Key</span><span>Labels</span><span>Value (baseline)</span><span style="text-align:center">Type</span></div>`
+    + keys.map(k=>{
+        const ls=labelsOf(k), dl=driftLabels(k), b=baseline(k);
+        return `<div class="krow ${sel===k?'on':''}" onclick="openKey('${k}')">
+          <span class="kname">${k}</span>
+          <span class="lcell">
+            <span class="lcount">${ls.length} label${ls.length>1?'s':''}</span>
+            ${dl.length?`<span class="driftmark" title="${dl.join(', ')} differ from the baseline">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.6l5.6 10.4H2.4z" stroke-linejoin="round"/><path d="M8 6.4v3M8 11v.1" stroke-linecap="round"/></svg>DIFFERS</span>`:''}
+          </span>
+          <span class="kprev">${esc(preview(b))}</span>
+          <span class="ktype ty-${typeOf(b)}">${typeOf(b)}</span></div>`;
+      }).join('');
+}
+function fk(q){ q=q.toLowerCase();
+  document.querySelectorAll('.krow').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'grid':'none'); }
+
+/* ================= right ================= */
+function openOld(k,l){
+  sel=k+'|'+l; renderKeys();
+  const v=DATA[ns].keys[k][l];
+  document.getElementById('detail').innerHTML = `
+    <div class="dhead"><span class="dtitle">${ns}:${k}</span>
+      <span class="lchip ${l===''?'def':'named'}"><span class="sw"></span>${l===''?'no label':l}</span>
+      <button class="iconbtn" onclick="closeDetail()">✕</button></div>
+    <div class="dscroll"><pre class="code">${codeHtml(v,null)}</pre></div>`;
+  document.getElementById('cfg').setAttribute('data-detail','on');
+}
+
+function openKey(k){
+  sel=k; renderKeys(); shut={};
+  const m=DATA[ns].keys[k], ls=labelsOf(k), b=baseline(k), dl=driftLabels(k);
+  const ordered = ls.slice().sort((a,z)=> a===''?-1 : z===''?1 : a.localeCompare(z));
+
+  const secs = ordered.map((l,i)=>{
+    const v=m[l], isBase = l==='';
+    const differs = !isBase && !same(v,b);
+    /* matching sections start collapsed — open on what needs looking at */
+    const collapsed = !isBase && !differs;
+    return `<div class="lsec ${collapsed?'shut':''}" id="sec-${i}">
+      <div class="lsec-h" onclick="tsec(${i})">
+        <span class="chev"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 4.5L6 7.5l3-3" stroke-linecap="round"/></svg></span>
+        <span class="lchip ${isBase?'def':'named'}"><span class="sw"></span>${isBase?'no label':l}</span>
+        ${isBase?`<span class="baseline">baseline</span>`
+          : differs?`<span class="differs"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.6l5.6 10.4H2.4z" stroke-linejoin="round"/><path d="M8 6.4v3M8 11v.1" stroke-linecap="round"/></svg>DIFFERS</span>`
+          : `<span class="same">SAME</span>`}
+        <span class="sp"></span>
+        <button class="mini" title="Copy value" onclick="event.stopPropagation()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4a1.5 1.5 0 0 0-1.5 1.5v5A1.5 1.5 0 0 0 4 11h1"/></svg>
+        </button>
+      </div>
+      <div class="lsec-b"><pre class="code">${codeHtml(v, isBase?null:b)}</pre></div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('detail').innerHTML = `
+    <div class="dhead">
+      <span class="dtitle">${ns}:${k}</span>
+      <button class="iconbtn" onclick="closeDetail()" title="Close">✕</button>
+    </div>
+    <div class="dsummary ${dl.length?'hasdrift':''}">
+      ${dl.length
+        ? `<svg viewBox="0 0 16 16" fill="none" stroke="var(--drift)" stroke-width="1.6"><path d="M8 2.6l5.6 10.4H2.4z" stroke-linejoin="round"/><path d="M8 6.4v3M8 11v.1" stroke-linecap="round"/></svg>
+           <span><b>${dl.length} of ${ordered.length-1}</b> named label${ordered.length-1>1?'s':''} differ${dl.length>1?'':'s'} from the baseline</span>
+           ${dl.map(l=>`<span class="jump" onclick="jump('${l}')"><span class="sw" style="background:var(--label-named)"></span>${l}</span>`).join('')}`
+        : `<span>All ${ordered.length} value${ordered.length>1?'s':''} identical.</span>`}
+    </div>
+    <div class="dscroll">${secs}</div>`;
+  document.getElementById('cfg').setAttribute('data-detail','on');
+}
+function tsec(i){ document.getElementById('sec-'+i).classList.toggle('shut'); }
+function jump(l){
+  const h=[...document.querySelectorAll('.lsec')].find(s=>s.querySelector('.lchip').textContent.trim()===l);
+  if(h){ h.classList.remove('shut'); h.scrollIntoView({behavior:'smooth',block:'start'}); }
+}
+function closeDetail(){ document.getElementById('cfg').setAttribute('data-detail','off'); sel=null; renderKeys(); }
+
+/* ================= chrome ================= */
+function setMode(m){ mode=m; sel=null;
+  document.getElementById('m-old').classList.toggle('on',m==='old');
+  document.getElementById('m-new').classList.toggle('on',m==='new');
+  closeDetail(); renderKeys(); }
+function setEnv(e,el){ env=e[0].toUpperCase()+e.slice(1);
+  document.querySelectorAll('.envpill').forEach(p=>p.classList.remove('on')); el.classList.add('on');
+  document.getElementById('cfg').style.setProperty('--ea',`var(--env-${e})`);
+  document.getElementById('ep').textContent=EP[e]; renderKeys(); }
+function theme(t){ document.body.setAttribute('data-theme',t);
+  document.getElementById('tl').classList.toggle('on',t==='light');
+  document.getElementById('td').classList.toggle('on',t==='dark'); }
+function closeAll(){ document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open')); }
+function pop(e,id){ e.stopPropagation(); const el=document.getElementById(id);
+  const w=el.classList.contains('open'); closeAll(); if(!w) el.classList.add('open'); }
+document.addEventListener('click', closeAll);
+
+renderNS(); renderKeys();
+</script>
+</body>
+</html>

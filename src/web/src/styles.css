@@ -17,7 +17,7 @@
   --bg-page: #0d0d0d;          /* the board canvas behind shelves */
   --bg-surface: #1a1a19;       /* shelves, cards, nav, panels */
   --bg-surface-2: #212120;     /* inset fields, table head, recessed strips */
-  --code-bg: #131312;          /* JSON / monospace panes */
+  --code-bg: #161615;          /* JSON / monospace panes — lifted just off --bg-surface */
 
   /* lines */
   --border-hairline: rgba(255, 255, 255, 0.11);
@@ -55,16 +55,60 @@
   --hue-magenta: #d97aa6;
   --hue-slate: #8b95a3;
 
+  /* Binding sources (SEQUENCES §2). Aliases of existing identity hues, not new colours, so the
+     chips read as a set and can be re-pointed without hunting hex. Theme-independent by
+     construction — they inherit whichever mode's hue is in force, so A6 needs nothing extra.
+     A broken binding uses --status-warn, which is a genuine warning state rather than an
+     identity, so it isn't an A2 violation. */
+  --src-input: var(--hue-violet);   /* a pre-run input        */
+  --src-step: var(--hue-aqua);      /* an earlier step output */
+  --src-literal: var(--hue-slate);  /* a typed literal        */
+
   /* configurations: value-type identity */
   --t-json: #6da7ec;
   --t-bool: #9085e9;
   --t-int: #35b3c4;
   --t-str: #8b95a3;
 
+  /* configurations: label identity + difference (CONFIG_LABELS §3). The two label hues are the
+     existing slate and violet identities. --label-diff is the blue identity hue, NOT amber:
+     environments holding different values is the normal state of a config store, not a warning,
+     so it gets a quiet marker rather than a caution one. Green and red stay with pipeline
+     status (A2), and --status-warn is left for things that are actually wrong. */
+  --label-default: #8b95a3;
+  --label-named: #9085e9;
+  --label-diff: var(--hue-blue);
+
   /* configurations: environment identity */
   --env-dev: #4a90e8;
   --env-test: #9085e9;
   --env-prod: #e08a4a;
+
+  /* ---- review page (design/DESIGN_SPEC_REVIEW.md §2) ----
+     The A2 carve-out: inside a diff, green means added and red means removed. It is
+     limited to row tints, gutter stripes, word highlights, the +/- signs, the +n/-n
+     counts and the change minimap — it does not reach file badges or page chrome. */
+  --diff-gutter: #1c1c1b;
+  --diff-add-tint: color-mix(in oklab, var(--status-good) 13%, var(--code-bg));
+  --diff-add-stripe: #2b9e2b;
+  --diff-add-word: color-mix(in oklab, var(--status-good) 30%, var(--code-bg));
+  --diff-del-tint: color-mix(in oklab, var(--status-bad) 14%, var(--code-bg));
+  --diff-del-stripe: #c95e5e;
+  --diff-del-word: color-mix(in oklab, var(--status-bad) 30%, var(--code-bg));
+
+  /* syntax — NO green and NO red: the diff tint owns those hues, so code using
+     them is unreadable on a tinted row (§3). Comments are neutral grey, not green. */
+  --syn-keyword: #6da7ec;
+  --syn-type: #35b3c4;
+  --syn-string: #e0a86a;
+  --syn-number: #b3a6f0;
+  --syn-comment: #8b8a84;
+  --syn-punct: #c3c2b7;
+
+  /* file change type — identity, not health, so deliberately off status green (§1) */
+  --ft-add: #35b3c4;
+  --ft-mod: #9085e9;
+  --ft-del: #8b95a3;
 }
 
 :root[data-theme="light"] {
@@ -73,7 +117,7 @@
   --bg-page: #f7f7f5;
   --bg-surface: #ffffff;
   --bg-surface-2: #fbfbf9;
-  --code-bg: #fafaf8;
+  --code-bg: #fcfcfb;
 
   --border-hairline: rgba(11, 11, 11, 0.09);
   --border-strong: rgba(11, 11, 11, 0.14);
@@ -113,6 +157,30 @@
   --env-dev: #2a78d6;
   --env-test: #6b5bd6;
   --env-prod: #d9722b;
+
+  --label-default: #5c6672;
+  --label-named: #6b5bd6;
+  --label-diff: var(--hue-blue);
+
+  /* ---- review page (design/DESIGN_SPEC_REVIEW.md §2) ---- */
+  --diff-gutter: #f6f6f3;
+  --diff-add-tint: color-mix(in oklab, var(--status-good) 10%, var(--code-bg));
+  --diff-add-stripe: #0a8a0a;
+  --diff-add-word: color-mix(in oklab, var(--status-good) 26%, var(--code-bg));
+  --diff-del-tint: color-mix(in oklab, var(--status-bad) 9%, var(--code-bg));
+  --diff-del-stripe: #c23434;
+  --diff-del-word: color-mix(in oklab, var(--status-bad) 24%, var(--code-bg));
+
+  --syn-keyword: #1c5cab;
+  --syn-type: #0d7b8a;
+  --syn-string: #a35a12;
+  --syn-number: #5d4bb8;
+  --syn-comment: #8b8a84;
+  --syn-punct: #52514e;
+
+  --ft-add: #1097a8;
+  --ft-mod: #6b5bd6;
+  --ft-del: #5c6672;
 }
 
 /* Geometry + legacy aliases. The aliases let the existing component CSS pick up
@@ -126,6 +194,9 @@
   --r-tag: 4px;
   --r-glyph: 4.5px;    /* status glyph corner — 8px makes it a circle */
   --h-control: 30px;   /* every footer control is exactly this tall */
+  /* Diff/code font size. Theme-independent, so it lives here rather than in a palette
+     block — the spec lists it under light only, but it needs to resolve in both. */
+  --code-size: 12px;
   --w-dropzone: 46px;
   /* One sidebar width shared by the Views pipeline list and the Configurations
      namespace pane, so the two pages line up. */
@@ -303,6 +374,19 @@ a {
   border-radius: 6px;
 }
 
+/* Sits between primary and ghost: still clearly a button, but no fill competing with the
+   primary next to it. */
+.btn.outline {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--ink-secondary);
+}
+
+.btn.outline:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
 .btn.ghost {
   background: transparent;
   border-color: transparent;
@@ -411,6 +495,586 @@ a {
 }
 
 /* ---------- sidebar / pool ---------- */
+/* ---------- sequence editor panel (SEQUENCES §5) ----------
+   A sibling of the drawer and the board, not an overlay: opening it narrows the board rather
+   than covering it, because the board is this panel's live preview. Width animates the same
+   way the drawer does — the spec writes this as a grid, but the board sizes itself from a
+   ResizeObserver, so a flex sibling gets the identical result without re-laying out the grid. */
+.seq-editor {
+  width: 500px;
+  flex: 0 0 500px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-hairline);
+  transition: flex-basis 0.18s ease, width 0.18s ease;
+}
+
+.ehead {
+  padding: 12px 14px 11px;
+  border-bottom: 1px solid var(--border-hairline);
+  flex-shrink: 0;
+}
+
+.ehead-t {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Inline-editable rather than a labelled field: the name is the heading, and editing it in
+   place is what lets the board update as you type. */
+.ename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-small);
+  padding: 4px 6px;
+  color: var(--ink-primary);
+}
+
+.ename:hover { border-color: var(--border-hairline); }
+.ename:focus { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--bg-surface-2); }
+
+/* §7. Warn-tinted only above one view: one view is the common case, and tinting it would
+   train you to ignore the band by the time it matters. */
+.usage {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 7px 9px;
+  border-radius: var(--r-small);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-secondary);
+  background: var(--hover-wash);
+  border-left: 2px solid var(--border-strong);
+}
+
+.usage.many {
+  background: color-mix(in oklab, var(--status-warn) 11%, transparent);
+  border-left-color: var(--status-warn);
+}
+
+.usage svg { width: 13px; height: 13px; color: var(--ink-muted); flex-shrink: 0; margin-top: 1px; }
+.usage.many svg { color: var(--status-warn); }
+.usage b { color: var(--ink-primary); }
+
+.viewchip {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 7px;
+  border-radius: 100px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  color: var(--ink-secondary);
+  margin: 3px 3px 0 0;
+  cursor: pointer;
+}
+
+.viewchip:hover { color: var(--ink-primary); border-color: var(--border-strong); }
+
+.escroll { flex: 1; overflow-y: auto; min-height: 0; }
+
+.sect {
+  border-bottom: 1px solid var(--border-hairline);
+  padding: 13px 14px 15px;
+}
+
+.sect-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.sect-h .t {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  font-weight: 600;
+  flex: 1;
+}
+
+.sect-note {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.sect-empty { font-size: 12px; color: var(--ink-muted); padding: 6px 0 10px; }
+
+.minibtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--r-small);
+  border: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--ink-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.minibtn:hover { background: var(--hover-wash); color: var(--ink-primary); }
+.minibtn svg { width: 11px; height: 11px; }
+
+/* ---- pre-run inputs table (§5) ---- */
+.inrow {
+  display: grid;
+  grid-template-columns: 1fr 74px 1fr 24px;
+  gap: 7px;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.inrow.head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-hairline);
+  margin-bottom: 3px;
+}
+
+/* Monospace because a key is an identifier the pipeline matches on, not prose. */
+.fld {
+  height: 28px;
+  border-radius: var(--r-small);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  color: var(--ink-primary);
+  font-size: 12px;
+  padding: 0 8px;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.fld:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Reads as the mockup's type badge but is a real select — the kind decides how the run dialog
+   collects the value, so it has to be changeable. Violet because an input is a binding source
+   (--src-input), not a status. */
+.tysel {
+  height: 28px;
+  min-width: 0;
+  border-radius: var(--r-small);
+  border: 1px solid transparent;
+  background: color-mix(in oklab, var(--src-input) 14%, transparent);
+  color: var(--src-input);
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.tysel:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.xbtn {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-small);
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.xbtn:hover { background: color-mix(in oklab, var(--status-bad) 12%, transparent); color: var(--status-bad); }
+
+/* ---- step cards ---- */
+.step {
+  border: 1px solid var(--border-hairline);
+  border-radius: 9px;
+  margin-bottom: 8px;
+  background: var(--bg-surface-2);
+}
+
+.step-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  cursor: pointer;
+}
+
+.step-h .grip { color: var(--ink-muted); font-size: 11px; cursor: grab; flex-shrink: 0; }
+
+.step-h .idx {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-small);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--border-hairline);
+  color: var(--ink-secondary);
+}
+
+.step-h .names { flex: 1; min-width: 0; }
+
+/* The display name is the editable thing; the real pipeline name stays visible beneath as the
+   reference, so shortening it never costs you the ability to tell what it actually runs. */
+.dispname {
+  width: 100%;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-small);
+  padding: 2px 5px;
+  color: var(--ink-primary);
+}
+
+.dispname:hover { border-color: var(--border-hairline); background: var(--bg-surface); }
+.dispname:focus { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--bg-surface); }
+
+.realname {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.step-h .chev { color: var(--ink-muted); flex-shrink: 0; transition: transform 0.15s; }
+.step-h .chev svg { width: 12px; height: 12px; display: block; }
+.step.shut .chev { transform: rotate(-90deg); }
+.step-b { padding: 2px 10px 10px 36px; }
+.step.shut .step-b { display: none; }
+
+.prow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-hairline);
+}
+
+.prow:last-child { border-bottom: none; }
+
+.pname,
+.pval {
+  font-size: 11.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pname { color: var(--ink-muted); }
+.pval { color: var(--ink-secondary); }
+
+.pactions { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Pickers inside a step row. Wider than the value column they replace, since a pipeline name is
+   the longest thing in the panel. */
+.pctl { min-width: 0; width: 250px; }
+.pctl .combo-input { height: 26px; font-size: 11.5px; }
+
+.deflt { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.deflt .fld { flex: 1; min-width: 0; }
+.deflt .minibtn { height: 26px; flex-shrink: 0; }
+
+/* Smart-detect shown as a named choice rather than the raw __smart__ sentinel. */
+.smartchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--r-small);
+  font-size: 10.5px;
+  font-weight: 600;
+  background: color-mix(in oklab, var(--hue-aqua) 14%, transparent);
+  color: var(--hue-aqua);
+  min-width: 0;
+}
+
+.smartchip .xbtn { width: 18px; height: 18px; color: inherit; }
+.prow-add { border-bottom: none; padding-top: 8px; }
+
+/* The source chain under a branch/environment input. Indented and hairlined so it reads as
+   belonging to the row above rather than as another entry in the table. */
+.insrc {
+  margin: 0 0 6px 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-hairline);
+}
+
+.insrc .prow { padding: 3px 0; }
+.insrc .pctl { width: 220px; }
+.insrc .sect-note { margin: 4px 0 0; }
+
+/* A step whose parameters no longer resolve. The border is one of three carriers — the warning
+   row and the raw reference in the chip carry it too — so it survives greyscale (§10). */
+.step.is-broken { border-color: color-mix(in oklab, var(--status-warn) 45%, transparent); }
+
+.warnrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--status-warn);
+  padding: 0 9px 8px 36px;
+}
+
+.warnrow svg { width: 12px; height: 12px; flex-shrink: 0; }
+.step.shut .warnrow { padding-bottom: 8px; }
+
+/* ---- binding chips (§6) ----
+   A 5px colour square plus the reference in monospace: the colour groups the chips into kinds at
+   a glance, and the mono text is the thing you actually read. */
+.bind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 230px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: var(--r-small);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.bind:hover { border-color: var(--border-strong); }
+.bind .kind { width: 5px; height: 5px; border-radius: 2px; flex-shrink: 0; }
+.bind .val { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bind svg { width: 8px; height: 8px; color: var(--ink-muted); flex-shrink: 0; }
+
+.k-input .kind { background: var(--src-input); }
+.k-input .val { color: var(--src-input); }
+.k-step .kind { background: var(--src-step); }
+.k-step .val { color: var(--src-step); }
+.k-lit .kind { background: var(--src-literal); }
+.k-lit .val { color: var(--ink-secondary); }
+
+/* Warn, not an identity — an unresolvable reference is a genuine warning state, so this isn't
+   an A2 violation. */
+.k-bad .kind { background: var(--status-warn); }
+.k-bad .val { color: var(--status-warn); }
+.k-bad { border-color: color-mix(in oklab, var(--status-warn) 45%, transparent); }
+
+.bmenu-scrim { position: fixed; inset: 0; z-index: 170; }
+
+.bmenu {
+  position: fixed;
+  width: 264px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: 9px;
+  box-shadow: var(--shadow-pop);
+  padding: 6px;
+  z-index: 180;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.menu-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  font-weight: 600;
+  padding: 7px 7px 3px;
+}
+
+.bmi {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 6px 7px;
+  border: none;
+  border-radius: var(--r-small);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ink-primary);
+}
+
+.bmi:hover { background: var(--hover-wash); }
+.bmi .kind { width: 5px; height: 5px; border-radius: 2px; flex-shrink: 0; }
+.bmi.is-none { color: var(--ink-muted); cursor: default; }
+.bmi.is-none:hover { background: transparent; }
+.bmi.is-plain { font-family: inherit; color: var(--ink-secondary); }
+
+/* Inline fields inside the picker, replacing what used to be window.prompt. A native dialog
+   blocks the whole page, and this app has none elsewhere in the editor. */
+.bmi-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+}
+
+.bmi-form .fld { flex: 1; min-width: 0; height: 26px; }
+.bmi-form .kind { width: 5px; height: 5px; border-radius: 2px; flex-shrink: 0; }
+
+/* Destructive confirmation, inline above the row it concerns rather than in a native modal. */
+.inrow-confirm {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 2px;
+  padding: 7px 9px;
+  border-radius: var(--r-small);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-secondary);
+  background: color-mix(in oklab, var(--status-warn) 11%, transparent);
+  border-left: 2px solid var(--status-warn);
+}
+
+.inrow-confirm svg { width: 13px; height: 13px; color: var(--status-warn); flex-shrink: 0; }
+.inrow-confirm span { flex: 1; min-width: 0; }
+.inrow-confirm b { color: var(--ink-primary); }
+
+.minibtn.is-bad { color: var(--status-bad); border-color: color-mix(in oklab, var(--status-bad) 40%, transparent); }
+.minibtn.is-bad:hover { background: color-mix(in oklab, var(--status-bad) 12%, transparent); color: var(--status-bad); }
+
+/* Reorder drop target (§10). */
+.step.drop-here { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.efoot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+}
+
+.efoot .sp { margin-left: auto; }
+.dirty { font-size: 11px; color: var(--status-warn); font-weight: 600; }
+
+/* §5: accent the card the panel is pointed at, so with several sequence cards on screen the
+   panel's target is never ambiguous. Selection-as-accent is A1's carve-out. */
+.card.seq-card.is-editing {
+  background: var(--accent-tint);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ---------- library drawer (SEQUENCES §4) ----------
+   Underlined tabs rather than pill buttons: these switch what the panel *lists*, which is the
+   same relationship the nav tabs have to the page, so they read the same way. Ink, not accent,
+   per A1. */
+.dtabs {
+  display: flex;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-hairline);
+  flex-shrink: 0;
+}
+
+.dtab {
+  flex: 1;
+  text-align: center;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 12px 0 10px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--ink-secondary);
+}
+
+.dtab:hover { color: var(--ink-primary); }
+.dtab.on { color: var(--ink-primary); border-bottom-color: var(--ink-primary); }
+
+/* The count answers "is there anything on the other tab?" without switching to find out. */
+.dtab .n {
+  color: var(--ink-muted);
+  font-weight: 500;
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pool-foot {
+  padding: 9px 10px;
+  border-top: 1px solid var(--border-hairline);
+  flex-shrink: 0;
+}
+
+.btn.wide { width: 100%; justify-content: center; }
+
+.pool-item .grab {
+  color: var(--ink-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.pool-item .steps {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Always present, so an editable row looks editable before you hover it. */
+.pool-item .pencil {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  display: inline-flex;
+  opacity: 0.5;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pool-item:hover .pencil { opacity: 1; }
+.pool-item .pencil:hover { background: var(--border-hairline); color: var(--ink-primary); }
+.pool-item .pencil svg { width: 12px; height: 12px; }
+
 .pool-head {
   padding: 12px;
   border-bottom: 1px solid var(--border);
@@ -456,6 +1120,16 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pool-item.seq-row .name {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .pool-item.disabled .name {
@@ -628,10 +1302,15 @@ a {
   color: var(--ink-muted);
 }
 
-/* Predictable keyboard focus everywhere (the OS default ring was leaking through). */
+/* Predictable keyboard focus everywhere (the OS default ring was leaking through).
+   POLISH §5: 2px offset and a matching radius, so the ring clears dense 30px controls instead of
+   hugging them. `:focus-visible` not `:focus` — it must appear for keyboard users and never on a
+   mouse click. This is the one sanctioned use of --accent outside A1's action rule, because it is
+   a browser-state affordance rather than a control colour. */
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: 7px;
 }
 
 /* Segmented Light/Dark switch — the only theme control (§2.1). */
@@ -804,13 +1483,16 @@ a {
   border-color: transparent;
 }
 
+/* POLISH §8. Rounded squares, not circles: the status glyph and the type badges are squares, so
+   circles were the odd shape out in this system. 22px so seven fit one row of the menu exactly. */
 .swatch {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
   border: 1px solid var(--border-strong);
   cursor: pointer;
   padding: 0;
+  position: relative;
 }
 
 .swatch[data-color] {
@@ -823,8 +1505,26 @@ a {
   outline-offset: 1px;
 }
 
+/* Which accent is already set — the menu gave no indication at all before. Two rings so the mark
+   reads against both the swatch and the menu behind it, whatever the hue. */
+.swatch.is-current {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--ink-primary);
+}
+
+/* "none" read as a white circle, i.e. as another colour choice. A dashed border and a diagonal
+   slash say absence instead. */
 .swatch-none {
-  background: transparent;
+  background: var(--bg-surface-2);
+  border: 1px dashed var(--border-strong);
+}
+
+.swatch-none::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-top: 1px solid var(--ink-muted);
+  transform: rotate(-45deg);
+  transform-origin: center;
 }
 
 .spin-svg {
@@ -847,17 +1547,28 @@ a {
      land on the shelf's own ring, so it still shows as a single hairline. */
   border: 1px solid var(--border-hairline);
   border-radius: var(--r-shelf) var(--r-shelf) 0 0;
-  background: var(--bg-surface-2);
+  background: var(--bg-surface); /* same surface as the cards, so the shelf reads as one object */
   cursor: move; /* whole header is the grid drag handle */
   flex: 0 0 auto;
 }
 
+/* POLISH §1.6 — the title takes the slack, the controls never give any up. `Configuration
+   Registry` was truncating with room to spare because it competed with the kebab, the ✕ and the
+   badge for a fixed share; some of this app's truncation was a layout bug, not a length problem. */
 .shelf-title {
+  flex: 1 1 auto;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0; /* allow the title to shrink and ellipsis instead of wrapping */
+}
+
+.shelf-head > .btn,
+.shelf-head .shelf-menu-wrap,
+.shelf-head .shelf-health,
+.shelf-head .shelf-count {
+  flex-shrink: 0;
 }
 
 /* ---------- shelf options menu (kebab) ---------- */
@@ -904,11 +1615,21 @@ a {
   margin: 0 2px;
 }
 
+/* Seven in one row rather than wrapping 5+2 — at 22px with a 6px gap they fit the menu width. */
 .shelf-menu .menu-colors {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 7px;
-  padding: 2px;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  padding: 3px 2px 5px;
+}
+
+/* Section label, matching the settings menu's. */
+.shelf-menu .menu-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  padding: 5px 2px 4px;
 }
 
 /* ---------- the hairline card grid (invariant A3, §4) ----------
@@ -1138,12 +1859,39 @@ a {
   word-break: break-word;
 }
 
+/* POLISH §4 — a step opens its logs, so it has to look like it does. The old hover rule was
+   `.seq-step-name[href]:hover`, but the element is a <button> and never has an href, so the
+   affordance never rendered at all and the feature was undiscoverable. */
 .seq-step {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 12.5px;
   min-width: 0;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: 5px;
+}
+
+/* Only when the step actually has a run to show — a disabled step promises nothing. */
+.seq-step:has(.seq-step-name:not(:disabled)):hover {
+  background: var(--hover-wash);
+}
+
+.seq-step:has(.seq-step-name:not(:disabled)):hover .seq-step-name {
+  color: var(--ink-primary);
+}
+
+.seq-step:has(.seq-step-name:not(:disabled)):hover::after {
+  content: "logs";
+  position: absolute;
+  right: 7px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  pointer-events: none;
 }
 
 .seq-step-dot {
@@ -1169,6 +1917,8 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.seq-step-name:not(:disabled) { cursor: pointer; }
 
 .seq-step-name[href]:hover {
   color: var(--ink-primary);
@@ -1370,6 +2120,15 @@ a {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* Commits the typed text for lists that can't be exhaustive. Separated from the matches
+   below it so it doesn't read as one of them. */
+.combo-custom {
+  color: var(--ink-secondary);
+  border-bottom: 1px solid var(--border-hairline);
+  border-radius: 6px 6px 0 0;
+  margin-bottom: 2px;
+}
+
 .combo-opt-label {
   flex: 1 1 auto;
   min-width: 0;
@@ -1433,8 +2192,10 @@ a {
   transition: grid-template-columns 0.18s ease;
 }
 
+/* 520px, not 470: the pane now stacks a section per label rather than showing one value
+   (CONFIG_LABELS §3). */
 .cfg.is-detail-open {
-  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 470px;
+  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) 520px;
 }
 
 .cfg-col {
@@ -1638,7 +2399,9 @@ a {
 .keys-colhead,
 .key-row {
   display: grid;
-  grid-template-columns: minmax(0, 200px) 96px minmax(0, 1fr) 62px;
+  /* CONFIG_LABELS §3: the Label column becomes Labels — a count plus a drift marker — so it
+     needs a little more room than a single label tag did. */
+  grid-template-columns: minmax(0, 200px) 104px minmax(0, 1fr) 62px;
   gap: 12px;
 }
 
@@ -1738,6 +2501,41 @@ a {
   text-overflow: ellipsis;
 }
 
+/* ---- CONFIG_LABELS §5: the Labels column ---- */
+.key-labels {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lblcount {
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+/* Difference is scannable down a column, which is what makes collapsing the rows a net gain
+   rather than a trade. Dot AND word: never colour alone (A4). No pill and no tint — labels
+   holding different values is ordinary, so the marker points rather than warns. */
+.diffmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.diffdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--label-diff);
+}
+
 .key-preview {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11.5px;
@@ -1782,6 +2580,1091 @@ a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ---------- review: quick links + PR action bar ---------- */
+.review-wrap {
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Context bar: project + repo pickers, star, and the starred chips, all on one row (§5).
+   Spans the window so the chips have room and the row survives collapsing the PR panel. */
+.ctxbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.picker-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--h-control);
+  padding: 0 4px 0 10px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  max-width: 230px;
+  flex-shrink: 0;
+}
+
+/* The prefix is a label, not a value — muted and small so the repo name still reads first. */
+.picker-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+/* The combobox supplies its own frame; inside a picker the wrapper owns it instead. */
+.picker-wrap .combo { min-width: 0; flex: 1; }
+
+.picker-wrap .combo-input {
+  border: none;
+  background: transparent;
+  height: 26px;
+  min-width: 0;
+  width: 100%;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 0 4px 0 0;
+}
+
+.picker-wrap .combo-input:hover:not(:disabled) { background: transparent; }
+.picker-wrap:has(.combo-input:not(:disabled)):hover { background: var(--hover-wash); }
+
+.ctx-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-hairline);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* Starred project+repo combos. Browsing project -> repo is too many clicks for
+   something used all day, so the ones you live in sit one click away. */
+.quicklinks {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ql-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+.ql-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  color: var(--ink-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ql-chip:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.ql-chip.active {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ql-chip b { font-weight: 600; }
+.ql-chip span { font-size: 10.5px; color: var(--ink-muted); }
+.ql-chip.active span { color: inherit; opacity: 0.8; }
+
+.star-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-control);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.star-btn:hover:not(:disabled) { color: var(--ink-primary); background: var(--hover-wash); }
+.star-btn.on { color: var(--status-warn); border-color: color-mix(in oklab, var(--status-warn) 45%, transparent); }
+.star-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* PR-level actions sit above the panes because they apply to the whole PR, not a file. */
+.pr-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.pr-bar-id {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+.pr-bar-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.pr-bar-refs {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pr-vote-state {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 100px;
+  flex-shrink: 0;
+}
+
+.pr-vote-state.vpos { background: color-mix(in oklab, var(--status-good) 14%, transparent); color: var(--status-good); }
+.pr-vote-state.vneg { background: color-mix(in oklab, var(--status-bad) 14%, transparent); color: var(--status-bad); }
+
+.pr-votes {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Review verdicts read as status, so they use the status ramp rather than --accent (A1/A2). */
+.vote-btn {
+  height: var(--h-control);
+  padding: 0 10px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  color: var(--ink-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  /* Flex-centred rather than vertical-aligned: each icon's path fills its 16px box differently
+     (the clock is a full-height circle, the check is not), so a single baseline nudge cannot
+     centre all four. Flex centres the box, which is the same for every one. */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vote-btn:hover:not(:disabled) { background: var(--hover-wash); color: var(--ink-primary); }
+.vote-btn:disabled { opacity: 0.55; cursor: default; }
+
+.vote-ico {
+  width: 12px;
+  height: 12px;
+  display: block;
+  flex-shrink: 0;
+}
+.vote-ico svg { width: 12px; height: 12px; display: block; }
+
+/* Hierarchy (§5): Approve is the one solid button, so the row has a single obvious primary.
+   The other three stay outline, and Reject only reddens on hover — a resting red fill in a
+   row you click all day is a misclick waiting to happen. */
+.vote-btn.ok {
+  background: var(--status-good);
+  border-color: var(--status-good);
+  color: #fff;
+}
+.vote-btn.ok:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--status-good) 88%, #000);
+  color: #fff;
+}
+
+.vote-btn.bad:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--status-bad) 14%, transparent);
+  border-color: color-mix(in oklab, var(--status-bad) 55%, transparent);
+  color: var(--status-bad);
+}
+
+/* The cast vote reads as state, not as another call to action. */
+.vote-btn.active { box-shadow: inset 0 0 0 1px currentColor; }
+.vote-btn.ok-soft.active { border-color: var(--status-good); color: var(--status-good); }
+.vote-btn.warn.active { border-color: var(--status-warn); color: var(--status-warn); }
+.vote-btn.bad.active {
+  background: color-mix(in oklab, var(--status-bad) 14%, transparent);
+  border-color: var(--status-bad);
+  color: var(--status-bad);
+}
+
+.vote-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--border-hairline);
+  flex-shrink: 0;
+}
+
+/* ---------- review: pull requests -> files -> diff ----------
+   Same three-pane discipline as Configurations: one scroll context per pane, no modal.
+   The file pane only appears once a PR is selected, so the list gets the full width first. */
+/* PRs on the left, diff in the middle, file list on the right — so the code sits centred
+   in the window rather than shunted right by two stacked lists. Both side panels collapse,
+   driven by data-left/data-right so it's a single grid-template-columns animation (§5).
+   Collapsing both is the intended way to read a wide side-by-side diff. */
+.review {
+  display: grid;
+  grid-template-columns: var(--w-left, var(--w-sidebar)) minmax(0, 1fr) var(--w-right, 280px);
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  transition: grid-template-columns 0.16s ease;
+}
+
+.review[data-left="off"] { --w-left: 0px; }
+.review[data-right="off"] { --w-right: 0px; }
+
+/* Icon button in the diff toolbar; takes the accent-tint "on" state while its panel is
+   visible, which is the sanctioned selection use of --accent (A1). */
+.iconbtn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--r-small);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+}
+
+.iconbtn:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.iconbtn.on {
+  background: var(--accent-tint);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  padding: 7px 8px;
+  border-radius: var(--r-small);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-check:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.review-empty svg {
+  color: var(--ink-muted);
+  margin-bottom: 10px;
+}
+
+.review-pickers {
+  display: flex;
+  gap: 8px;
+}
+
+.review-pickers .select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+/* ---- pull request list ---- */
+.pr-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 14px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--border-hairline);
+  cursor: pointer;
+  font: inherit;
+}
+
+.pr-item:hover {
+  background: var(--hover-wash);
+}
+
+.pr-item.active {
+  background: var(--accent-tint);
+  border-left-color: var(--accent);
+}
+
+.pr-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pr-id {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+/* Row flags (§8). Draft takes slate because it's a state of the PR, not a fault; conflicts
+   takes --status-warn because it's the one thing that stops you merging. */
+.pr-flag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: var(--r-tag);
+  flex-shrink: 0;
+}
+
+.pr-flag.draft {
+  color: var(--hue-slate);
+  background: color-mix(in oklab, var(--hue-slate) 15%, transparent);
+}
+
+.pr-flag.conflicts {
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 16%, transparent);
+}
+
+.pr-search {
+  width: 100%;
+  height: var(--h-control);
+  font-size: 12.5px;
+}
+
+.pr-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.pr-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  min-width: 0;
+}
+
+.pr-sub > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-arrow {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.pr-spacer {
+  flex: 1;
+  min-width: 4px;
+}
+
+.pr-author {
+  flex-shrink: 0;
+  max-width: 45%;
+}
+
+/* ---- changed files: grouped by folder (§7) ---- */
+.rail-head {
+  align-items: flex-start;
+}
+
+/* n of m viewed, as a thin bar — the mechanism for keeping your place in a long review. */
+.rail-progress {
+  margin-top: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-hairline);
+  overflow: hidden;
+}
+
+.rail-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--hue-aqua);
+  transition: width 0.18s ease;
+}
+
+.file-group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px 5px;
+  background: var(--bg-surface-2);
+  border: none;
+  border-top: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+  cursor: pointer;
+  font: inherit;
+  min-width: 0;
+}
+
+.file-group:first-child .file-group-head {
+  border-top: none;
+}
+
+.fg-chevron {
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 1.7;
+  color: var(--ink-muted);
+}
+
+/* Folder paths truncate at the START — the tail is what tells two of them apart — and are
+   allowed two lines. Filenames truncate at the end. The asymmetry is deliberate (§7). */
+.fg-path {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--ink-secondary);
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  /* POLISH §1.5: `anywhere` broke mid-word, splitting `Migrations` into `Migratio` / `ns`. The
+     path now carries a <wbr> after each separator (see fileDir's rendering), so `normal` breaks
+     only at the slashes. The two-line allowance is DESIGN_SPEC_REVIEW §7's deliberate choice and
+     is kept — this fixes where it breaks, not how many lines it gets. */
+  overflow-wrap: normal;
+}
+
+.fg-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0 10px 0 8px;
+  border-left: 2px solid transparent;
+  min-width: 0;
+}
+
+.file-item:hover {
+  background: var(--hover-wash);
+}
+
+.file-item.active {
+  background: var(--accent-tint);
+  border-left-color: var(--accent);
+}
+
+/* Viewed rows dim, so what's left to read stands out. */
+.file-item.is-viewed {
+  opacity: 0.45;
+}
+
+.file-item.is-viewed:hover,
+.file-item.active.is-viewed {
+  opacity: 0.75;
+}
+
+.file-viewed {
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--hue-aqua);
+}
+
+.file-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 7px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* Change kind by letter as well as hue, so it survives greyscale (A4). */
+.file-badge {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  border-radius: var(--r-small);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+/* File change type is IDENTITY, not health, so these use the --ft-* hues and deliberately
+   avoid status green and accent blue (§1). Green-A beside blue-E read as a pass/fail signal.
+   The letter stays as a second encoding so the badge passes the colour-alone test. */
+.file-badge.ch-add { background: color-mix(in oklab, var(--ft-add) 16%, transparent); color: var(--ft-add); }
+.file-badge.ch-edit { background: color-mix(in oklab, var(--ft-mod) 16%, transparent); color: var(--ft-mod); }
+.file-badge.ch-del { background: color-mix(in oklab, var(--ft-del) 18%, transparent); color: var(--ft-del); }
+.file-badge.ch-ren { background: color-mix(in oklab, var(--hue-magenta) 16%, transparent); color: var(--hue-magenta); }
+
+.file-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.file-name {
+  font-size: 12.5px;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-dir {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;      /* keep the deepest, most identifying folder visible */
+  text-align: left;
+}
+
+/* ---- diff pane ---- */
+.review-diff,
+.review-diff .detail-head,
+.review-diff .json-view {
+  border-left: none;
+}
+
+/* The file rail sits last, so its divider belongs on its leading edge. */
+.review-files {
+  border-right: none;
+  border-left: 1px solid var(--border-hairline);
+}
+
+/* File name leads, its folder trails in muted type — same idea as the card title/sub pair. */
+.review-diff .detail-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.detail-dir {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Line counts, reported by Monaco once it has computed the diff. */
+.diff-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-stats .st-add { color: var(--status-good); }
+.diff-stats .st-del { color: var(--status-bad); }
+
+/* The page's empty states sit on the code surface, so centre them in the pane. */
+.diff-body .empty {
+  margin: auto;
+}
+
+.file-threads {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 100px;
+  color: var(--ink-secondary);
+  background: var(--hover-wash);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- inline comment threads (Monaco view zones) ----------
+   Rendered as app components inside the editor, so a thread reads as part of Launchpad
+   rather than an editor widget. The glyph margin marks lines that already have one. */
+.diff-glyph-comment::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 6px auto 0;
+  border-radius: 2px;
+  background: var(--hue-violet);
+}
+
+/* Follows the pointer down the gutter: the visible way in to leaving a comment. */
+.diff-glyph-add {
+  cursor: pointer;
+}
+
+.diff-glyph-add::before {
+  content: "+";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin: 2px auto 0;
+  border-radius: var(--r-small);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Monaco renders .view-lines after .view-zones, so an unpositioned zone is painted over by
+   the code. Lifting it into its own layer puts the thread in front, where it belongs. */
+.diff-zone {
+  position: relative;
+  z-index: 6;
+  padding: 6px 10px 6px 46px; /* clear the gutter so threads line up with the code */
+  background: var(--code-bg);  /* opaque: nothing shows through from the lines beneath */
+}
+
+.dthread {
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--hue-violet);
+  border-radius: var(--r-control);
+  background: var(--bg-surface);
+  padding: 8px 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.dthread.is-resolved {
+  border-left-color: var(--status-good);
+  opacity: 0.82;
+}
+
+.dthread.is-new {
+  border-left-color: var(--accent);
+}
+
+.dthread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.dthread-status {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 100px;
+}
+
+.dthread-status.open { background: color-mix(in oklab, var(--hue-violet) 15%, transparent); color: var(--hue-violet); }
+.dthread-status.ok { background: color-mix(in oklab, var(--status-good) 15%, transparent); color: var(--status-good); }
+
+.dthread-count {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.dcomment + .dcomment {
+  border-top: 1px solid var(--border-hairline);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+.dcomment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.dcomment-author {
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.dcomment-body {
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 2px;
+}
+
+.dthread-reply {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dthread-input {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.dthread-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dthread.is-new .dthread-reply {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.diff-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--code-bg);
+}
+
+/* The editor is never unmounted between files — only its models are swapped — so the
+   transition here is what the eye sees instead of a rebuild. It's held hidden from the
+   model swap until Monaco reports the diff is computed, then fades in fully decorated. */
+/* ---------- diff rendering (DESIGN_SPEC_REVIEW.md §3) ----------
+   Painted here rather than through Monaco's defineTheme because the --diff-* tokens are
+   color-mix()/oklab values and Monaco's colour parser only accepts hex and rgba. The theme
+   sets those same slots transparent, so there is exactly one layer of paint.
+
+   Selectors are prefixed with .review-diff to outrank Monaco's own generated theme rules
+   without needing !important. */
+
+/* Move 1: faint row tint, strong 2px leading stripe. The stripe is what makes a row
+   unmistakably an addition, which is what frees the background to stay quiet — so a
+   whole-file addition never becomes a solid slab of colour. */
+.review-diff .monaco-editor .view-overlays .line-insert {
+  background: var(--diff-add-tint);
+  box-shadow: inset 2px 0 0 var(--diff-add-stripe);
+}
+
+.review-diff .monaco-editor .view-overlays .line-delete {
+  background: var(--diff-del-tint);
+  box-shadow: inset 2px 0 0 var(--diff-del-stripe);
+}
+
+/* Word level is deliberately NOT painted yet (§10 defers it to its own change, since it
+   needs a diff algorithm rather than styling). Monaco marks every character of a wholly
+   added file as inserted *text* as well as inserted *lines*, so applying --diff-*-word
+   here stacks a 30% mix on top of the row tint and turns the file into a solid slab —
+   exactly the failure §3 exists to fix. Left transparent until real token ranges are
+   available, at which point only genuinely changed tokens should carry --diff-*-word. */
+.review-diff .monaco-editor .char-insert,
+.review-diff .monaco-editor .char-delete {
+  background: transparent;
+}
+
+/* Move 2: the gutter never tints, in either theme. This is the change that fixes the
+   contrast problem — line numbers stop sitting on a coloured background. */
+.review-diff .monaco-editor .margin {
+  background: var(--diff-gutter);
+}
+
+/* Monaco tints the margin through marginClassName, which is gutter-insert/gutter-delete —
+   a different class from the content line. Neutralised here as well as in the theme. */
+.review-diff .monaco-editor .margin-view-overlays .gutter-insert,
+.review-diff .monaco-editor .margin-view-overlays .gutter-delete {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The +/- signs take the stripe colour. Monaco emits them as codicon glyphs via
+   linesDecorationsClassName, so they inherit `color`. This is the fallback that keeps
+   additions and deletions distinguishable in greyscale. */
+.review-diff .monaco-editor .margin-view-overlays .insert-sign {
+  color: var(--diff-add-stripe);
+  opacity: 1;
+}
+
+.review-diff .monaco-editor .margin-view-overlays .delete-sign {
+  color: var(--diff-del-stripe);
+  opacity: 1;
+}
+
+/* Collapsed unchanged regions (§5). Monaco supplies all three expand controls -- the thin
+   strip above shows 25 more lines up, the strip below 25 down, and the glyph in the middle
+   shows the whole region -- but it draws the glyph as codicon `unfold`, which reads as a
+   snowflake. Swapped for a chevron, and the strips are given a resting hairline so they read
+   as controls rather than as nothing at all. */
+.review-diff .monaco-editor .diff-hidden-lines .center .codicon-unfold::before {
+  content: "\eab4"; /* codicon chevron-down */
+}
+
+.review-diff .monaco-editor .diff-hidden-lines .top,
+.review-diff .monaco-editor .diff-hidden-lines .bottom {
+  border-bottom-color: var(--border-hairline);
+}
+
+/* Side by side, Monaco draws the widget once per pane, so the count and the control appear
+   twice for one hunk. The original pane keeps its band -- so the row still reads as spanning
+   the full width -- but drops the duplicate label and chevron, leaving one set of controls. */
+.review-diff .editor.original .diff-hidden-lines .center > * {
+  visibility: hidden;
+}
+
+/* Positioning context for the composer overlay, which floats over the editor rather than
+   displacing it (§6). */
+.monaco-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.monaco-host {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  opacity: 1;
+  transition: opacity 0.16s ease;
+}
+
+/* The piece that changes the read: covered code looks intentionally dimmed rather than
+   accidentally hidden. Not a dark veil — the code surface itself at partial opacity. */
+.diff-scrim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 168px;
+  background: var(--code-bg);
+  opacity: 0.62;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.diff-composer {
+  position: absolute;
+  /* `left` is set inline from the anchored pane's offset plus a gutter allowance, so side by
+     side the card sits over the modified pane rather than the original one. */
+  right: 24px;
+  max-width: 620px;
+  z-index: 6;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Points at the line it belongs to, so the anchor is never in doubt. */
+.diff-composer::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 22px;
+  width: 9px;
+  height: 9px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-strong);
+  border-top: 1px solid var(--border-strong);
+  transform: rotate(45deg);
+}
+
+.dc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dc-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--r-tag);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.dc-line {
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.dc-input {
+  width: 100%;
+  min-height: 66px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.dc-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.dc-hint {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+}
+
+.monaco-host.is-swapping {
+  opacity: 0;
+  transition: none; /* hide instantly; only the reveal animates */
+}
+
+/* Previous file still on screen while the next one is fetched. */
+.monaco-host.is-stale {
+  opacity: 0.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monaco-host { transition: none; }
+}
+
+/* Explains an automatic view choice (§4). Aqua, because it's information — not a status,
+   and not an action. */
+.auto-chip {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+  white-space: nowrap;
+  cursor: help;
+  color: var(--hue-aqua);
+  background: color-mix(in oklab, var(--hue-aqua) 14%, transparent);
+}
+
+/* Segmented side-by-side / inline switch. */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-control);
+  background: var(--bg-surface-2);
+  flex-shrink: 0;
+}
+
+.seg-opt {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: var(--r-small);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg-opt:hover {
+  color: var(--ink-primary);
+}
+
+/* The selected state has to be visible — the previous version was nearly invisible (§5).
+   A raised surface pill with a hairline shadow in light; a --border-strong fill in dark. */
+.seg-opt.active {
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  box-shadow: 0 1px 2px rgba(16, 24, 32, 0.12), inset 0 0 0 1px var(--border-strong);
+}
+
+:root[data-theme="dark"] .seg-opt.active {
+  background: var(--border-strong);
+  box-shadow: none;
 }
 
 /* ---------- key vault ----------
@@ -1872,16 +3755,189 @@ a {
   color: var(--ink-primary);
 }
 
-.json-view .j-key { color: #1c5cab; }
-.json-view .j-num { color: #9a6a00; }
-.json-view .j-str { color: #0a7d0a; }
-.json-view .j-bool { color: var(--hue-violet); }
-.json-view .j-null { color: var(--ink-muted); }
-.json-view .j-punct { color: var(--ink-muted); }
+.json-view .j-key, .lbl-body .j-key { color: #1c5cab; }
+.json-view .j-num, .lbl-body .j-num { color: #9a6a00; }
+.json-view .j-str, .lbl-body .j-str { color: #0a7d0a; }
+.json-view .j-bool, .lbl-body .j-bool { color: var(--hue-violet); }
+.json-view .j-null, .lbl-body .j-null { color: var(--ink-muted); }
+.json-view .j-punct, .lbl-body .j-punct { color: var(--ink-muted); }
 
-:root[data-theme="dark"] .json-view .j-key { color: #6da7ec; }
-:root[data-theme="dark"] .json-view .j-num { color: #eda100; }
-:root[data-theme="dark"] .json-view .j-str { color: #4fc94f; }
+:root[data-theme="dark"] .json-view .j-key, :root[data-theme="dark"] .lbl-body .j-key { color: #6da7ec; }
+:root[data-theme="dark"] .json-view .j-num, :root[data-theme="dark"] .lbl-body .j-num { color: #eda100; }
+:root[data-theme="dark"] .json-view .j-str, :root[data-theme="dark"] .lbl-body .j-str { color: #4fc94f; }
+
+/* ================= CONFIG_LABELS §6: labels stacked in the detail pane ================= */
+
+/* Summary strip. Drift gets the tint and a 2px left rule; no drift stays neutral, because a key
+   whose labels all agree is the quiet case and shouldn't look like an alert. */
+.lbl-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 9px 14px;
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  background: var(--bg-surface-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+/* Stated, not warned about — hence a hairline rule in the difference hue rather than a tint. */
+.lbl-summary.has-diff {
+  box-shadow: inset 2px 0 0 var(--label-diff);
+  color: var(--ink-primary);
+}
+
+.lbl-summary .diffdot { width: 7px; height: 7px; }
+
+/* Where no value has a majority, the preview is standing in rather than representing the rest. */
+.key-preview.is-nobase { opacity: 0.75; }
+.lbl-summary .jumps { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+
+.jumpchip {
+  border: 1px solid color-mix(in oklab, var(--label-diff) 30%, transparent);
+  background: transparent;
+  color: color-mix(in oklab, var(--label-diff) 75%, var(--ink-primary));
+  border-radius: var(--r-small);
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jumpchip:hover { background: color-mix(in oklab, var(--label-diff) 14%, transparent); }
+
+.lbl-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* ---- one section per label ---- */
+.lbl-sect { border-bottom: 1px solid var(--border-hairline); }
+
+.lbl-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  background: var(--bg-surface-2);
+}
+
+.lbl-head .sp { flex: 1; }
+
+.lbl-chev {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 2px;
+  transform: rotate(-90deg);
+  transition: transform 0.12s ease;
+}
+
+.lbl-sect.open .lbl-chev { transform: rotate(0deg); }
+.lbl-chev svg { width: 11px; height: 11px; }
+
+/* Label identity: slate for the baseline, violet for a named label (§3). */
+.lblchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-small);
+  white-space: nowrap;
+}
+
+.lblchip .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.lblchip.is-base { background: color-mix(in oklab, var(--label-default) 14%, transparent); color: var(--label-default); }
+.lblchip.is-base .dot { background: var(--label-default); }
+.lblchip.is-named { background: color-mix(in oklab, var(--label-named) 14%, transparent); color: var(--label-named); }
+.lblchip.is-named .dot { background: var(--label-named); }
+
+/* BASELINE is muted text rather than a pill — it names the reference, it isn't a verdict. */
+.lbl-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.lbl-tag.is-baseline { color: var(--ink-muted); }
+
+.lbl-tag.is-same {
+  padding: 1px 6px;
+  border-radius: var(--r-small);
+  background: var(--bg-3);
+  color: var(--ink-muted);
+}
+
+.lbl-tag.is-differs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 5px;
+  border-radius: var(--r-small);
+  background: color-mix(in oklab, var(--label-diff) 12%, transparent);
+  color: color-mix(in oklab, var(--label-diff) 75%, var(--ink-primary));
+}
+
+/* Identity, not a verdict — which value the app resolves when no label is asked for. */
+.lbl-tag.is-nolabel {
+  color: var(--ink-muted);
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.lbl-body {
+  margin: 0;
+  padding: 10px 0;
+  background: var(--code-bg);
+  font: 12px/1.65 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ink-primary);
+  overflow-x: auto;
+}
+
+/* Each line is its own block so a changed one can carry the tint and stripe across the row. */
+.lbl-body .cline {
+  display: block;
+  padding: 0 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Same grammar as the Review page's diff rows (DESIGN_SPEC_REVIEW.md §3): faint tint, and a 2px
+   inset stripe that carries the identification so the background can stay quiet. In the
+   difference hue rather than amber — this marks "not the same everywhere", not "wrong". */
+.lbl-body .cline.is-drift {
+  background: color-mix(in oklab, var(--label-diff) 10%, var(--code-bg));
+  box-shadow: inset 2px 0 0 var(--label-diff);
+}
+
+/* ---- §10: compact form when every value for the key is a short one-liner ---- */
+.lbl-compact { padding: 4px 0; }
+
+.lc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.lc-row:last-child { border-bottom: none; }
+
+.lc-val {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--ink-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .cfg-table {
   width: 100%;
@@ -1964,8 +4020,11 @@ a {
   min-width: 0;
 }
 
+/* POLISH §9: 15px, up from 14.5. Hierarchy was carried almost entirely by weight and colour,
+   which is why dense areas read flat — widening the ratio between the loudest and quietest text
+   is the cheapest way to make a packed card feel organised. Pairs with run-row meta at 10.5px. */
 .card-title-text {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--ink-primary);
   border-radius: 4px;
@@ -2086,15 +4145,60 @@ a {
   overflow: hidden; /* clip extra runs rather than scroll (shelf is user-sized) */
 }
 
-/* Single-line run row: dot, short branch, then "1m 3s · 4h" as one muted string. */
+/* POLISH §1.3 — runs grouped by branch: the name once as a heading, then rows of timings. */
+.run-group + .run-group { margin-top: 7px; }
+
+.rg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0 3px;
+}
+
+.rg-branch {
+  flex: 1;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.rg-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Single run row: dot, duration, then when. The branch now lives in the group heading. */
 .run-line {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px;
+  padding: 3px 5px;
   margin: 0 -5px;
-  border-radius: 6px;
+  border-radius: 5px;
   border: none;
+  cursor: pointer;
+}
+
+/* Tabular, because these stack — `1m 3s` over `1m 29s` over `52s` only looks tidy when the
+   digits align (POLISH §9). */
+.run-line .rl-dur {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-line .rl-when {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .run-line:hover {
@@ -2114,6 +4218,64 @@ a {
 .run-line .rl-dot.running { background: var(--status-warn); }
 .run-line .rl-dot.canceled { background: var(--ink-muted); }
 
+/* ---------- POLISH §3.1: the running state breathes ----------
+   Running is the only genuinely live state in the product; a static ring reads as a screenshot of
+   something that *was* running. Deliberately slow — anything faster nags in peripheral vision on
+   a dashboard left open all day. Nothing else in the app animates (§3.2 aside). */
+@keyframes glyph-spin { to { transform: rotate(360deg); } }
+@keyframes dot-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* The MARK only, never the whole svg: this glyph is a stroked rounded square plus an arc, so
+   rotating the svg would spin the square too. transform-box makes the percentage origin resolve
+   against the path's own box rather than the viewport. */
+.status-glyph.tone-running .glyph-mark {
+  animation: glyph-spin 1.8s linear infinite;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+
+.run-line .rl-dot.running {
+  animation: dot-breathe 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-glyph.tone-running .glyph-mark,
+  .run-line .rl-dot.running {
+    animation: none;
+  }
+}
+
+/* ---------- POLISH §3.2: things that appear, fade in ----------
+   Instant appearance is what makes an interface feel like a series of states rather than one
+   continuous thing. Menus, popups and the overlay only — NOT cards, shelves or run rows, whose
+   restraint is deliberate (§10). */
+@keyframes appear {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.card-menu,
+.combo-pop,
+.bmenu {
+  animation: appear 130ms ease-out;
+}
+
+/* No translate on a full-screen scrim — sliding the backdrop reads as a glitch. */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.overlay {
+  animation: fade-in 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-menu,
+  .combo-pop,
+  .bmenu,
+  .overlay {
+    animation: none;
+  }
+}
+
 /* Branch names are ink-coloured, never accent (A1). */
 .run-line .rl-branch {
   flex: 1;
@@ -2124,6 +4286,53 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* POLISH §1.2 — anything fitted by <Truncated>.
+   `display: block` and `min-width: 0` are load-bearing: an inline element has no measurable
+   width, and a flex child without min-width:0 refuses to shrink, so in either case clientWidth
+   is useless and the string renders untruncated. The ellipsis is the pre-measurement fallback. */
+.truncated {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* REQUIRED. Without this, CSS clips the already-fitted string a second time and you get
+   `acca-bon…r-sw…` — worse than the tail truncation this replaces. */
+.truncated.is-fitted {
+  text-overflow: clip;
+}
+
+/* POLISH §6 — a list that matches nothing says so, names the scope, and offers the way out. */
+.pool-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 26px 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.pool-empty b { color: var(--ink-secondary); font-size: 12.5px; }
+
+.pool-empty-act {
+  margin-top: 6px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.pool-empty-act:hover { text-decoration: underline; }
+.pool-empty-hint { font-size: 11px; }
 
 .run-line .rl-meta {
   flex-shrink: 0;
@@ -2174,6 +4383,19 @@ a {
   height: 15px;
   display: block;
 }
+
+/* POLISH §2 — the word instead of a glyph. Four characters cannot be misread, and the footer
+   has the room. Kept at --ink-secondary so it stays quieter than the accent run button (A1). */
+.card .actions .btn.logs-btn {
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-secondary);
+  flex: 0 0 auto;
+}
+
+.card .actions .btn.logs-btn:hover { color: var(--ink-primary); }
 
 /* Run button — icon only. Solid for sequences, ghost for single pipelines:
    same accent, two weights. --accent lives here and on list selection only (A1). */
@@ -2294,6 +4516,30 @@ a {
   color: var(--ink-primary);
 }
 
+/* Action rows in the same menu as the toggles, matching them exactly so the menu reads as one
+   list rather than a checkbox group with a button bolted on. */
+.card-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--ink-secondary);
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--r-small);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.card-menu-item:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
 /* ---------- modal ---------- */
 .overlay {
   position: fixed;
@@ -2380,6 +4626,19 @@ a {
   font-size: 13px;
 }
 
+/* Not a failure — the request succeeded, but what's on screen is incomplete.
+   Named `notice-warn`, not `warn`: a bare `.warn` collided with the vote buttons' tone class
+   (`vote-btn warn`) and gave "Waiting for author" an amber resting fill, which §5 explicitly
+   does not want. Utility classes here need a prefix. */
+.notice-warn {
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--status-warn) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
 /* ---------- logs ---------- */
 .log-layout {
   display: grid;
@@ -2406,12 +4665,28 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-faint);
-  padding: 6px 8px 2px;
+  padding: 8px 8px 2px;
+  overflow: hidden;
+}
+
+/* Stage over job, so the hierarchy is legible without indenting every step under it. */
+.log-group-title .lg-stage,
+.log-group-title .lg-job {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.log-group-title .lg-stage {
+  font-size: 9.5px;
+  opacity: 0.75;
+}
+
+.log-group-title .lg-job { color: var(--ink-muted); }
+
+/* Selects the step's log, so it has to look selectable — a plain div defaults to a text caret,
+   which read as "this is a label" rather than "click me". */
 .log-step {
   display: flex;
   align-items: center;
@@ -2419,6 +4694,7 @@ a {
   padding: 6px 8px 6px 16px;
   border-radius: 6px;
   font-size: 13px;
+  cursor: pointer;
 }
 
 .log-step:hover {

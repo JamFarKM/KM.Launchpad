@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import type { Sequence, SequenceRun, SequenceRunStep, ViewItem } from "../types";
 import { notify } from "../lib/notify";
 import { commonPrefix, stepShort, timeAgo } from "../lib/format";
+import { clearLastResult, isCleared, onCleared } from "../lib/seqDismiss";
 import { SequenceRunDialog } from "./SequenceRunDialog";
 import { SequenceLogModal } from "./SequenceLogModal";
-import { CloseIcon, LogsIcon, PlayIcon, StatusGlyph } from "./StatusGlyph";
+import { CloseIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
 import type { StatusTone } from "../lib/format";
 
 interface Props {
@@ -15,6 +16,11 @@ interface Props {
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
   onToggleLabel: (item: ViewItem, show: boolean) => void;
+  /** Shelf-level health, shown in the footer of the shelf's first card only. */
+  shelfHealth?: { failing: number; running: number };
+  /** This card's sequence is the one the editor panel is pointed at (§5). */
+  editing?: boolean;
+  onEdit: () => void;
   onOpenRun: (project: string, buildId: number) => void;
   onDragCard: (item: ViewItem) => void;
   onReorder: (target: ViewItem) => void;
@@ -46,9 +52,11 @@ const isTerminal = (r?: SequenceRun | null) =>
   !!r && (r.status === "succeeded" || r.status === "failed" || r.status === "canceled");
 
 export function SequenceCard({
-  item, sequence, onRemove, onRename, onToggleLabel, onOpenRun, onDragCard, onReorder,
+  item, sequence, onRemove, onRename, onToggleLabel, shelfHealth, editing, onEdit,
+  onOpenRun, onDragCard, onReorder,
 }: Props) {
   const seqId = item.sequenceId!;
+  const qc = useQueryClient();
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,7 +79,23 @@ export function SequenceCard({
     refetchInterval: (q) => (isTerminal(q.state.data) ? false : 3000),
   });
 
-  const run = (activeRunId ? runQ.data : latestQ.data) ?? null;
+  const latest = (activeRunId ? runQ.data : latestQ.data) ?? null;
+
+  /* A cleared result must survive a refetch, so it's recorded by run id rather than by wiping
+     the cache. Re-render on the event so a second card for the same sequence — on another shelf
+     or another view — clears at the same moment. */
+  const [, bumpCleared] = useState(0);
+  useEffect(() => onCleared(() => bumpCleared((n) => n + 1)), []);
+  const run = isCleared(seqId, latest?.id) ? null : latest;
+
+  /* Running from this card switches it to ["seq-run", activeRunId] and disables ["seq-latest"],
+     which is what the board's shelf-health pill reads. That left the pill holding the previous
+     run indefinitely: the card could show green while the pill still said "1 failing".
+     Invalidating on the start and on each status change keeps both readers on the same run. */
+  useEffect(() => {
+    if (!activeRunId) return;
+    qc.invalidateQueries({ queryKey: ["seq-latest", seqId] });
+  }, [activeRunId, runQ.data?.status, seqId, qc]);
 
   // Notify once when the active run reaches a terminal state.
   const notified = useRef<string | null>(null);
@@ -126,7 +150,7 @@ export function SequenceCard({
 
   return (
     <>
-    <div className={`card seq-card ${item.showLabel ? "show-label" : ""}`} draggable
+    <div className={`card seq-card ${item.showLabel ? "show-label" : ""} ${editing ? "is-editing" : ""}`} draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragCard(item); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onReorder(item); }}>
@@ -194,16 +218,23 @@ export function SequenceCard({
           {busy ? <span className="spin" /> : <PlayIcon />}
         </button>
         {running && <button className="btn small" onClick={cancel}>Cancel</button>}
+        {/* Same word as the pipeline card's (POLISH §2) — it was the same unreadable glyph. */}
         {run && (
-          <button className="btn small icon-only" title="View this sequence run's logs"
+          <button className="btn small logs-btn" title="View this sequence run's logs"
             aria-label="View logs" onClick={() => setShowLog(true)}>
-            <LogsIcon />
+            LOGS
           </button>
         )}
+        {shelfHealth && <ShelfHealthPill health={shelfHealth} />}
         <div className="card-menu-wrap">
           <button className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
           {menu && (
             <div className="card-menu" onMouseLeave={() => setMenu(false)}>
+              {/* First item (§5): the panel is where a sequence is authored, and this is the
+                  path you take when you're looking at the card rather than the library. */}
+              <button className="card-menu-item" onClick={() => { onEdit(); setMenu(false); }}>
+                Edit sequence…
+              </button>
               <label>
                 <input
                   type="checkbox"
@@ -212,6 +243,17 @@ export function SequenceCard({
                 />
                 Show project label
               </label>
+              {/* Acknowledges a result you've dealt with, so a stale failure stops colouring the
+                  card and the shelf pill. Only the run in hand is cleared — the next one shows
+                  normally. Nothing is deleted; the run stays in the logs. */}
+              {run && isTerminal(run) && (
+                <button
+                  className="card-menu-item"
+                  onClick={() => { clearLastResult(seqId, run.id); setActiveRunId(null); setMenu(false); }}
+                >
+                  Clear last result
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -232,7 +274,11 @@ export function SequenceCard({
         run={run}
         sequenceName={sequence?.name ?? item.name}
         onClose={() => setShowLog(false)}
-        onOpenRun={onOpenRun}
+        /* Drilling into a step's pipeline log replaces this modal rather than stacking beneath it.
+           Both use the same overlay z-index and this one is portalled to the body, so it painted
+           over the run modal that had just opened. Two full-screen overlays also leave the
+           backdrop click and Escape acting on the wrong one. */
+        onOpenRun={(project, buildId) => { setShowLog(false); onOpenRun(project, buildId); }}
       />
     )}
     </>

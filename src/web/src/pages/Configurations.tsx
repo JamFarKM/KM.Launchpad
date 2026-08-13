@@ -1,48 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import type { ConfigRegistry, ConfigSetting } from "../types";
+import type { ConfigRegistry, ConfigSetting, ConfigSettings } from "../types";
+import {
+  canonical, commonLines, groupByKey, isCompact, markLines, preview, NO_LABEL,
+  type KeyGroup, type LabelValue,
+} from "../lib/configLabels";
 
 /**
- * Three panes: namespaces → keys → detail (§2.4). One scroll context per pane, no modal,
- * and the detail pane slides in beside the key list rather than covering it, so you never
- * lose your place in the list you were comparing against.
+ * Three panes: namespaces → keys → detail (§2.4, as amended by CONFIG_LABELS).
+ *
+ * The key list is one row per *key*, not per key+label: a key carrying three labels used to be
+ * three rows, which padded the list with repeats and left "does this differ between labels?" to
+ * be answered by eye. Collapsing the rows both shortens the list and creates somewhere to put
+ * the answer — the DIFFERS marker in §5, and the stacked sections in §6.
  */
-
-// ---- value typing: identity, not status (so the hues exclude green and red, per A2) ----
-type ValueType = "JSON" | "BOOL" | "INT" | "STR";
-
-function valueType(raw?: string | null): ValueType {
-  const s = (raw ?? "").trim();
-  if (!s) return "STR";
-  if (s === "true" || s === "false") return "BOOL";
-  if (/^-?\d+(\.\d+)?$/.test(s)) return "INT";
-  if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
-    try { JSON.parse(s); return "JSON"; } catch { /* not valid JSON after all */ }
-  }
-  return "STR";
-}
-
-/** A short, readable one-liner for the value column. */
-function preview(raw?: string | null): string {
-  const s = (raw ?? "").trim();
-  if (!s) return "";
-  if (valueType(s) === "JSON") {
-    try {
-      const parsed = JSON.parse(s);
-      if (Array.isArray(parsed)) return `[ ${parsed.length} item${parsed.length === 1 ? "" : "s"} ]`;
-      const keys = Object.keys(parsed as object);
-      return keys.length ? `{ ${keys.join(", ")} }` : "{ }";
-    } catch { /* fall through */ }
-  }
-  return s.length > 120 ? `${s.slice(0, 120)}…` : s;
-}
-
-/** A key as shown in the table: the setting plus the portion of its name still worth showing. */
-interface KeyRow {
-  setting: ConfigSetting;
-  label: string;
-}
 
 /** Key-count badge doubles as a magnitude cue — one hue, four steps. */
 const countStep = (n: number) => (n < 20 ? 1 : n < 80 ? 2 : n < 200 ? 3 : 4);
@@ -71,6 +43,22 @@ const keyLeaf = (key: string): string => {
   const ns = namespaceOf(key);
   return ns === NS_ROOT ? key : key.slice(ns.length).replace(/^[:/]+/, "") || key;
 };
+
+/**
+ * A quiet dot, not a caution sign. Environments holding different values is what a config store
+ * is for — it wants pointing at, not warning about.
+ */
+function DiffDot() {
+  return <span className="diffdot" aria-hidden="true" />;
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M3 4.5L6 7.5l3-3" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 export function ConfigurationsPage() {
   const registriesQ = useQuery<ConfigRegistry[]>({ queryKey: ["config-registries"], queryFn: api.configRegistries });
@@ -110,6 +98,12 @@ export function ConfigurationsPage() {
   );
 }
 
+/** A key as shown in the table: its grouped labels plus the portion of the name worth showing. */
+interface KeyRow {
+  group: KeyGroup;
+  label: string;
+}
+
 function ConfigBrowser({ registries, active, onPickRegistry }: {
   registries: ConfigRegistry[];
   active: ConfigRegistry | null;
@@ -118,18 +112,19 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
   const [nsFilter, setNsFilter] = useState("");
   const [keyFilter, setKeyFilter] = useState("");
   const [activeNs, setActiveNs] = useState<string | null>(null);
-  const [selected, setSelected] = useState<ConfigSetting | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  const settingsQ = useQuery<ConfigSetting[]>({
+  const settingsQ = useQuery<ConfigSettings>({
     queryKey: ["config-settings", active?.id],
     queryFn: () => api.configSettings(active!.id),
     enabled: !!active,
   });
 
-  const settings = useMemo(() => settingsQ.data ?? [], [settingsQ.data]);
+  const settings = useMemo(() => settingsQ.data?.settings ?? [], [settingsQ.data]);
 
-  // namespace → settings
+  /* One fetch already returns every key *and* every label, which is exactly what computing drift
+     needs — so this is a reshape of data in hand, not a second read. There is deliberately no
+     per-row request here: Placement holds 290 keys (§7). */
   const namespaces = useMemo(() => {
     const m = new Map<string, ConfigSetting[]>();
     for (const s of settings) {
@@ -137,26 +132,34 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
       const list = m.get(ns);
       if (list) list.push(s); else m.set(ns, [s]);
     }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }));
+    return [...m.entries()]
+      .map(([ns, items]) => ({ ns, items, groups: groupByKey(items) }))
+      .sort((a, b) => a.ns.localeCompare(b.ns, undefined, { sensitivity: "base" }));
   }, [settings]);
 
-  // Land on the first namespace once the data arrives.
   useEffect(() => {
-    if (namespaces.length > 0 && (!activeNs || !namespaces.some(([n]) => n === activeNs))) {
-      setActiveNs(namespaces[0][0]);
+    if (namespaces.length > 0 && (!activeNs || !namespaces.some((n) => n.ns === activeNs))) {
+      setActiveNs(namespaces[0].ns);
     }
   }, [namespaces, activeNs]);
 
   const nsNeedle = nsFilter.trim().toLowerCase();
-  const shownNamespaces = namespaces.filter(([n]) => !nsNeedle || n.toLowerCase().includes(nsNeedle));
+  const shownNamespaces = namespaces.filter((n) => !nsNeedle || n.ns.toLowerCase().includes(nsNeedle));
 
+  const current = namespaces.find((n) => n.ns === activeNs);
   const keyNeedle = keyFilter.trim().toLowerCase();
-  const keys = useMemo(() => {
-    const inNs = namespaces.find(([n]) => n === activeNs)?.[1] ?? [];
-    return inNs
-      .filter((s) => !keyNeedle || s.key.toLowerCase().includes(keyNeedle) || (s.value ?? "").toLowerCase().includes(keyNeedle))
-      .sort((a, b) => a.key.localeCompare(b.key, undefined, { sensitivity: "base" }));
-  }, [namespaces, activeNs, keyNeedle]);
+
+  const keyGroups = useMemo(() => {
+    const all = current?.groups ?? [];
+    if (!keyNeedle) return all;
+    return all.filter((g) =>
+      g.key.toLowerCase().includes(keyNeedle) ||
+      g.labels.some((l) => l.raw.toLowerCase().includes(keyNeedle) || l.label.toLowerCase().includes(keyNeedle)));
+  }, [current, keyNeedle]);
+
+  /** Total label values behind the rows, so the compression is legible (§5). */
+  const labelValueCount = useMemo(
+    () => keyGroups.reduce((n, g) => n + g.labels.length, 0), [keyGroups]);
 
   /**
    * Within a namespace, keys are grouped by their next segment — so Importer:Endpoints:Primary
@@ -166,17 +169,17 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
   const grouped = useMemo(() => {
     const bare: KeyRow[] = [];
     const byGroup = new Map<string, KeyRow[]>();
-    for (const s of keys) {
-      const leaf = keyLeaf(s.key);
+    for (const g of keyGroups) {
+      const leaf = keyLeaf(g.key);
       const cut = leaf.search(/[:/]/);
       if (cut < 0) {
-        bare.push({ setting: s, label: leaf });
+        bare.push({ group: g, label: leaf });
       } else {
-        const group = leaf.slice(0, cut);
+        const name = leaf.slice(0, cut);
         const rest = leaf.slice(cut + 1) || leaf;
-        const rows = byGroup.get(group);
-        if (rows) rows.push({ setting: s, label: rest });
-        else byGroup.set(group, [{ setting: s, label: rest }]);
+        const rows = byGroup.get(name);
+        if (rows) rows.push({ group: g, label: rest });
+        else byGroup.set(name, [{ group: g, label: rest }]);
       }
     }
     const out: { name: string | null; rows: KeyRow[] }[] = [];
@@ -186,23 +189,14 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
       out.push({ name, rows });
     }
     return out;
-  }, [keys]);
+  }, [keyGroups]);
 
+  const selected = keyGroups.find((g) => g.key === selectedKey) ?? null;
   const env = active ? envOf(active.name) : "none";
-  const detailOpen = !!selected;
-
-  async function copyValue() {
-    if (!selected?.value) return;
-    try {
-      await navigator.clipboard.writeText(selected.value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard blocked */ }
-  }
 
   return (
     <div
-      className={`cfg ${detailOpen ? "is-detail-open" : ""}`}
+      className={`cfg ${selected ? "is-detail-open" : ""}`}
       style={{ ["--env-active" as string]: env === "none" ? "var(--ink-muted)" : `var(--env-${env})` }}
     >
       {/* ---------------- namespaces ---------------- */}
@@ -217,7 +211,7 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
                   className={`env-pill ${r.id === active?.id ? "active" : ""}`}
                   style={{ ["--env-c" as string]: e === "none" ? "var(--ink-muted)" : `var(--env-${e})` }}
                   title={r.endpoint}
-                  onClick={() => { onPickRegistry(r.id); setSelected(null); }}
+                  onClick={() => { onPickRegistry(r.id); setSelectedKey(null); }}
                 >
                   {r.name}
                 </button>
@@ -237,14 +231,14 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
           {!settingsQ.isLoading && shownNamespaces.length === 0 && (
             <div className="faint cfg-note">No matching namespaces.</div>
           )}
-          {shownNamespaces.map(([ns, items]) => (
+          {shownNamespaces.map(({ ns, groups }) => (
             <button
               key={ns}
               className={`ns-item ${ns === activeNs ? "active" : ""}`}
-              onClick={() => { setActiveNs(ns); setSelected(null); }}
+              onClick={() => { setActiveNs(ns); setSelectedKey(null); }}
             >
               <span className="nm" title={ns}>{ns}</span>
-              <span className={`ns-count sz${countStep(items.length)}`}>{items.length}</span>
+              <span className={`ns-count sz${countStep(groups.length)}`}>{groups.length}</span>
             </button>
           ))}
         </div>
@@ -255,8 +249,11 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
         <div className="keys-head">
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="keys-title">{activeNs ?? "—"}</div>
+            {/* Says both numbers, so collapsing the rows never hides the underlying volume. */}
             <div className="keys-sub">
-              {keys.length} key{keys.length === 1 ? "" : "s"}{active ? ` · ${active.name}` : ""}
+              {keyGroups.length} key{keyGroups.length === 1 ? "" : "s"}
+              {" · "}{labelValueCount} label value{labelValueCount === 1 ? "" : "s"}
+              {active ? ` · ${active.name}` : ""}
             </div>
           </div>
           <input className="cfg-search" style={{ width: 230 }} placeholder="Filter keys…"
@@ -272,7 +269,8 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
 
         <div className="keys-table">
           <div className="keys-colhead">
-            <span>Key</span><span>Label</span><span>Value</span><span style={{ textAlign: "center" }}>Type</span>
+            <span>Key</span><span>Labels</span><span>Value (shared)</span>
+            <span style={{ textAlign: "center" }}>Type</span>
           </div>
 
           {settingsQ.error && (
@@ -280,8 +278,28 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
               {settingsQ.error instanceof ApiError ? settingsQ.error.message : "Could not read this store."}
             </div>
           )}
-          {!settingsQ.isLoading && !settingsQ.error && keys.length === 0 && (
-            <div className="faint cfg-note">No matching keys.</div>
+          {/* A capped read has to say so. The store returns settings in key order, so what's
+              missing is the tail of the alphabet — which looks identical to a store that simply
+              doesn't hold those keys. */}
+          {settingsQ.data?.truncated && (
+            <div className="notice-warn cfg-note">
+              Only the first {settingsQ.data.limit.toLocaleString()} settings were read, in key
+              order — keys later in the alphabet are missing from this page.
+            </div>
+          )}
+          {/* POLISH §6: name the term and the scope. The likely fix here is a different
+              namespace, and a bare "No matching keys" doesn't say which one you're in. */}
+          {!settingsQ.isLoading && !settingsQ.error && keyGroups.length === 0 && (
+            <div className="pool-empty">
+              {keyNeedle
+                ? <>
+                    <b>No keys match “{keyFilter.trim()}”</b>
+                    <span>in namespace <b>{activeNs}</b></span>
+                    <button className="pool-empty-act" onClick={() => setKeyFilter("")}>Clear the filter</button>
+                    <span className="pool-empty-hint">or pick another namespace on the left</span>
+                  </>
+                : <b>No keys in this namespace.</b>}
+            </div>
           )}
 
           {grouped.map((group) => (
@@ -292,23 +310,44 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
                   <span className="kg-count">{group.rows.length}</span>
                 </div>
               )}
-              {group.rows.map(({ setting: s, label }) => {
-                const t = valueType(s.value);
-                return (
-                  <div
-                    key={`${s.key}|${s.label ?? ""}`}
-                    className={`key-row ${group.name ? "in-group" : ""} ${selected?.key === s.key && selected?.label === s.label ? "sel" : ""}`}
-                    onClick={() => setSelected(s)}
+              {group.rows.map(({ group: g, label }) => (
+                <div
+                  key={g.key}
+                  className={`key-row ${group.name ? "in-group" : ""} ${selectedKey === g.key ? "sel" : ""}`}
+                  onClick={() => setSelectedKey(g.key)}
+                >
+                  <span className="key-name" title={g.key}>{label}</span>
+                  <span className="key-labels">
+                    <span className="lblcount">{g.labels.length} label{g.labels.length === 1 ? "" : "s"}</span>
+                    {/* Dot *and* word, never colour alone (A4). Reads across the labels, so it
+                        marks keys with no no-label value too. */}
+                    {g.drift.length > 0 && (
+                      <span
+                        className="diffmark"
+                        title={g.allDistinct
+                          ? `All ${g.labels.length} values differ from each other`
+                          : `${g.drift.join(", ")} differ from the other ${g.labels.length - g.drift.length}`}
+                      >
+                        <DiffDot />{g.allDistinct ? "all differ" : `${g.drift.length} differ`}
+                      </span>
+                    )}
+                  </span>
+                  {/* The baseline: whichever value most labels agree on. When they all differ
+                      there is no majority, so the no-label value stands in if there is one and
+                      the cell says as much rather than picking a winner. */}
+                  <span
+                    className={`key-preview ${g.baseline ? "" : "is-nobase"}`}
+                    title={g.baseline
+                      ? `Shared by ${g.labels.length - g.drift.length} of ${g.labels.length} labels`
+                      : `All ${g.labels.length} values differ, so there is no baseline`}
                   >
-                    <span className="key-name" title={s.key}>{label}</span>
-                    <span className="key-label">
-                      {s.label ? <span className="tag">{s.label}</span> : <span className="faint">—</span>}
-                    </span>
-                    <span className="key-preview" title={s.value ?? ""}>{preview(s.value)}</span>
-                    <span className={`key-type ty-${t}`}>{t}</span>
-                  </div>
-                );
-              })}
+                    {g.baseline
+                      ? preview(g.baseline.raw)
+                      : g.noLabel ? preview(g.noLabel.raw) : <span className="faint">all differ</span>}
+                  </span>
+                  <span className={`key-type ty-${g.type}`}>{g.type}</span>
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -316,33 +355,230 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
 
       {/* ---------------- detail ---------------- */}
       <div className="cfg-col cfg-detail">
-        {selected && (
-          <>
-            <div className="detail-head">
-              <span className="detail-title" title={selected.key}>{selected.key}</span>
-              <button className="btn small" onClick={copyValue}>{copied ? "Copied ✓" : "Copy"}</button>
-              <button className="btn ghost small icon-btn" title="Close" onClick={() => setSelected(null)}>✕</button>
-            </div>
-            <div className="json-view">
-              <JsonBody raw={selected.value ?? ""} />
-            </div>
-          </>
-        )}
+        {selected && <DetailPane group={selected} onClose={() => setSelectedKey(null)} />}
       </div>
     </div>
   );
 }
 
-/** Pretty-prints JSON with keys, numbers and strings coloured separately; other values verbatim. */
-function JsonBody({ raw }: { raw: string }) {
-  const pretty = useMemo(() => {
-    try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return null; }
-  }, [raw]);
+// ---------------------------------------------------------------- detail pane
 
-  if (pretty === null) return <>{raw}</>;
+function DetailPane({ group, onClose }: { group: KeyGroup; onClose: () => void }) {
+  /**
+   * §6: the pane opens on exactly what needs looking at — baseline expanded, labels that match
+   * collapsed, labels that differ expanded. Keyed off the key so selecting another one resets.
+   */
+  const initialOpen = useMemo(() => {
+    const open = new Set<string>();
+    for (const l of group.labels) {
+      // Open what needs looking at: the shared value once for reference, plus every label that
+      // departs from it. Labels that agree stay collapsed.
+      if (l.label === NO_LABEL || l === group.baseline || group.drift.includes(l.label)) open.add(l.label);
+    }
+    return open;
+  }, [group]);
 
-  // Split on JSON tokens so each can be coloured; the separators are kept via the capture group.
-  const parts = pretty.split(/("(?:\\.|[^"\\])*"\s*:?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g);
+  const [open, setOpen] = useState<Set<string>>(initialOpen);
+  useEffect(() => setOpen(initialOpen), [initialOpen]);
+
+  const sectionRefs = useRef(new Map<string, HTMLDivElement>());
+  const compact = isCompact(group);
+
+  /* The lines every label holds. Everything outside it is what varies between environments —
+     computed once for the key and handed to each section, so all of them mark the same lines. */
+  const shared = useMemo(() => commonLines(group.labels.map((l) => l.raw)), [group]);
+
+  const jumpTo = (label: string) => {
+    setOpen((s) => new Set(s).add(label));
+    // After the section has had a frame to expand, or it scrolls to its collapsed position.
+    requestAnimationFrame(() =>
+      sectionRefs.current.get(label)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  };
+
+  return (
+    <>
+      <div className="detail-head">
+        <span className="detail-title" title={group.key}>{group.key}</span>
+        <button className="btn ghost small icon-btn" title="Close" onClick={onClose}>✕</button>
+      </div>
+
+      {/* summary strip — how much these labels disagree, and which are the odd ones out */}
+      {group.drift.length === 0 ? (
+        <div className="lbl-summary">
+          All {group.labels.length} value{group.labels.length === 1 ? "" : "s"} identical.
+        </div>
+      ) : group.allDistinct ? (
+        <div className="lbl-summary has-diff">
+          <DiffDot />
+          <span>All <b>{group.labels.length}</b> values differ from each other.</span>
+        </div>
+      ) : (
+        <div className="lbl-summary has-diff">
+          <DiffDot />
+          <span>
+            <b>{group.drift.length}</b> of {group.labels.length} differ from the rest
+          </span>
+          <span className="jumps">
+            {group.drift.map((l) => (
+              <button key={l} className="jumpchip" onClick={() => jumpTo(l)}
+                title={`Go to ${l || "no label"}`}>{l || "no label"}</button>
+            ))}
+          </span>
+        </div>
+      )}
+
+      <div className="lbl-scroll">
+        {compact
+          ? <CompactValues
+              group={group}
+              register={(label, el) => { if (el) sectionRefs.current.set(label, el); }}
+            />
+          : group.labels.map((lv) => (
+            <LabelSection
+              key={lv.label}
+              lv={lv}
+              group={group}
+              shared={shared}
+              open={open.has(lv.label)}
+              onToggle={() => setOpen((s) => {
+                const n = new Set(s);
+                n.has(lv.label) ? n.delete(lv.label) : n.add(lv.label);
+                return n;
+              })}
+              register={(el) => { if (el) sectionRefs.current.set(lv.label, el); }}
+            />
+          ))}
+      </div>
+    </>
+  );
+}
+
+/**
+ * The tag a label's section carries. Measured against what the other labels hold, so it means the
+ * same thing whether or not the key has a no-label value.
+ */
+function statusOf(lv: LabelValue, group: KeyGroup) {
+  if (group.drift.length === 0) return { kind: "same" as const };
+  if (!group.drift.includes(lv.label)) return { kind: "baseline" as const };
+  return { kind: "differs" as const };
+}
+
+function LabelChip({ label }: { label: string }) {
+  const isBase = label === NO_LABEL;
+  return (
+    <span className={`lblchip ${isBase ? "is-base" : "is-named"}`}>
+      <span className="dot" />{isBase ? "no label" : label}
+    </span>
+  );
+}
+
+/**
+ * §10: every value here is a short one-liner, so stacked sections would be two collapsible
+ * panels and two code blocks to show two numbers. One row each instead.
+ */
+function CompactValues({ group, register }: {
+  group: KeyGroup;
+  /** Registered so the summary strip's jump chips reach a compact row too, not just a section. */
+  register: (label: string, el: HTMLDivElement | null) => void;
+}) {
+  return (
+    <div className="lbl-compact">
+      {group.labels.map((lv) => {
+        const st = statusOf(lv, group);
+        return (
+          <div className="lc-row" key={lv.label} ref={(el) => register(lv.label, el)}>
+            <LabelChip label={lv.label} />
+            <NoLabelMark lv={lv} />
+            <StatusTag kind={st.kind} />
+            <code className="lc-val">{canonical(lv.raw)}</code>
+            <CopyButton value={lv.raw} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StatusTag({ kind }: { kind: "same" | "baseline" | "differs" }) {
+  if (kind === "same") return <span className="lbl-tag is-same">SAME</span>;
+  // Muted and not a pill: it names the value the others are measured against, not a verdict.
+  if (kind === "baseline") return <span className="lbl-tag is-baseline">BASELINE</span>;
+  // Dot plus word, so it survives greyscale (A4) without reading as a caution.
+  return <span className="lbl-tag is-differs"><DiffDot />DIFFERS</span>;
+}
+
+/** The value the app resolves when no label is asked for — identity, separate from the baseline. */
+function NoLabelMark({ lv }: { lv: LabelValue }) {
+  return lv.label === NO_LABEL
+    ? <span className="lbl-tag is-nolabel" title="What resolves when no label is requested">DEFAULT</span>
+    : null;
+}
+
+function LabelSection({ lv, group, shared, open, onToggle, register }: {
+  lv: LabelValue;
+  group: KeyGroup;
+  /** Lines every label holds; anything else is what varies between them. */
+  shared: Map<string, number>;
+  open: boolean;
+  onToggle: () => void;
+  register: (el: HTMLDivElement | null) => void;
+}) {
+  const st = statusOf(lv, group);
+  /* Every section is marked, not just the departing ones: seeing which lines vary is as useful
+     from the shared value's side as from an outlier's. When all labels agree, nothing marks. */
+  const lines = useMemo(() => markLines(lv.raw, shared), [lv.raw, shared]);
+
+  return (
+    <div className={`lbl-sect ${open ? "open" : ""}`} ref={register}>
+      <div className="lbl-head">
+        <button className="lbl-chev" onClick={onToggle} aria-expanded={open}
+          aria-label={`${open ? "Collapse" : "Expand"} ${lv.label || "no label"}`}>
+          <ChevronIcon />
+        </button>
+        <LabelChip label={lv.label} />
+        <NoLabelMark lv={lv} />
+        <StatusTag kind={st.kind} />
+        <span className="sp" />
+        <CopyButton value={lv.raw} />
+      </div>
+      {open && (
+        <pre className="lbl-body">
+          {/* Each line is its own block span and they are joined with NO newline — a newline
+              between block spans renders an extra blank row per line. */}
+          {lines.map((l, i) => (
+            <span key={i} className={`cline ${l.changed ? "is-drift" : ""}`}>
+              <Colourised text={l.text} />
+            </span>
+          ))}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      className="btn ghost small"
+      title="Copy this value"
+      onClick={async (e) => {
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(value);
+          setDone(true);
+          setTimeout(() => setDone(false), 1500);
+        } catch { /* clipboard blocked */ }
+      }}
+    >
+      {done ? "Copied ✓" : "Copy"}
+    </button>
+  );
+}
+
+/** JSON tokens coloured separately; anything else verbatim. Applied per line. */
+function Colourised({ text }: { text: string }) {
+  const parts = text.split(/("(?:\\.|[^"\\])*"\s*:?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g);
   return (
     <>
       {parts.map((p, i) => {

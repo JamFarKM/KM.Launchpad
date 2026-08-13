@@ -5,10 +5,13 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { api } from "../api/client";
 import { runTone } from "../lib/format";
+import { isCleared, onCleared } from "../lib/seqDismiss";
 import type { GridPos, Pipeline, Project, Run, SavedView, Sequence, SequenceRun, ViewItem } from "../types";
 import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
 import { SequenceCard } from "../components/SequenceCard";
+import { SequenceEditor } from "../components/SequenceEditor";
+import { SequenceRunDialog } from "../components/SequenceRunDialog";
 import { RunDialog } from "../components/RunDialog";
 import { RunDetailModal } from "../components/RunDetailModal";
 import { ensureNotifyPermission } from "../lib/notify";
@@ -89,6 +92,52 @@ export function Dashboard() {
   const sequencesQ = useQuery<Sequence[]>({ queryKey: ["sequences"], queryFn: api.sequences });
   const [activeProject, setActiveProject] = useState("");
   const [search, setSearch] = useState("");
+
+  /* ---- sequence editor (SEQUENCES §5) ----
+     The draft lives here, not in the panel, because the board is the panel's preview: the cards
+     have to render from the draft so a renamed step moves before you save. */
+  const [editDraft, setEditDraft] = useState<Sequence | null>(null);
+  const [editDirty, setEditDirty] = useState(false);
+
+  /* Deliberate deviation from §5, at James's request: the drawer stays as you left it. The spec
+     auto-collapses it on the grounds that drawer + board + editor is one pane too many, but
+     you're often dragging from the library while editing. Do not "restore" this. */
+  function openEditor(id: string) {
+    const seq = (sequencesQ.data ?? []).find((s) => s.id === id);
+    if (!seq) return;
+    setEditDraft(structuredClone(seq));
+    setEditDirty(false);
+  }
+  /* A new sequence is an unsaved draft with no id, not a record created up front — cancelling
+     out of it should leave nothing behind. Save routes to create rather than update. */
+  function newSequence() {
+    setEditDraft({ id: "", name: "", inputs: [], steps: [] });
+    setEditDirty(true);
+  }
+  function closeEditor() { setEditDraft(null); setEditDirty(false); }
+
+  /* Running from the editor goes through the same dialog the card uses, so pre-run inputs are
+     collected the same way rather than a second time in a second style. */
+  const [editorRunSeq, setEditorRunSeq] = useState<Sequence | null>(null);
+  const runFromEditor = useMutation({
+    mutationFn: ({ id, inputs }: { id: string; inputs: Record<string, string> }) =>
+      api.runSequence(id, inputs),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["seq-latest"] });
+      setEditorRunSeq(null);
+    },
+  });
+
+  const saveEdit = useMutation({
+    mutationFn: (d: Sequence) =>
+      d.id ? api.updateSequence(d.id, d.name, d.inputs, d.steps)
+           : api.createSequence(d.name, d.inputs, d.steps),
+    onSuccess: (saved) => {
+      qc.invalidateQueries({ queryKey: ["sequences"] });
+      setEditDraft(structuredClone(saved));
+      setEditDirty(false);
+    },
+  });
 
   useEffect(() => {
     if (!activeProject && projectsQ.data && projectsQ.data.length > 0) {
@@ -348,6 +397,24 @@ export function Dashboard() {
     })),
   });
 
+  /* Cards read through the draft, which is what makes the board the editor's live preview.
+     Nothing else changes: the card still receives a Sequence and doesn't know it's a draft. */
+  const sequenceFor = (id?: string | null) =>
+    (editDraft && editDraft.id === id ? editDraft : sequences.find((s) => s.id === id));
+
+  /* §8.3: usedIn is derived by scanning views for references, never stored on the sequence —
+     a stored copy drifts the moment someone removes a card. */
+  const usedIn = useMemo(() => {
+    if (!editDraft) return [];
+    return (viewsQ.data ?? [])
+      .filter((v) => v.items.some((i) => i.kind === "sequence" && i.sequenceId === editDraft.id))
+      .map((v) => v.name);
+  }, [viewsQ.data, editDraft]);
+
+  // Dismissals live in localStorage, so the board has to be told when one happens.
+  const [, bumpCleared] = useState(0);
+  useEffect(() => onCleared(() => bumpCleared((n) => n + 1)), []);
+
   // shelf name → non-passing counts. An all-green shelf gets no pill at all.
   const health: Record<string, { failing: number; running: number }> = {};
   const bump = (shelf: string, key: "failing" | "running") => {
@@ -363,6 +430,9 @@ export function Dashboard() {
     });
     seqItems.forEach((it, idx) => {
       const run = seqStatuses[idx]?.data as SequenceRun | null | undefined;
+      // A result cleared from the card's menu must not keep colouring the shelf pill — that
+      // disagreement is exactly what "clear last result" exists to resolve.
+      if (isCleared(it.sequenceId!, run?.id)) return;
       if (run?.status === "failed") bump(shelfOfItem(activeView, it), "failing");
       else if (run?.status === "running") bump(shelfOfItem(activeView, it), "running");
     });
@@ -404,6 +474,8 @@ export function Dashboard() {
             pinnedSequenceIds={pinnedSequenceIds}
             onAddSequence={(s) => addSequence(s)}
             onDragStartSequence={(s) => { seqDrag.current = s; poolDrag.current = null; cardDrag.current = null; }}
+            onEditSequence={openEditor}
+            onNewSequence={newSequence}
         />
 
         <div className="main">
@@ -525,13 +597,8 @@ export function Dashboard() {
                         <div className="shelf-head" title="Drag to move this shelf around the grid">
                           <span className="shelf-grip">⠿</span>
                           <span className="shelf-title" title={shelf}>{shelf}</span>
-                          {/* Health pill only when something isn't passing — an all-clear shelf stays quiet (§2.2). */}
-                          {hp && hp.failing > 0 && (
-                            <span className="shelf-health fail">{hp.failing} failing</span>
-                          )}
-                          {hp && hp.failing === 0 && hp.running > 0 && (
-                            <span className="shelf-health running">{hp.running} running</span>
-                          )}
+                          {/* The health pill lives in the first card's footer, not here — on a
+                              one-card shelf it left the title almost no room. */}
                           {hiddenCount > 0 && (
                             <span
                               className="shelf-hidden"
@@ -547,10 +614,26 @@ export function Dashboard() {
                               <div className="shelf-menu" onMouseLeave={() => setColorMenu(null)}>
                                 <button className="menu-item" onClick={() => { setColorMenu(null); renameShelf(shelf); }}>Rename…</button>
                                 <div className="menu-sep" />
+                                {/* POLISH §8: labelled, one row of seven, and the current value
+                                    ringed — the menu previously showed seven unlabelled swatches
+                                    wrapping 5+2 with no indication of what was already set. */}
+                                <div className="menu-label">Shelf accent</div>
                                 <div className="menu-colors">
-                                  <button className="swatch swatch-none" title="No colour" onClick={() => { setShelfColor(shelf, ""); setColorMenu(null); }} />
+                                  <button
+                                    className={`swatch swatch-none ${!shelfColor(activeView, shelf) ? "is-current" : ""}`}
+                                    title="No accent"
+                                    aria-pressed={!shelfColor(activeView, shelf)}
+                                    onClick={() => { setShelfColor(shelf, ""); setColorMenu(null); }}
+                                  />
                                   {SHELF_COLOR_FAMILIES.map((f) => (
-                                    <button key={f} className="swatch" data-color={f} title={f} onClick={() => { setShelfColor(shelf, f); setColorMenu(null); }} />
+                                    <button
+                                      key={f}
+                                      className={`swatch ${shelfColor(activeView, shelf) === f ? "is-current" : ""}`}
+                                      data-color={f}
+                                      title={f}
+                                      aria-pressed={shelfColor(activeView, shelf) === f}
+                                      onClick={() => { setShelfColor(shelf, f); setColorMenu(null); }}
+                                    />
                                   ))}
                                 </div>
                               </div>
@@ -588,10 +671,15 @@ export function Dashboard() {
                                   {item.kind === "sequence" ? (
                                     <SequenceCard
                                       item={item}
-                                      sequence={sequences.find((s) => s.id === item.sequenceId)}
+                                      sequence={sequenceFor(item.sequenceId)}
+                                      /* §5: accent the card the panel is pointed at, so which
+                                         sequence is under edit is never ambiguous. */
+                                      editing={editDraft?.id === item.sequenceId}
+                                      onEdit={() => openEditor(item.sequenceId!)}
                                       onRemove={removeItem}
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
+                                      shelfHealth={i === 0 ? hp : undefined}
                                       onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
                                       onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
                                       onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
@@ -604,6 +692,7 @@ export function Dashboard() {
                                       onRemove={removeItem}
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
+                                      shelfHealth={i === 0 ? hp : undefined}
                                       onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
                                       onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
                                     />
@@ -633,7 +722,40 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Third column of the same row as drawer and board (§2), so opening it narrows the
+            board rather than covering it — the board is this panel's preview. */}
+        {editDraft && (
+          <SequenceEditor
+            draft={editDraft}
+            usedIn={usedIn}
+            projects={projectsQ.data ?? []}
+            dirty={editDirty}
+            saving={saveEdit.isPending}
+            onChange={(next) => { setEditDraft(next); setEditDirty(true); }}
+            onSave={() => saveEdit.mutate(editDraft)}
+            onDiscard={() => { if (editDraft.id) openEditor(editDraft.id); else closeEditor(); }}
+            onClose={closeEditor}
+            onRun={() => {
+              if (editDraft.inputs.length > 0) setEditorRunSeq(editDraft);
+              else runFromEditor.mutate({ id: editDraft.id, inputs: {} });
+            }}
+            onGoToView={(name) => {
+              const v = views.find((x) => x.name === name);
+              if (v) setActiveViewId(v.id);
+            }}
+          />
+        )}
       </div>
+
+      {editorRunSeq && (
+        <SequenceRunDialog
+          sequence={editorRunSeq}
+          busy={runFromEditor.isPending}
+          onClose={() => setEditorRunSeq(null)}
+          onRun={(inputs) => runFromEditor.mutate({ id: editorRunSeq.id, inputs })}
+        />
+      )}
 
       {runItem && (
         <RunDialog

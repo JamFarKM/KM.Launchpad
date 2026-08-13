@@ -6,8 +6,8 @@
 
 | File | What it is |
 |---|---|
-| `docs/design/pipeline-launchpad-redesign-v4.html` | Interactive mockup. Open it in a browser. Ground truth for anything this doc doesn't pin down. |
-| `docs/design/launchpad-tokens.css` | Extracted tokens + component rules, written to be dropped into the real app. |
+| `src/web/design/pipeline-launchpad-redesign-v4.html` | Interactive mockup. Open it in a browser. Ground truth for anything this doc doesn't pin down. |
+| `src/web/design/launchpad-tokens.css` | Extracted tokens + component rules, written to be dropped into the real app. |
 
 The mockup has a black harness bar at the very top with toggles (shelf accent, glyph shape, texture, step verbosity). **That bar is not part of the product** — it exists so the options could be compared side by side. Everything below it is the design.
 
@@ -55,6 +55,8 @@ The dark values in `launchpad-tokens.css` are chosen for the dark surface, not c
 - **Nav active state** is ink-coloured text + a 2px bottom border in `--ink-primary`. Not blue (A1).
 - **Sidebar toggle** sits at the left of the view bar and opens a 258px pipeline drawer: search field, pipelines grouped by service, each row draggable onto a shelf.
 
+> **Superseded by `DESIGN_SPEC_SEQUENCES.md` §1 and §4.** The nav tab list drops `Sequences` (it folds into Views), and the sidebar drawer becomes a two-tab library — `Pipelines` and `Sequences` — at 266px. Read that addendum before touching nav or the drawer. Everything else in this section still stands.
+
 ### 2.2 Views page — shelves
 
 - All shelves in a row are the **same height** (`align-items: stretch` on `.shelf-row`). Card footers still pin to the bottom of their own card via `margin-top: auto`.
@@ -90,6 +92,8 @@ Colour here is functional, not decorative:
 - **JSON pane** — keys, numbers and strings coloured separately.
 
 One scroll context per pane. No modal. No nested scrollbars.
+
+> **The Keys and Detail rows above are superseded by `DESIGN_SPEC_CONFIG_LABELS.md`.** The keys table becomes one row per *key* (not per key+label), with a label count and a drift marker in place of the Label column; the detail pane widens to 520px and stacks one collapsible section per label. Read that addendum before touching either pane. Everything else in this section — the namespace pane, environment identity, value-type badges, the key-count ramp — still stands.
 
 ---
 

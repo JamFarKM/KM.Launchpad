@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { placePopup } from "../lib/popup";
 
 export interface ComboOption {
   value: string;
@@ -14,16 +15,20 @@ interface Props {
   placeholder?: string;
   disabled?: boolean;
   loading?: boolean;
+  /** Let the typed text be committed as the value, for lists that can't be exhaustive. */
+  allowCustom?: boolean;
 }
 
 /**
  * A searchable single-select dropdown for long lists. The popup renders in a portal
  * with fixed positioning so it is never clipped by a scrolling modal or overflow parent.
  */
-export function Combobox({ value, options, onChange, placeholder, disabled, loading }: Props) {
+export function Combobox({ value, options, onChange, placeholder, disabled, loading, allowCustom }: Props) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [rect, setRect] = useState<
+    { left: number; width: number; maxHeight: number; top?: number; bottom?: number } | null
+  >(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
@@ -33,7 +38,8 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ left: r.left, top: r.bottom + 4, width: r.width });
+    const { top, bottom, maxHeight } = placePopup(r, 320);
+    setRect({ left: r.left, width: r.width, top, bottom, maxHeight });
   }
 
   useLayoutEffect(() => { if (open) reposition(); }, [open]);
@@ -61,7 +67,14 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
     ? options.filter((o) => o.label.toLowerCase().includes(needle) || (o.hint ?? "").toLowerCase().includes(needle))
     : options;
 
-  const title = selected ? (selected.hint ? `${selected.label} · ${selected.hint}` : selected.label) : undefined;
+  // A value the options don't cover still has to show. Falling through to the placeholder made a
+  // set value read as empty whenever its list hadn't loaded or no longer contained it.
+  const display = selected ? selected.label : value || (placeholder ?? "— select —");
+  const title = selected
+    ? (selected.hint ? `${selected.label} · ${selected.hint}` : selected.label)
+    : value || undefined;
+
+  const custom = allowCustom && needle && !options.some((o) => o.value === q.trim());
 
   return (
     <div className={`combo ${disabled ? "disabled" : ""}`} ref={wrapRef}>
@@ -72,8 +85,8 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
         title={title}
         onClick={() => { if (!disabled) { setOpen((o) => !o); setQ(""); } }}
       >
-        <span className={selected ? "" : "faint"}>
-          {loading ? "loading…" : selected ? selected.label : (placeholder ?? "— select —")}
+        <span className={selected || value ? "" : "faint"}>
+          {loading ? "loading…" : display}
         </span>
         <span className="combo-caret">▾</span>
       </button>
@@ -82,7 +95,10 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
         <div
           className="combo-pop"
           ref={popRef}
-          style={{ position: "fixed", left: rect.left, top: rect.top, width: rect.width }}
+          style={{
+            position: "fixed", left: rect.left, width: rect.width,
+            top: rect.top, bottom: rect.bottom, maxHeight: rect.maxHeight,
+          }}
         >
           <input
             className="input combo-search"
@@ -92,7 +108,16 @@ export function Combobox({ value, options, onChange, placeholder, disabled, load
             onChange={(e) => setQ(e.target.value)}
           />
           <div className="combo-list">
-            {filtered.length === 0 && <div className="combo-empty">No matches</div>}
+            {custom && (
+              <div
+                className="combo-opt combo-custom"
+                title={`Use ${q.trim()}`}
+                onClick={() => { onChange(q.trim()); setOpen(false); }}
+              >
+                <span className="combo-opt-label">Use “{q.trim()}”</span>
+              </div>
+            )}
+            {filtered.length === 0 && !custom && <div className="combo-empty">No matches</div>}
             {filtered.map((o) => (
               <div
                 key={o.value}

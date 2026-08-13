@@ -81,7 +81,19 @@ export function RunDetailModal({ project, buildId, onClose }: Props) {
               )}
               {groupLogs(logs).map((grp, gi) => (
                 <div className="log-group" key={gi}>
-                  {grp.group && <div className="log-group-title" title={grp.group}>{grp.group}</div>}
+                  {(grp.stage || grp.group) && (
+                    <div
+                      className="log-group-title"
+                      title={[grp.stage, grp.group].filter(Boolean).join(" · ")}
+                    >
+                      {/* Stage above job, as DevOps nests them — a job name alone is ambiguous
+                          once the same one runs in more than one stage. */}
+                      {grp.stage && grp.stage !== grp.group && (
+                        <span className="lg-stage">{grp.stage}</span>
+                      )}
+                      {grp.group && <span className="lg-job">{grp.group}</span>}
+                    </div>
+                  )}
                   {grp.items.map((l) => (
                     <div
                       key={l.id}
@@ -115,12 +127,29 @@ export function RunDetailModal({ project, buildId, onClose }: Props) {
   );
 }
 
-function groupLogs(logs: LogEntry[]): { group: string | null; items: LogEntry[] }[] {
-  const out: { group: string | null; items: LogEntry[] }[] = [];
+interface LogGroup {
+  stage: string | null;
+  group: string | null;
+  items: LogEntry[];
+}
+
+/**
+ * Consecutive runs of steps sharing a stage and job.
+ *
+ * Keyed on both, because a job name repeats across stages — a `Deploy` job in two environments is
+ * two groups, not one. The server hands these back in timeline order, so a change of either field
+ * is a real boundary rather than the interleaving it used to be.
+ */
+function groupLogs(logs: LogEntry[]): LogGroup[] {
+  const out: LogGroup[] = [];
   for (const l of logs) {
-    const g = l.group ?? null;
+    const stage = l.stage ?? null;
+    const group = l.group ?? null;
     let last = out[out.length - 1];
-    if (!last || last.group !== g) { last = { group: g, items: [] }; out.push(last); }
+    if (!last || last.group !== group || last.stage !== stage) {
+      last = { stage, group, items: [] };
+      out.push(last);
+    }
     last.items.push(l);
   }
   return out;

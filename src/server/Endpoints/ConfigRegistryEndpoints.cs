@@ -57,7 +57,7 @@ public static class ConfigRegistryEndpoints
 
             // Validate by attempting a read before saving.
             var sp = await AzureCredentialStore.LoadAsync(db, protector, ctx.UserId!, ct);
-            try { await store.ListAsync(body.Connection.Trim(), sp, ct); }
+            try { await store.ProbeAsync(body.Connection.Trim(), sp, ct); }
             catch (ConfigStoreService.ConfigStoreException ex)
             {
                 return Results.BadRequest(new { error = $"Could not connect to that store: {ex.Message}" });

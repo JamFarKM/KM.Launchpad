@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ConfigRegistry> ConfigRegistries => Set<ConfigRegistry>();
     public DbSet<VaultRegistry> VaultRegistries => Set<VaultRegistry>();
     public DbSet<AzureCredential> AzureCredentials => Set<AzureCredential>();
+    public DbSet<RepoFavourite> RepoFavourites => Set<RepoFavourite>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -41,5 +42,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<VaultRegistry>().HasIndex(v => v.UserId);
 
         b.Entity<AzureCredential>().HasKey(c => c.UserId);
+
+        b.Entity<RepoFavourite>().HasKey(f => f.Id);
+        b.Entity<RepoFavourite>().HasIndex(f => f.UserId);
     }
 }

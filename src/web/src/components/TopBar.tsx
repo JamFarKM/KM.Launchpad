@@ -8,11 +8,14 @@ import {
 } from "../lib/settings";
 import type { User } from "../types";
 
-export type Page = "views" | "sequences" | "configurations" | "keyvault";
+export type Page = "views" | "review" | "configurations" | "keyvault";
 
 interface Props {
   user: User;
   page: Page;
+  /** Pages with nothing behind them: Configurations and Key Vault with no store registered.
+   *  An empty page behind a nav tab reads as a broken feature, not an unconfigured one. */
+  hidden?: Set<Page>;
   onNav: (p: Page) => void;
   onDisconnect: () => void;
   onImported: () => void;
@@ -31,14 +34,17 @@ const NAV: { id: Page; label: string; icon: JSX.Element }[] = [
       </svg>
     ),
   },
+  /* No Sequences tab (SEQUENCES §1): sequences are reached from the library drawer, which is
+     where the things you put on shelves live. The `sequences` page id stays in the union — the
+     drawer still routes to it — and /sequences keeps returning the app via the server's
+     index.html fallback rather than 404-ing, so old bookmarks land on the board. */
   {
-    id: "sequences", label: "Sequences",
+    id: "review", label: "Review",
     icon: (
       <svg className="nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <circle cx="3" cy="3.5" r="1.4" strokeWidth="1.3" />
-        <circle cx="3" cy="8" r="1.4" strokeWidth="1.3" />
-        <circle cx="3" cy="12.5" r="1.4" strokeWidth="1.3" />
-        <path d="M6.5 3.5H14M6.5 8H14M6.5 12.5H14" strokeWidth="1.3" strokeLinecap="round" />
+        <path d="M5.5 2.5h6.2a1.3 1.3 0 0 1 1.3 1.3v8.4a1.3 1.3 0 0 1-1.3 1.3H5.5" strokeWidth="1.3" strokeLinecap="round" />
+        <path d="M3 5.2v5.6" strokeWidth="1.3" strokeLinecap="round" />
+        <path d="M6.4 6.4h4M6.4 9.6h2.6" strokeWidth="1.3" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -68,7 +74,7 @@ const THEMES: Theme[] = ["light", "dark", "system"];
 const SHELF_STYLES: ShelfStyle[] = ["rail", "tint", "both", "none"];
 const TEXTURES: Texture[] = ["off", "dots", "hatch", "both"];
 
-export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
+export function TopBar({ user, page, hidden, onNav, onDisconnect, onImported }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -139,12 +145,12 @@ export function TopBar({ user, page, onNav, onDisconnect, onImported }: Props) {
 
   return (
     <div className="topbar" ref={barRef}>
-      <div className="brand">Pipeline <span>Launchpad</span></div>
+      <div className="brand"><span>Launchpad</span></div>
       <span className="faint">·</span>
       <span className="muted">{user.org}</span>
 
       <nav className="nav">
-        {NAV.map((n) => (
+        {NAV.filter((n) => !hidden?.has(n.id)).map((n) => (
           <button
             key={n.id}
             className={`nav-btn ${page === n.id ? "active" : ""}`}

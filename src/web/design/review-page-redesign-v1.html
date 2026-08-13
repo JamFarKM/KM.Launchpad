@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Launchpad — Review page redesign</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input { font-family: inherit; }
+
+  /* ==================================================================
+     HARNESS (not part of the product)
+     ================================================================== */
+  .harness { position:fixed; inset:0 0 auto 0; z-index:200; display:flex; align-items:center;
+    justify-content:space-between; gap:14px; background:#1a1a19; color:#fff; padding:8px 16px; font-size:12.5px; }
+  .harness .label { color:#898781; font-size:11.5px; }
+  .tg { display:inline-flex; background:rgba(255,255,255,.08); border-radius:8px; padding:3px; gap:2px; }
+  .tg button { border:none; background:transparent; color:#c3c2b7; font-size:12px; font-weight:600;
+    padding:5px 10px; border-radius:6px; cursor:pointer; }
+  .tg button.on { background:#fff; color:#0b0b0b; }
+  .hbtn { border:1px solid rgba(255,255,255,.2); background:transparent; color:#fff; font-size:12px;
+    padding:6px 12px; border-radius:6px; cursor:pointer; }
+  .hbtn:hover { background:rgba(255,255,255,.1); }
+  .panel { position:fixed; top:38px; left:0; right:0; z-index:199; background:#fcfcfb; color:#52514e;
+    border-bottom:1px solid #e1e0d9; padding:14px 20px; font-size:12.5px; display:none; max-height:60vh; overflow:auto; }
+  .panel.open { display:block; }
+  .panel ul { margin:6px 0 0; padding-left:18px; columns:2; column-gap:28px; }
+  .panel li { margin-bottom:6px; break-inside:avoid; }
+  .panel strong { color:#0b0b0b; }
+  .panel code { background:rgba(0,0,0,.06); padding:1px 5px; border-radius:4px; }
+
+  /* ==================================================================
+     TOKENS  (extends launchpad-tokens.css — new tokens marked NEW)
+     ================================================================== */
+  .app {
+    --bg-page:#f7f7f5; --bg-surface:#ffffff; --bg-surface-2:#fbfbf9;
+    --border-hairline:rgba(11,11,11,.09); --border-strong:rgba(11,11,11,.14);
+    --ink-primary:#0b0b0b; --ink-secondary:#52514e; --ink-muted:#8b8a84;
+    --accent:#2a78d6; --accent-hover:#1c5cab; --accent-tint:#eaf1fc;
+    --status-good:#0ca30c; --status-bad:#d03b3b; --status-warn:#e59400;
+    --hover-wash:#f2f1ec; --code-bg:#fcfcfb;
+    --hatch:rgba(11,11,11,.05);
+    --hue-violet:#6b5bd6; --hue-aqua:#1097a8; --hue-slate:#5c6672; --hue-orange:#d9722b;
+    --shadow-pop:0 10px 28px rgba(16,24,32,.16);
+
+    /* NEW — diff surfaces. Row tint is deliberately faint; the gutter stripe
+       carries the identification, so a whole-file addition never becomes a
+       solid slab of colour. */
+    --diff-gutter:#f6f6f3;
+    --diff-add-tint:  color-mix(in oklab, var(--status-good) 10%, var(--code-bg));
+    --diff-add-stripe:#0a8a0a;
+    --diff-add-word:  color-mix(in oklab, var(--status-good) 26%, var(--code-bg));
+    --diff-del-tint:  color-mix(in oklab, var(--status-bad) 9%, var(--code-bg));
+    --diff-del-stripe:#c23434;
+    --diff-del-word:  color-mix(in oklab, var(--status-bad) 24%, var(--code-bg));
+
+    /* NEW — syntax palette. Contains NO green and NO red: the diff tint owns
+       those two hues, so nothing in the code competes with add/remove. */
+    --syn-keyword:#1c5cab; --syn-type:#0d7b8a; --syn-string:#a35a12;
+    --syn-number:#5d4bb8; --syn-comment:#8b8a84; --syn-punct:#52514e;
+
+    /* NEW — file change type. Identity, not health: no green, no red (A2). */
+    --ft-add:#1097a8; --ft-mod:#6b5bd6; --ft-del:#5c6672;
+
+    --code-size:12px;
+    background:var(--bg-page); color:var(--ink-primary);
+  }
+  [data-theme="dark"] .app {
+    --bg-page:#0d0d0d; --bg-surface:#1a1a19; --bg-surface-2:#212120;
+    --border-hairline:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.18);
+    --ink-primary:#ffffff; --ink-secondary:#c3c2b7; --ink-muted:#8b8a84;
+    --accent:#3987e5; --accent-hover:#5aa2ee; --accent-tint:rgba(57,135,229,.16);
+    --status-good:#1abd1a; --status-bad:#e66767; --status-warn:#fab219;
+    --hover-wash:rgba(255,255,255,.06); --code-bg:#161615;
+    --hatch:rgba(255,255,255,.045);
+    --hue-violet:#9085e9; --hue-aqua:#35b3c4; --hue-slate:#8b95a3; --hue-orange:#e08a4a;
+    --shadow-pop:0 12px 32px rgba(0,0,0,.5);
+
+    --diff-gutter:#1c1c1b;
+    --diff-add-tint:  color-mix(in oklab, var(--status-good) 13%, var(--code-bg));
+    --diff-add-stripe:#2b9e2b;
+    --diff-add-word:  color-mix(in oklab, var(--status-good) 30%, var(--code-bg));
+    --diff-del-tint:  color-mix(in oklab, var(--status-bad) 14%, var(--code-bg));
+    --diff-del-stripe:#c95e5e;
+    --diff-del-word:  color-mix(in oklab, var(--status-bad) 30%, var(--code-bg));
+
+    --syn-keyword:#6da7ec; --syn-type:#35b3c4; --syn-string:#e0a86a;
+    --syn-number:#b3a6f0; --syn-comment:#8b8a84; --syn-punct:#c3c2b7;
+
+    --ft-add:#35b3c4; --ft-mod:#9085e9; --ft-del:#8b95a3;
+  }
+
+  /* ==================================================================
+     SHELL
+     ================================================================== */
+  .app { position:fixed; inset:38px 0 0 0; display:flex; flex-direction:column; overflow:hidden; }
+
+  .topnav { display:flex; align-items:center; justify-content:space-between; padding:0 20px; height:56px;
+    background:var(--bg-surface); border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .brand { font-weight:700; font-size:14.5px; }
+  .brand .a { color:var(--accent); }
+  .sep-dot { color:var(--ink-muted); margin:0 8px; }
+  .org { color:var(--ink-secondary); font-size:13.5px; font-weight:500; }
+  .tabs { display:flex; gap:2px; margin-left:14px; }
+  .tabs a { font-size:13.5px; color:var(--ink-secondary); padding:17px 11px; border-bottom:2px solid transparent;
+    font-weight:500; display:flex; align-items:center; gap:7px; cursor:pointer; text-decoration:none; }
+  .tabs a.on { color:var(--ink-primary); border-bottom-color:var(--ink-primary); font-weight:600; }
+  .tabs svg { width:14px; height:14px; }
+  .nav-r { display:flex; align-items:center; gap:10px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:none; background:transparent;
+    color:var(--ink-secondary); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .iconbtn:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .iconbtn svg { width:16px; height:16px; }
+  .iconbtn.on { background:var(--accent-tint); color:var(--accent); }
+  .ghost { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 11px; border-radius:7px;
+    border:1px solid var(--border-hairline); background:transparent; color:var(--ink-secondary);
+    font-size:12.5px; font-weight:600; cursor:pointer; }
+  .ghost:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .ghost svg { width:13px; height:13px; }
+  .avatar { width:22px; height:22px; border-radius:6px; background:var(--accent); color:#fff; font-size:10.5px;
+    font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .who { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500; }
+  .signout { color:var(--ink-secondary); font-size:13px; text-decoration:none; }
+
+  .menuwrap { position:relative; }
+  .menu { position:absolute; top:38px; right:0; min-width:210px; background:var(--bg-surface);
+    border:1px solid var(--border-hairline); border-radius:10px; box-shadow:var(--shadow-pop);
+    padding:7px; display:none; z-index:150; }
+  .menu.open { display:block; }
+  .menu-lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); padding:7px 8px 4px; }
+  .seg { display:flex; gap:4px; padding:2px 8px 6px; }
+  .seg div { flex:1; text-align:center; font-size:12px; font-weight:600; padding:6px 0; border-radius:6px;
+    cursor:pointer; border:1px solid var(--border-hairline); color:var(--ink-secondary); background:var(--bg-surface-2); }
+  .seg div.on { background:var(--ink-primary); color:var(--bg-surface); border-color:var(--ink-primary); }
+  .mi { font-size:13px; padding:8px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:9px; }
+  .mi:hover { background:var(--hover-wash); }
+  .mi input { margin:0; }
+
+  /* ---- context bar: STARRED merged into the picker row ---- */
+  .ctxbar { display:flex; align-items:center; gap:8px; height:46px; padding:0 16px; flex-shrink:0;
+    background:var(--bg-surface); border-bottom:1px solid var(--border-hairline); }
+  .picker { display:inline-flex; align-items:center; gap:7px; height:30px; padding:0 10px; border-radius:7px;
+    border:1px solid var(--border-hairline); background:var(--bg-surface-2); cursor:pointer;
+    font-size:12.5px; color:var(--ink-primary); max-width:190px; }
+  .picker .pk { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); flex-shrink:0; }
+  .picker .pv { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .picker svg { width:9px; height:9px; color:var(--ink-muted); flex-shrink:0; }
+  .vr { width:1px; height:20px; background:var(--border-hairline); margin:0 4px; }
+  .starred-lbl { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 10px; border-radius:100px;
+    border:1px solid var(--border-hairline); font-size:12px; cursor:pointer; background:var(--bg-surface-2); }
+  .chip b { font-weight:600; }
+  .chip span { color:var(--ink-muted); }
+
+  /* ---- PR header + vote bar ---- */
+  .prbar { display:flex; align-items:center; gap:12px; min-height:48px; padding:8px 16px; flex-shrink:0;
+    background:var(--bg-surface); border-bottom:1px solid var(--border-hairline); }
+  .prid { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:12px; color:var(--ink-muted); flex-shrink:0; }
+  .prtitle { font-size:14.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prref { font-size:11.5px; color:var(--ink-muted); font-family:ui-monospace,"SF Mono",Menlo,monospace; flex-shrink:0; }
+  .votes { display:flex; align-items:center; gap:6px; margin-left:auto; flex-shrink:0; }
+  .btn { height:30px; padding:0 13px; border-radius:7px; border:1px solid transparent; cursor:pointer;
+    font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
+  .btn.primary { background:var(--status-good); color:#fff; }
+  .btn.primary:hover { filter:brightness(.92); }
+  .btn.outline { background:transparent; color:var(--ink-secondary); border-color:var(--border-hairline); }
+  .btn.outline:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .btn.danger { background:transparent; color:var(--ink-secondary); border-color:var(--border-hairline); }
+  .btn.danger:hover { background:color-mix(in oklab, var(--status-bad) 12%, transparent);
+    color:var(--status-bad); border-color:color-mix(in oklab, var(--status-bad) 40%, transparent); }
+  .btn svg { width:12px; height:12px; }
+
+  /* ==================================================================
+     THREE-PANE GRID
+     ================================================================== */
+  .review { flex:1; display:grid; min-height:0;
+    grid-template-columns: var(--w-left,264px) minmax(0,1fr) var(--w-right,276px);
+    transition:grid-template-columns .16s ease; }
+  .review[data-left="off"]  { --w-left:0px; }
+  .review[data-right="off"] { --w-right:0px; }
+
+  .pane { display:flex; flex-direction:column; min-width:0; overflow:hidden; background:var(--bg-surface); }
+  .pane.l { border-right:1px solid var(--border-hairline); }
+  .pane.r { border-left:1px solid var(--border-hairline); }
+
+  /* ---- left: PR list ---- */
+  .lhead { padding:10px 12px; border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .search { width:100%; height:30px; padding:0 10px 0 28px; border-radius:7px; border:1px solid var(--border-hairline);
+    font-size:12.5px; background:var(--bg-surface-2); color:var(--ink-primary); }
+  .search:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .searchwrap { position:relative; }
+  .searchwrap svg { position:absolute; left:9px; top:8px; width:13px; height:13px; color:var(--ink-muted); }
+  .lscroll { flex:1; overflow-y:auto; }
+  .prrow { padding:9px 12px; border-bottom:1px solid var(--border-hairline); cursor:pointer;
+    border-left:2px solid transparent; }
+  .prrow:hover { background:var(--hover-wash); }
+  .prrow.on { background:var(--accent-tint); border-left-color:var(--accent); }
+  .prrow-t { display:flex; align-items:baseline; gap:7px; }
+  .prrow-t .id { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:11px; color:var(--ink-muted); flex-shrink:0; }
+  .prrow-t .tt { font-size:12.5px; font-weight:600; line-height:1.35;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .prrow-m { display:flex; align-items:center; gap:8px; margin-top:5px; font-size:10.5px; color:var(--ink-muted); }
+  .prrow-m .ref { font-family:ui-monospace,"SF Mono",Menlo,monospace; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; min-width:0; }
+  .prrow-m .mi2 { display:inline-flex; align-items:center; gap:3px; flex-shrink:0; }
+  .prrow-m svg { width:11px; height:11px; }
+  .prrow-b { display:flex; align-items:center; gap:6px; margin-top:5px; }
+  .flag { font-size:9.5px; font-weight:700; letter-spacing:.03em; padding:1px 6px; border-radius:4px; }
+  .flag.draft { background:color-mix(in oklab, var(--hue-slate) 16%, transparent); color:var(--hue-slate); }
+  .flag.conflict { background:color-mix(in oklab, var(--status-warn) 18%, transparent); color:var(--status-warn); }
+  .who-s { font-size:10.5px; color:var(--ink-muted); }
+
+  /* ---- centre: diff ---- */
+  .pane.c { background:var(--code-bg); }
+  .toolbar { display:flex; align-items:center; gap:10px; padding:0 10px; height:42px; flex-shrink:0;
+    background:var(--bg-surface); border-bottom:1px solid var(--border-hairline); }
+  .fname { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:12.5px; font-weight:700; flex-shrink:0; }
+  .fpath { font-size:11px; color:var(--ink-muted); white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; direction:rtl; text-align:left; flex:1; min-width:40px; }
+  .counts { font-size:11.5px; font-weight:700; font-variant-numeric:tabular-nums; flex-shrink:0;
+    display:inline-flex; gap:7px; }
+  .counts .p { color:var(--diff-add-stripe); }
+  .counts .m { color:var(--diff-del-stripe); }
+  /* segmented control with a clearly visible selected state */
+  .segbar { display:inline-flex; background:var(--hover-wash); border-radius:7px; padding:2px; gap:2px; flex-shrink:0; }
+  .segbar button { border:none; background:transparent; color:var(--ink-secondary); font-size:12px;
+    font-weight:600; height:26px; padding:0 10px; border-radius:5px; cursor:pointer; }
+  .segbar button.on { background:var(--bg-surface); color:var(--ink-primary);
+    box-shadow:0 1px 2px rgba(16,24,32,.12); }
+  [data-theme="dark"] .segbar button.on { box-shadow:none; background:var(--border-strong); }
+  .autochip { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600;
+    padding:3px 8px; border-radius:100px; flex-shrink:0;
+    background:color-mix(in oklab, var(--hue-aqua) 14%, transparent); color:var(--hue-aqua); cursor:help; }
+  .autochip svg { width:11px; height:11px; }
+
+  .diffwrap { flex:1; display:flex; min-height:0; }
+  .diffscroll { flex:1; overflow:auto; position:relative; }
+  .minimap { width:12px; flex-shrink:0; display:flex; flex-direction:column;
+    background:var(--bg-surface-2); border-left:1px solid var(--border-hairline); cursor:pointer; }
+  .minimap i { flex:1 1 0; min-height:1px; display:block; }
+  .minimap i.add { background:color-mix(in oklab, var(--diff-add-stripe) 55%, transparent); }
+  .minimap i.del { background:color-mix(in oklab, var(--diff-del-stripe) 55%, transparent); }
+  .minimap i.cmt { background:var(--accent); min-height:3px; }
+
+  table.diff { border-collapse:collapse; width:100%;
+    font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:var(--code-size); line-height:1.6; }
+  table.diff td { padding:0; vertical-align:top; }
+  .gut { width:1%; white-space:nowrap; text-align:right; padding:0 7px 0 8px; user-select:none;
+    background:var(--diff-gutter); color:var(--ink-muted); font-variant-numeric:tabular-nums;
+    font-size:calc(var(--code-size) - 1px); border-right:1px solid var(--border-hairline); }
+  .code { padding:0 10px 0 9px; white-space:pre; }
+  [data-wrap="on"] .code { white-space:pre-wrap; word-break:break-word; }
+
+  tr.add .code { background:var(--diff-add-tint); box-shadow:inset 2px 0 0 var(--diff-add-stripe); }
+  tr.del .code { background:var(--diff-del-tint); box-shadow:inset 2px 0 0 var(--diff-del-stripe); }
+  tr.add .gut.sign { color:var(--diff-add-stripe); font-weight:700; }
+  tr.del .gut.sign { color:var(--diff-del-stripe); font-weight:700; }
+  .gut.sign { width:1%; padding:0 5px; text-align:center; border-right:none; }
+  tr:hover .gut { background:var(--hover-wash); }
+  .code em.w { font-style:normal; border-radius:2px; padding:0 1px; }
+  tr.add .code em.w { background:var(--diff-add-word); }
+  tr.del .code em.w { background:var(--diff-del-word); }
+  /* the empty side of a side-by-side pair — a non-content plane, so hatch.
+     Must beat tr.add/.del so a one-sided change never tints the empty pane. */
+  td.void, tr.add td.void, tr.del td.void {
+    background: repeating-linear-gradient(45deg, transparent 0 5px, var(--hatch) 5px 6px);
+    box-shadow: none; }
+
+  /* comment affordance in the gutter */
+  .addc { position:absolute; left:2px; width:17px; height:17px; border-radius:5px; border:none;
+    background:var(--accent); color:#fff; display:none; align-items:center; justify-content:center;
+    cursor:pointer; padding:0; }
+  .addc svg { width:10px; height:10px; }
+  tr:hover .addc { display:flex; }
+  .gut.first { position:relative; }
+
+  /* collapsed hunk — ONE row spanning both panes, with directional expanders */
+  tr.fold td { background:var(--bg-surface-2); border-top:1px solid var(--border-hairline);
+    border-bottom:1px solid var(--border-hairline); }
+  .foldrow { display:flex; align-items:center; gap:8px; padding:4px 10px;
+    font-family:system-ui,sans-serif; font-size:11.5px; color:var(--ink-muted); }
+  .foldbtn { display:inline-flex; align-items:center; gap:4px; height:22px; padding:0 8px; border-radius:6px;
+    border:1px solid var(--border-hairline); background:var(--bg-surface); color:var(--ink-secondary);
+    font-size:11px; font-weight:600; cursor:pointer; }
+  .foldbtn:hover { background:var(--hover-wash); color:var(--ink-primary); }
+  .foldbtn svg { width:11px; height:11px; }
+
+  /* comment composer — kept as an overlay, but made deliberate */
+  .scrim { position:absolute; left:0; right:0; background:var(--code-bg); opacity:.62; z-index:5; pointer-events:none; }
+  .composer { position:absolute; z-index:6; left:52px; right:24px; background:var(--bg-surface);
+    border:1px solid var(--border-strong); border-radius:10px; box-shadow:var(--shadow-pop);
+    padding:10px; font-family:system-ui,sans-serif; }
+  .composer::before { content:""; position:absolute; top:-5px; left:22px; width:9px; height:9px;
+    background:var(--bg-surface); border-left:1px solid var(--border-strong); border-top:1px solid var(--border-strong);
+    transform:rotate(45deg); }
+  .composer-h { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .cbadge { font-size:9.5px; font-weight:700; letter-spacing:.04em; padding:2px 7px; border-radius:4px;
+    background:var(--accent-tint); color:var(--accent); }
+  .composer-h .ln { font-size:11px; color:var(--ink-muted); font-family:ui-monospace,Menlo,monospace; }
+  .composer textarea { width:100%; min-height:66px; resize:vertical; border-radius:7px; font-size:12.5px;
+    padding:8px 10px; border:1px solid var(--border-hairline); background:var(--bg-surface-2);
+    color:var(--ink-primary); font-family:inherit; }
+  .composer textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .composer-f { display:flex; align-items:center; gap:7px; margin-top:8px; }
+  .composer-f .hint { margin-left:auto; font-size:10.5px; color:var(--ink-muted); }
+  .btn.accent { background:var(--accent); color:#fff; }
+  .btn.accent:hover { background:var(--accent-hover); }
+
+  /* ---- right: file tree ---- */
+  .rhead { padding:11px 12px 9px; border-bottom:1px solid var(--border-hairline); flex-shrink:0; }
+  .rhead-t { display:flex; align-items:baseline; gap:7px; }
+  .rhead-t .id { font-family:ui-monospace,Menlo,monospace; font-size:12px; font-weight:700; }
+  .rhead-t .n { font-size:11.5px; color:var(--ink-muted); margin-left:auto; }
+  .bar { height:3px; border-radius:100px; background:var(--border-hairline); margin-top:8px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--hue-aqua); border-radius:100px; transition:width .2s; }
+  .rscroll { flex:1; overflow-y:auto; padding-bottom:12px; }
+
+  .folder { display:flex; align-items:flex-start; gap:6px; padding:8px 10px 5px; cursor:pointer;
+    color:var(--ink-muted); font-size:10.5px; letter-spacing:.02em; }
+  .folder:hover { color:var(--ink-secondary); }
+  .folder svg { width:11px; height:11px; flex-shrink:0; margin-top:2px; transition:transform .15s; }
+  .folder.shut svg { transform:rotate(-90deg); }
+  .folder .fp { flex:1; word-break:break-all; line-height:1.35; font-family:ui-monospace,Menlo,monospace; }
+  .folder .fc { flex-shrink:0; font-variant-numeric:tabular-nums; }
+  .fgroup.shut .frow { display:none; }
+
+  .frow { display:flex; align-items:center; gap:8px; padding:6px 10px 6px 22px; cursor:pointer;
+    border-left:2px solid transparent; }
+  .frow:hover { background:var(--hover-wash); }
+  .frow.on { background:var(--accent-tint); border-left-color:var(--accent); }
+  .frow.seen .fn, .frow.seen .fbadge { opacity:.45; }
+  .fbadge { width:17px; height:17px; border-radius:5px; flex-shrink:0; display:flex; align-items:center;
+    justify-content:center; font-size:9.5px; font-weight:700; }
+  .fbadge.A { background:color-mix(in oklab, var(--ft-add) 16%, transparent); color:var(--ft-add); }
+  .fbadge.M { background:color-mix(in oklab, var(--ft-mod) 16%, transparent); color:var(--ft-mod); }
+  .fbadge.D { background:color-mix(in oklab, var(--ft-del) 18%, transparent); color:var(--ft-del); }
+  .fn { flex:1; min-width:0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    font-family:ui-monospace,Menlo,monospace; }
+  .seenbox { width:15px; height:15px; border-radius:4px; border:1px solid var(--border-strong); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; background:transparent; cursor:pointer; padding:0;
+    color:transparent; }
+  .frow:hover .seenbox { border-color:var(--ink-muted); }
+  .frow.seen .seenbox { background:var(--hue-aqua); border-color:var(--hue-aqua); color:#fff; opacity:1; }
+  .seenbox svg { width:9px; height:9px; }
+
+  /* ---- syntax ---- */
+  .k { color:var(--syn-keyword); } .t { color:var(--syn-type); } .s { color:var(--syn-string); }
+  .n { color:var(--syn-number); } .c { color:var(--syn-comment); font-style:italic; } .p { color:var(--syn-punct); }
+
+  /* ---- single empty state ---- */
+  .empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+    color:var(--ink-muted); background:var(--bg-page); padding:40px; text-align:center; }
+  .empty svg { width:30px; height:30px; opacity:.5; }
+  .empty b { font-size:14px; font-weight:600; color:var(--ink-secondary); }
+  .empty span { font-size:12.5px; max-width:300px; }
+</style>
+</head>
+<body data-theme="light" data-wrap="off">
+
+<div class="harness">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="label">Pull request:</span>
+    <div class="tg">
+      <button id="h-pr1" class="on" onclick="selectPR(0)">!65183 mixed diff</button>
+      <button id="h-pr2" onclick="selectPR(1)">!80494 all additions</button>
+      <button id="h-pr3" onclick="selectPR(-1)">nothing selected</button>
+    </div>
+    <span class="label">Theme lives in the ⚙ gear, as in the real app →</span>
+  </div>
+  <button class="hbtn" onclick="document.getElementById('p').classList.toggle('open')">What changed?</button>
+</div>
+
+<div class="panel" id="p">
+  <strong>Review page — proposed changes</strong>
+  <ul>
+    <li><strong>Vote hierarchy.</strong> Approve is solid; the two middle votes are outline; Reject is outline but tints red on hover, behind a divider. Icons added so the four are scannable without reading.</li>
+    <li><strong>Auto-inline for one-sided files.</strong> A file that is 100% additions or deletions opens in Inline with an <em>“all additions · inline”</em> chip explaining why. The toggle still overrides, and the override sticks for the session.</li>
+    <li><strong>Collapsible side panels.</strong> <code>◧</code> / <code>◨</code> buttons in the diff toolbar collapse the PR list and the file tree, so a wide side-by-side diff can use the full window.</li>
+    <li><strong>Diff colour recalibrated.</strong> Row tint is now faint and a 2px gutter stripe carries the identification, so an all-added file is no longer a solid slab. The line-number gutter stays neutral on changed rows, which fixes its contrast.</li>
+    <li><strong>Syntax palette with no green and no red.</strong> The diff tint owns those hues, so nothing in the code competes with add/remove. Comments are neutral grey — the biggest legibility win on a mostly-commented diff.</li>
+    <li><strong>Word-level diff</strong> on modified line pairs (see lines 204/205 of MigrationService.cs).</li>
+    <li><strong>Folder grouping</strong> in the file tree, collapsible, with the path on the folder row — so the two <code>001_CreateDB.sql</code> files are no longer ambiguous and filenames rarely need truncating.</li>
+    <li><strong>Viewed checkboxes</strong> + “3 of 7 viewed” progress, so you can keep your place in a long review.</li>
+    <li><strong>File-type badges off status colours</strong> — A/M/D now use aqua/violet/slate, keeping green and red for the diff body only (spec invariant A2).</li>
+    <li><strong>Collapsed-lines row</strong> is one row spanning both panes, with a real chevron icon and expand-up / expand-all / expand-down.</li>
+    <li><strong>Composer stays an overlay</strong> as you preferred — but made deliberate: elevation, a pointer to its line, and a scrim over the lines it covers so it reads as floating rather than broken. Comment is now a real primary button and Cancel is a proper outline button.</li>
+    <li><strong>Wrap + code size</strong> in the toolbar <code>⋯</code> menu; long lines no longer clip silently.</li>
+    <li><strong>One empty state</strong>, not two contradictory ones.</li>
+    <li><strong>STARRED merged into the picker row</strong>, reclaiming a full row of vertical space.</li>
+    <li><strong>PR list</strong> gains search plus per-row comment count, file count, author and draft/conflict flags.</li>
+    <li><em>Not included, per your call:</em> per-file +/− counts in the tree. Project/repository pickers left as they are, with only a <code>title</code> added — the duplicate “Account” was a genuine name collision, not a labelling bug.</li>
+  </ul>
+</div>
+
+<div class="app">
+  <div class="topnav">
+    <div style="display:flex;align-items:center;">
+      <span class="brand">Pipeline <span class="a">Launchpad</span></span>
+      <span class="sep-dot">·</span>
+      <span class="org">ExampleDevOps</span>
+      <div class="tabs">
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.5"/></svg>Views</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="3" cy="3.5" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="3" cy="12.5" r="1.4"/><path d="M6.5 3.5H14M6.5 8H14M6.5 12.5H14" stroke-linecap="round"/></svg>Sequences</a>
+        <a class="on"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="8" r="2"/><path d="M4 6v4M6 4h3a3 3 0 0 1 3 3v0" stroke-linecap="round"/></svg>Review</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4h12M2 8h12M2 12h12" stroke-linecap="round"/><circle cx="5.5" cy="4" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>Configurations</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="7" width="10" height="7" rx="1.8"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>Key Vault</a>
+      </div>
+    </div>
+    <div class="nav-r">
+      <button class="ghost"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 2.5v7M5.2 6.8L8 9.6l2.8-2.8M2.8 11.5v1.2a.8.8 0 0 0 .8.8h8.8a.8.8 0 0 0 .8-.8v-1.2"/></svg>Transfer</button>
+      <div class="menuwrap">
+        <button class="iconbtn" onclick="pop(event,'set')" title="Settings">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M4.6 15.4L6 14M14 6l1.4-1.4" stroke-linecap="round"/></svg>
+        </button>
+        <div class="menu" id="set">
+          <div class="menu-lbl">Appearance</div>
+          <div class="seg"><div class="on" id="th-l" onclick="theme('light')">☀ Light</div><div id="th-d" onclick="theme('dark')">☾ Dark</div></div>
+        </div>
+      </div>
+      <div class="who"><span class="avatar">JF</span>James Farrugia</div>
+      <a href="#" class="signout">Sign out</a>
+    </div>
+  </div>
+
+  <!-- context bar: pickers + starred, one row -->
+  <div class="ctxbar">
+    <div class="picker" title="Project"><span class="pk">Proj</span><span class="pv">Account</span>
+      <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5L6 7.5l3-3" stroke-linecap="round"/></svg></div>
+    <div class="picker" title="Repository"><span class="pk">Repo</span><span class="pv">Account</span>
+      <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5L6 7.5l3-3" stroke-linecap="round"/></svg></div>
+    <button class="iconbtn" title="Star this repository">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" stroke-linejoin="round"/></svg>
+    </button>
+    <span class="vr"></span>
+    <span class="starred-lbl">Starred</span>
+    <span class="chip"><b>SB.Placement</b><span>Sportsteam</span></span>
+    <span class="chip"><b>SB.Settlement</b><span>Sportsteam</span></span>
+  </div>
+
+  <!-- PR header + votes -->
+  <div class="prbar">
+    <span class="prid" id="pr-id">!65183</span>
+    <span class="prtitle" id="pr-title">Addressing issue with synonyms</span>
+    <span class="prref" id="pr-ref">tps-ga-plus → master</span>
+    <div class="votes">
+      <button class="btn primary"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>Approve</button>
+      <button class="btn outline"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l2.5 2.5 5-6"/><path d="M9.5 12.5h4"/></svg>With suggestions</button>
+      <button class="btn outline"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.2l2.2 1.3"/></svg>Waiting for author</button>
+      <span class="vr"></span>
+      <button class="btn danger"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 5l6 6M11 5l-6 6"/></svg>Reject</button>
+    </div>
+  </div>
+
+  <div class="review" id="rev" data-left="on" data-right="on">
+    <!-- LEFT -->
+    <div class="pane l">
+      <div class="lhead">
+        <div class="searchwrap">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14" stroke-linecap="round"/></svg>
+          <input class="search" placeholder="Search pull requests…" oninput="filterPRs(this.value)">
+        </div>
+      </div>
+      <div class="lscroll" id="prlist"></div>
+    </div>
+
+    <!-- CENTRE -->
+    <div class="pane c" id="centre">
+      <div class="toolbar">
+        <button class="iconbtn" id="tgl-l" onclick="side('left')" title="Hide pull request list">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11"/><path d="M3.2 6.2h1.6M3.2 9.8h1.6" stroke-linecap="round"/></svg>
+        </button>
+        <span class="fname" id="d-name">MigrationService.cs</span>
+        <span class="fpath" id="d-path">SA.Phase1.Migrations/SA.Phase1.Migrations</span>
+        <span class="counts"><span class="p" id="d-add">+37</span><span class="m" id="d-del">−2</span></span>
+        <span id="d-auto"></span>
+        <div class="segbar">
+          <button id="v-sbs" onclick="setView('sbs',true)">Side by side</button>
+          <button id="v-inl" onclick="setView('inl',true)">Inline</button>
+        </div>
+        <div class="menuwrap">
+          <button class="iconbtn" onclick="pop(event,'vm')" title="View options">
+            <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>
+          </button>
+          <div class="menu" id="vm" style="min-width:200px;">
+            <div class="mi" onclick="toggleWrap(event)"><input type="checkbox" id="cb-wrap"> Wrap long lines</div>
+            <div class="menu-lbl">Code size</div>
+            <div class="seg">
+              <div id="cs-11" onclick="codeSize(11)">S</div>
+              <div id="cs-12" class="on" onclick="codeSize(12)">M</div>
+              <div id="cs-13" onclick="codeSize(13)">L</div>
+            </div>
+          </div>
+        </div>
+        <button class="iconbtn" id="tgl-r" onclick="side('right')" title="Hide changed files">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M10 2.5v11"/><path d="M11.2 6.2h1.6M11.2 9.8h1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="diffwrap" id="diffwrap">
+        <div class="diffscroll" id="diffscroll"></div>
+        <div class="minimap" id="minimap" title="Change overview"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="pane r">
+      <div class="rhead">
+        <div class="rhead-t"><span class="id" id="r-id">!65183</span><span class="n" id="r-n">7 files</span></div>
+        <div style="font-size:11px;color:var(--ink-muted);margin-top:3px;" id="r-seen">0 of 7 viewed</div>
+        <div class="bar"><i id="r-bar" style="width:0%"></i></div>
+      </div>
+      <div class="rscroll" id="tree"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= data ================= */
+const KW_CS = ['using','namespace','private','public','static','var','new','if','else','foreach','in','return','void','class','string','bool','int','true','false','null','await','async'];
+const KW_SQL = ['SET','ON','OFF','GO','CREATE','OR','ALTER','PROCEDURE','AS','BEGIN','END','SELECT','TOP','FROM','INNER','LEFT','OUTER','JOIN','WITH','NOLOCK','WHERE','AND','IS','NULL','COALESCE','CONCAT','nvarchar','int','ANSI_NULLS','QUOTED_IDENTIFIER','NOCOUNT'];
+
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function hl(code, lang){
+  const kw = lang==='sql' ? KW_SQL : KW_CS;
+  const kwRe = kw.map(k=>k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  const re = new RegExp(
+    '(\\/\\/[^\\n]*|--[^\\n]*)'          + '|' +   // 1 comment
+    '("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')' + '|' + // 2 string
+    '(\\[[A-Za-z0-9_]+\\])'              + '|' +   // 3 sql bracket ident
+    '(\\b\\d+(?:\\.\\d+)?\\b)'           + '|' +   // 4 number
+    '\\b(' + kwRe + ')\\b', 'g');
+  let out='', last=0, m;
+  while((m = re.exec(code))){
+    out += esc(code.slice(last, m.index));
+    if(m[1])      out += '<span class="c">'+esc(m[1])+'</span>';
+    else if(m[2]) out += '<span class="s">'+esc(m[2])+'</span>';
+    else if(m[3]) out += '<span class="t">'+esc(m[3])+'</span>';
+    else if(m[4]) out += '<span class="n">'+esc(m[4])+'</span>';
+    else          out += '<span class="k">'+esc(m[5])+'</span>';
+    last = m.index + m[0].length;
+  }
+  return out + esc(code.slice(last));
+}
+/* word-level marker: wrap a substring in <em class="w"> after highlighting */
+function word(html, needle){
+  const i = html.indexOf(needle);
+  if(i<0) return html;
+  return html.slice(0,i) + '<em class="w">' + needle + '</em>' + html.slice(i+needle.length);
+}
+
+const R = (o,n,t,code,w) => ({o,n,t,code,w});
+
+const MIGRATION = [
+  R(1,1,'ctx','using Azure.Core;'),
+  R(2,2,'ctx','using Azure.Identity;'),
+  R(3,3,'ctx','using Azure.Security.KeyVault.Secrets;'),
+  R(4,4,'ctx','using DbUp;'),
+  R(5,5,'ctx','using DbUp.Engine;'),
+  R(null,6,'add','using DbUp.Engine.Output;'),
+  R(6,7,'ctx','using Microsoft.Data.SqlClient;'),
+  R(7,8,'ctx','using Microsoft.Extensions.Configuration;'),
+  R(null,9,'add','using System.Text.RegularExpressions;'),
+  R(8,10,'ctx',''),
+  R(9,11,'ctx','namespace SA.Phase1.Migrations;'),
+  R(10,12,'ctx',''),
+  {fold:188, o:11, n:13},
+  R(199,201,'ctx',''),
+  R(200,202,'ctx','            Console.WriteLine("Removed {affectedRows} journal entries");'),
+  R(201,203,'ctx','        }'),
+  R(202,null,'del','        var upgrader = DeployChanges.To.SqlDatabase(cs)','cs'),
+  R(null,204,'add','        var upgrader = DeployChanges.To.SqlDatabase(connectionString)','connectionString'),
+  R(203,205,'ctx',''),
+  R(null,206,'add','    //private static IDictionary<string, string> BuildVariablesFromKeyVault(string scriptPath, Uri keyVaultUri)'),
+  R(null,207,'add','    //{'),
+  R(null,208,'add','    //    var variableNames = FindVariablesInScripts(scriptPath);'),
+  R(null,209,'add','    //    var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);'),
+  R(null,210,'add','    //'),
+  R(null,211,'add','    //    if (variableNames.Count > 0)'),
+  R(null,212,'add','    //    {'),
+  R(null,213,'add','    //        var secretClient = new SecretClient(keyVaultUri, new DefaultAzureCredential());'),
+  R(null,214,'add','    //        foreach (var variableName in variableNames)'),
+  R(null,215,'add','    //        {'),
+  R(null,216,'add','    //            var secret = secretClient.GetSecret(variableName).Value.Value;'),
+  R(null,217,'add','    //            variables[variableName] = secret;'),
+  R(null,218,'add','    //        }'),
+  R(null,219,'add','    //    }'),
+  R(null,220,'add','    //    return variables;'),
+  R(null,221,'add','    //}'),
+  R(null,222,'add','    //'),
+  R(null,223,'add','    //private static IReadOnlyCollection<string> FindVariablesInScripts(string scriptPath)'),
+  R(null,224,'add','    //{'),
+  R(null,225,'add','    //    var variablePattern = new Regex(@"\\$\\{(?<name>[A-Za-z0-9_]+)\\}$", RegexOptions.Compiled);'),
+  R(null,226,'add','    //    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);'),
+  R(null,227,'add','    //'),
+  R(null,228,'add','    //    foreach (var file in Directory.EnumerateFiles(scriptPath, "*.sql", SearchOption.AllDirectories))'),
+  R(null,229,'add','    //    {'),
+  R(null,230,'add','    //        var text = File.ReadAllText(file);'),
+  R(null,231,'add','    //        foreach (Match match in variablePattern.Matches(text))'),
+  R(null,232,'add','    //        {'),
+  R(null,233,'add','    //            var name = match.Groups["name"].Value;'),
+  R(null,234,'add','    //            if (!string.IsNullOrWhiteSpace(name))'),
+  R(null,235,'add','    //                names.Add(name);'),
+  R(null,236,'add','    //        }'),
+  R(null,237,'add','    //    }'),
+  R(null,238,'add','    //    return names;'),
+  R(null,239,'add','    //}'),
+];
+
+const SQL_NEW = [
+  R(null,1,'add','SET ANSI_NULLS ON'),
+  R(null,2,'add','GO'),
+  R(null,3,'add',''),
+  R(null,4,'add','SET QUOTED_IDENTIFIER ON'),
+  R(null,5,'add','GO'),
+  R(null,6,'add',''),
+  R(null,7,'add','-- =============================================================================='),
+  R(null,8,'add','-- Author:      Shailendra Kumar Saini'),
+  R(null,9,'add','-- Create date: 06-08-2026'),
+  R(null,10,'add','-- Description: Salesforce - Search Users By Email'),
+  R(null,11,'add','-- =============================================================================='),
+  R(null,12,'add','CREATE OR ALTER PROCEDURE [SalesForce].[SearchUsersByEmail_V2]'),
+  R(null,13,'add','    @SearchTerm nvarchar(255),'),
+  R(null,14,'add','    @BrandId int'),
+  R(null,15,'add','AS'),
+  R(null,16,'add','BEGIN'),
+  R(null,17,'add','    SET NOCOUNT ON;'),
+  R(null,18,'add',''),
+  R(null,19,'add','    SELECT TOP 20'),
+  R(null,20,'add','      u.Id,'),
+  R(null,21,'add','      u.Username,'),
+  R(null,22,'add','      COALESCE(u.Email, uev.Email) AS Email,'),
+  R(null,23,'add','      udpc.ContactNumber,'),
+  R(null,24,'add',"      CONCAT(ud.Name, ' ', ud.Surname) AS FullName,"),
+  R(null,25,'add','      u.RegistrationDate,'),
+  R(null,26,'add','      lk_us.Code AS StatusCode'),
+  R(null,27,'add','    FROM [Users].[User] u WITH (NOLOCK)'),
+  R(null,28,'add','    INNER JOIN [Users].[UserDetail] ud WITH (NOLOCK)'),
+  R(null,29,'add','        ON u.Id = ud.UserId'),
+  R(null,30,'add','    INNER JOIN [Users].[UserDetailPhoneContact] udpc WITH (NOLOCK)'),
+  R(null,31,'add','        ON ud.Id = udpc.UserDetailId'),
+  R(null,32,'add','    INNER JOIN [Users].[LK_UserStatus] lk_us WITH (NOLOCK)'),
+  R(null,33,'add','        ON u.StatusId = lk_us.Id'),
+  R(null,34,'add','    LEFT JOIN [Users].[UserEmailVerification] uev WITH (NOLOCK)'),
+  R(null,35,'add','        ON u.Id = uev.UserId'),
+  R(null,36,'add','    WHERE u.BrandId = @BrandId'),
+  R(null,37,'add','      AND ('),
+  R(null,38,'add','            u.Email = @SearchTerm'),
+  R(null,39,'add','            OR (u.Email IS NULL AND uev.Email = @SearchTerm)'),
+  R(null,40,'add','          );'),
+  R(null,41,'add','END'),
+  R(null,42,'add','GO'),
+];
+
+const PRS = [
+  { id:'!65183', title:'Addressing issue with synonyms', src:'tps-ga-plus', dst:'master',
+    author:'Mark Mintoff', when:'12/3/2025', comments:4, draft:false, conflict:true,
+    files:[
+      {dir:'SA.Phase1.Migrations/SA.Phase1.Migrations', name:'MigrationService.cs', st:'M', lang:'cs', add:37, del:2, rows:MIGRATION},
+      {dir:'SA.Phase1.Migrations/SA.Phase1.Migrations', name:'RedactingUpgradeLog.cs', st:'A', lang:'cs', add:41, del:0, rows:MIGRATION.filter(r=>r.t==='add')},
+      {dir:'SA.Phase1.Migrations/Scripts/tps-ga-plus/UPDATE', name:'001_CreateDB.sql', st:'M', lang:'sql', add:6, del:2, rows:SQL_NEW.slice(0,14)},
+      {dir:'SA.Phase1.Migrations/Scripts/tps-ga-plus/UPDATE', name:'002_TxStore.sql', st:'A', lang:'sql', add:42, del:0, rows:SQL_NEW},
+      {dir:'SA.Phase1.Migrations/Scripts/tps-wallet/UPDATE', name:'001_CreateDB.sql', st:'M', lang:'sql', add:4, del:1, rows:SQL_NEW.slice(0,12)},
+      {dir:'tooiSMO/tooiSMO', name:'Program.cs', st:'M', lang:'cs', add:3, del:1, rows:MIGRATION.slice(0,12)},
+      {dir:'(repository root)', name:'user_v2.drawio', st:'A', lang:'cs', add:1, del:0, rows:SQL_NEW.slice(0,6)},
+    ]},
+  { id:'!80494', title:'ACQ-4245: [BE] Include Verified and Unverified Email Addresses in Salesforce Endpoints',
+    src:'ACQ-4245', dst:'main', author:'Shailendra Kumar Saini', when:'1d ago', comments:0, draft:false, conflict:false,
+    files:[
+      {dir:'SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user', name:'054_SalesForce.SearchUsersByEmail_V2.sql', st:'A', lang:'sql', add:42, del:0, rows:SQL_NEW},
+      {dir:'SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user', name:'055_SalesForce.SearchUsersByFullName_V2.sql', st:'A', lang:'sql', add:44, del:0, rows:SQL_NEW},
+      {dir:'SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user', name:'056_SalesForce.SearchUsersByPhoneContact_V2.sql', st:'A', lang:'sql', add:43, del:0, rows:SQL_NEW},
+      {dir:'SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user', name:'057_SalesForce.SearchUsersByUserId_V2.sql', st:'A', lang:'sql', add:40, del:0, rows:SQL_NEW},
+      {dir:'SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user', name:'058_SalesForce.SearchUsersByUsername_V2.sql', st:'A', lang:'sql', add:41, del:0, rows:SQL_NEW},
+    ]},
+];
+
+/* ================= state ================= */
+let pr = 0, fi = 0, view = 'sbs', viewLocked = false, expanded = false;
+const seen = new Set();
+
+/* ================= render: PR list ================= */
+function renderPRs(){
+  document.getElementById('prlist').innerHTML = PRS.map((p,i)=>`
+    <div class="prrow ${i===pr?'on':''}" data-q="${(p.id+' '+p.title+' '+p.author).toLowerCase()}" onclick="selectPR(${i})">
+      <div class="prrow-t"><span class="id">${p.id}</span><span class="tt">${p.title}</span></div>
+      <div class="prrow-m">
+        <span class="ref">${p.src} → ${p.dst}</span>
+        <span class="mi2" title="${p.files.length} files"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.5 2.5h5l2 2h2v9h-9z"/></svg>${p.files.length}</span>
+        ${p.comments?`<span class="mi2" title="${p.comments} comments"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5A1.5 1.5 0 0 1 12 10.5H6l-3.5 3z"/></svg>${p.comments}</span>`:''}
+      </div>
+      <div class="prrow-b">
+        <span class="who-s">${p.author} · ${p.when}</span>
+        ${p.conflict?'<span class="flag conflict">CONFLICTS</span>':''}
+        ${p.draft?'<span class="flag draft">DRAFT</span>':''}
+      </div>
+    </div>`).join('');
+}
+function filterPRs(q){ q=q.toLowerCase();
+  document.querySelectorAll('.prrow').forEach(r=>{ r.style.display = r.dataset.q.includes(q)?'block':'none'; }); }
+
+/* ================= render: file tree (grouped by folder) ================= */
+function renderTree(){
+  const p = PRS[pr], groups = [];
+  p.files.forEach((f,i)=>{
+    let g = groups.find(g=>g.dir===f.dir);
+    if(!g){ g={dir:f.dir, items:[]}; groups.push(g); }
+    g.items.push({f,i});
+  });
+  document.getElementById('tree').innerHTML = groups.map((g,gi)=>`
+    <div class="fgroup" id="g${gi}">
+      <div class="folder" onclick="document.getElementById('g${gi}').classList.toggle('shut');this.classList.toggle('shut')">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 4.5L6 7.5l3-3" stroke-linecap="round"/></svg>
+        <span class="fp">${g.dir}</span><span class="fc">${g.items.length}</span>
+      </div>
+      ${g.items.map(({f,i})=>`
+        <div class="frow ${i===fi?'on':''} ${seen.has(i)?'seen':''}" onclick="selectFile(${i})">
+          <span class="fbadge ${f.st}" title="${f.st==='A'?'Added':f.st==='M'?'Modified':'Deleted'}">${f.st}</span>
+          <span class="fn" title="${f.name}">${f.name}</span>
+          <button class="seenbox" onclick="event.stopPropagation();toggleSeen(${i})" title="Mark as viewed">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 6.2l2.2 2.2 4.8-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>`).join('')}
+    </div>`).join('');
+  document.getElementById('r-id').textContent = p.id;
+  document.getElementById('r-n').textContent = p.files.length + ' files';
+  document.getElementById('r-seen').textContent = `${seen.size} of ${p.files.length} viewed`;
+  document.getElementById('r-bar').style.width = (seen.size / p.files.length * 100) + '%';
+}
+function toggleSeen(i){ seen.has(i) ? seen.delete(i) : seen.add(i); renderTree(); }
+
+/* ================= render: diff ================= */
+function oneSided(f){ return f.add>0 && f.del===0 || f.del>0 && f.add===0; }
+
+function renderDiff(){
+  const f = PRS[pr].files[fi];
+  document.getElementById('d-name').textContent = f.name;
+  document.getElementById('d-path').textContent = f.dir;
+  document.getElementById('d-add').textContent = '+' + f.add;
+  document.getElementById('d-del').textContent = '−' + f.del;
+
+  /* auto-select Inline for one-sided files, unless the user has overridden */
+  const auto = oneSided(f) && !viewLocked;
+  if(auto) view = 'inl';
+  document.getElementById('d-auto').innerHTML = (auto && view==='inl')
+    ? `<span class="autochip" title="This file is ${f.del===0?'all additions':'all deletions'}, so side-by-side would leave one pane empty. Switch manually to override.">
+         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 7.4v4M8 5.2v.9" stroke-linecap="round"/></svg>
+         ${f.del===0?'all additions':'all deletions'} · inline</span>` : '';
+
+  document.getElementById('v-sbs').classList.toggle('on', view==='sbs');
+  document.getElementById('v-inl').classList.toggle('on', view==='inl');
+
+  const rows = f.rows;
+  const html = view==='inl' ? inlineTable(rows,f) : sbsTable(rows,f);
+  document.getElementById('diffscroll').innerHTML = html;
+  renderMinimap(rows);
+}
+
+function foldRow(cols, n){
+  return `<tr class="fold"><td colspan="${cols}">
+    <div class="foldrow">
+      <button class="foldbtn" title="Expand 25 lines up"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7L6 4l3 3" stroke-linecap="round"/></svg>25</button>
+      <button class="foldbtn" onclick="expanded=true;renderDiff()">Expand all ${n}</button>
+      <button class="foldbtn" title="Expand 25 lines down"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5l3 3 3-3" stroke-linecap="round"/></svg>25</button>
+      <span>${n} unchanged lines hidden</span>
+    </div></td></tr>`;
+}
+
+function cell(r,f){
+  let h = hl(r.code, f.lang);
+  if(r.w) h = word(h, r.w);
+  return h;
+}
+
+function inlineTable(rows,f){
+  let out = '<table class="diff"><tbody>';
+  rows.forEach(r=>{
+    if(r.fold){ if(!expanded){ out += foldRow(4, r.fold); } return; }
+    const sign = r.t==='add' ? '+' : r.t==='del' ? '−' : '';
+    out += `<tr class="${r.t}">
+      <td class="gut first">${r.o??''}<button class="addc" onclick="openComposer(this,${r.n??r.o})"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2.5v7M2.5 6h7" stroke-linecap="round"/></svg></button></td>
+      <td class="gut">${r.n??''}</td>
+      <td class="gut sign">${sign}</td>
+      <td class="code">${cell(r,f)}</td></tr>`;
+  });
+  return out + '</tbody></table>';
+}
+
+function sbsTable(rows,f){
+  /* pair del/add runs so modified lines sit opposite each other */
+  const pairs=[]; let i=0;
+  while(i<rows.length){
+    const r=rows[i];
+    if(r.fold){ pairs.push({fold:r.fold}); i++; continue; }
+    if(r.t==='ctx'){ pairs.push({l:r,rr:r}); i++; continue; }
+    const dels=[], adds=[];
+    while(i<rows.length && rows[i].t==='del'){ dels.push(rows[i++]); }
+    while(i<rows.length && rows[i].t==='add'){ adds.push(rows[i++]); }
+    const n=Math.max(dels.length,adds.length);
+    for(let k=0;k<n;k++) pairs.push({l:dels[k]||null, rr:adds[k]||null});
+  }
+  let out = '<table class="diff"><tbody>';
+  pairs.forEach(pr2=>{
+    if(pr2.fold){ if(!expanded){ out += foldRow(6, pr2.fold); } return; }
+    const L=pr2.l, Rr=pr2.rr;
+    const lc = L ? `<td class="gut first">${L.o??''}<button class="addc" onclick="openComposer(this,${L.o})"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2.5v7M2.5 6h7" stroke-linecap="round"/></svg></button></td>
+        <td class="gut sign">${L.t==='del'?'−':''}</td><td class="code ${L.t==='del'?'':''}">${cell(L,f)}</td>`
+      : `<td class="gut void"></td><td class="gut void"></td><td class="code void"></td>`;
+    const rc = Rr ? `<td class="gut first">${Rr.n??''}<button class="addc" onclick="openComposer(this,${Rr.n})"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2.5v7M2.5 6h7" stroke-linecap="round"/></svg></button></td>
+        <td class="gut sign">${Rr.t==='add'?'+':''}</td><td class="code">${cell(Rr,f)}</td>`
+      : `<td class="gut void"></td><td class="gut void"></td><td class="code void"></td>`;
+    const cls = (L&&L.t==='del'?'del':'') || (Rr&&Rr.t==='add'?'add':'');
+    out += `<tr class="${cls}">${lc}${rc}</tr>`;
+  });
+  return out + '</tbody></table>';
+}
+
+function renderMinimap(rows){
+  document.getElementById('minimap').innerHTML =
+    rows.filter(r=>!r.fold).map(r=>`<i class="${r.t==='add'?'add':r.t==='del'?'del':''}"></i>`).join('');
+}
+
+/* ================= composer (deliberate overlay) ================= */
+function openComposer(btn, line){
+  closeComposer();
+  const scroll = document.getElementById('diffscroll');
+  const tr = btn.closest('tr');
+  const top = tr.offsetTop + tr.offsetHeight;
+
+  const scrim = document.createElement('div');
+  scrim.className='scrim'; scrim.id='scrim';
+  scrim.style.top = top+'px'; scrim.style.height = '150px';
+
+  const c = document.createElement('div');
+  c.className='composer'; c.id='composer'; c.style.top = (top+6)+'px';
+  c.innerHTML = `
+    <div class="composer-h"><span class="cbadge">NEW COMMENT</span><span class="ln">line ${line}</span></div>
+    <textarea placeholder="Leave a comment…  Markdown supported"></textarea>
+    <div class="composer-f">
+      <button class="btn accent">Comment</button>
+      <button class="btn outline" onclick="closeComposer()">Cancel</button>
+      <span class="hint">⌘⏎ to post · Esc to dismiss</span>
+    </div>`;
+  scroll.appendChild(scrim); scroll.appendChild(c);
+  c.querySelector('textarea').focus();
+}
+function closeComposer(){ ['composer','scrim'].forEach(id=>{ const e=document.getElementById(id); if(e) e.remove(); }); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeComposer(); closeMenus(); } });
+
+/* ================= chrome ================= */
+function selectPR(i){
+  ['h-pr1','h-pr2','h-pr3'].forEach((id,k)=>document.getElementById(id).classList.toggle('on', k===(i<0?2:i)));
+  /* ONE empty state — the toolbar and vote bar hide entirely rather than
+     showing a second, contradictory "no file selected" message. */
+  const none = i<0;
+  document.querySelector('.prbar').style.display = none ? 'none' : '';
+  document.querySelector('.pane.r').style.display = none ? 'none' : '';
+  document.getElementById('rev').style.gridTemplateColumns = none ? '264px minmax(0,1fr)' : '';
+  document.querySelector('.toolbar').style.display = none ? 'none' : '';
+  document.getElementById('diffwrap').style.display = none ? 'none' : '';
+  let e = document.getElementById('emptystate');
+  if(none){
+    if(!e){ e=document.createElement('div'); e.id='emptystate'; e.className='empty';
+      e.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/>
+        <path d="M6 8.5v7M8.5 6H13a3 3 0 0 1 3 3v0" stroke-linecap="round"/></svg>
+        <b>No pull request selected</b>
+        <span>Pick a pull request on the left to review the files it touches.</span>`;
+      document.getElementById('centre').appendChild(e); }
+    pr=0; return;
+  }
+  if(e) e.remove();
+  pr=i; fi=0; viewLocked=false; expanded=false; seen.clear();
+  const p=PRS[i];
+  document.getElementById('pr-id').textContent=p.id;
+  document.getElementById('pr-title').textContent=p.title;
+  document.getElementById('pr-ref').textContent=`${p.src} → ${p.dst}`;
+  renderPRs(); renderTree(); renderDiff(); }
+function selectFile(i){ fi=i; expanded=false; viewLocked=false; closeComposer(); renderTree(); renderDiff(); }
+function setView(v,manual){ view=v; if(manual) viewLocked=true; closeComposer(); renderDiff(); }
+function side(which){
+  const r=document.getElementById('rev');
+  const key = which==='left'?'data-left':'data-right';
+  const off = r.getAttribute(key)==='off';
+  r.setAttribute(key, off?'on':'off');
+  document.getElementById(which==='left'?'tgl-l':'tgl-r').classList.toggle('on', !off);
+}
+function toggleWrap(e){ e.stopPropagation();
+  const cb=document.getElementById('cb-wrap'); cb.checked=!cb.checked;
+  document.body.setAttribute('data-wrap', cb.checked?'on':'off'); }
+function codeSize(n){ document.querySelector('.app').style.setProperty('--code-size', n+'px');
+  [11,12,13].forEach(s=>document.getElementById('cs-'+s).classList.toggle('on', s===n)); }
+function theme(t){ document.body.setAttribute('data-theme',t);
+  document.getElementById('th-l').classList.toggle('on',t==='light');
+  document.getElementById('th-d').classList.toggle('on',t==='dark'); }
+function closeMenus(){ document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open')); }
+function pop(e,id){ e.stopPropagation(); const el=document.getElementById(id);
+  const was=el.classList.contains('open'); closeMenus(); if(!was) el.classList.add('open'); }
+document.addEventListener('click', closeMenus);
+document.querySelectorAll('.menu').forEach(m=>m.addEventListener('click',e=>e.stopPropagation()));
+
+selectPR(0);
+</script>
+</body>
+</html>

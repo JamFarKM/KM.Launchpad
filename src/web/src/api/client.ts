@@ -2,7 +2,7 @@ import type {
   AzureCredential,
   Branch,
   ConfigRegistry,
-  ConfigSetting,
+  ConfigSettings,
   VaultRegistry,
   VaultSecretValue,
   LogContent,
@@ -10,6 +10,13 @@ import type {
   Pipeline,
   PipelineDetail,
   Project,
+  PrChange,
+  PrComment,
+  PrFileDiff,
+  PrThread,
+  PullRequest,
+  Repo,
+  RepoFavourite,
   Run,
   RunRequest,
   GridPos,
@@ -64,6 +71,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+const prUrl = (project: string, repoId: string, prId: number) =>
+  `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/pullrequests/${prId}`;
+
 export const api = {
   // config + auth
   config: () => req<{ defaultOrg: string }>("/api/config"),
@@ -112,6 +122,50 @@ export const api = {
     req<LogContent>(
       `/api/projects/${encodeURIComponent(project)}/runs/${buildId}/logs/${logId}`,
     ),
+
+  // pull requests
+  repos: (project: string) =>
+    req<Repo[]>(`/api/projects/${encodeURIComponent(project)}/repos`),
+  pullRequests: (project: string, repoId: string, status = "active", top = 30) =>
+    req<PullRequest[]>(
+      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/pullrequests?status=${status}&top=${top}`,
+    ),
+  prChanges: (project: string, repoId: string, prId: number) =>
+    req<PrChange[]>(
+      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/pullrequests/${prId}/changes`,
+    ),
+  prFileDiff: (project: string, repoId: string, path: string, beforeCommit: string, afterCommit: string) =>
+    req<PrFileDiff>(
+      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/filediff` +
+        `?path=${encodeURIComponent(path)}&beforeCommit=${encodeURIComponent(beforeCommit)}&afterCommit=${encodeURIComponent(afterCommit)}`,
+    ),
+
+  // PR comment threads (writes need a PAT with Code: Read & Write)
+  prThreads: (project: string, repoId: string, prId: number) =>
+    req<PrThread[]>(`${prUrl(project, repoId, prId)}/threads`),
+  prCreateThread: (project: string, repoId: string, prId: number,
+                   body: { filePath: string; line: number; content: string; onLeft: boolean }) =>
+    req<PrThread>(`${prUrl(project, repoId, prId)}/threads`, { method: "POST", body: JSON.stringify(body) }),
+  prReply: (project: string, repoId: string, prId: number, threadId: number, content: string) =>
+    req<PrComment>(`${prUrl(project, repoId, prId)}/threads/${threadId}/comments`,
+      { method: "POST", body: JSON.stringify({ content }) }),
+  prSetThreadStatus: (project: string, repoId: string, prId: number, threadId: number, status: string) =>
+    req<PrThread>(`${prUrl(project, repoId, prId)}/threads/${threadId}`,
+      { method: "PATCH", body: JSON.stringify({ status }) }),
+
+  prVote: (project: string, repoId: string, prId: number, vote: number) =>
+    req<{ vote: number }>(`${prUrl(project, repoId, prId)}/vote`,
+      { method: "PUT", body: JSON.stringify({ vote }) }),
+
+  // starred project+repo combos
+  repoFavourites: () => req<RepoFavourite[]>("/api/repo-favourites"),
+  addRepoFavourite: (project: string, repoId: string, repoName: string) =>
+    req<RepoFavourite>("/api/repo-favourites", {
+      method: "POST",
+      body: JSON.stringify({ project, repoId, repoName }),
+    }),
+  removeRepoFavourite: (id: string) =>
+    req<void>(`/api/repo-favourites/${id}`, { method: "DELETE" }),
 
   // views
   views: () => req<SavedView[]>("/api/views"),
@@ -174,7 +228,7 @@ export const api = {
   deleteConfigRegistry: (id: string) =>
     req<void>(`/api/config-registries/${id}`, { method: "DELETE" }),
   configSettings: (id: string) =>
-    req<ConfigSetting[]>(`/api/config-registries/${id}/settings`),
+    req<ConfigSettings>(`/api/config-registries/${id}/settings`),
 
   // Azure Key Vault registries
   vaultRegistries: () => req<VaultRegistry[]>("/api/vault-registries"),
