@@ -3435,7 +3435,15 @@ a {
   box-shadow: inset 2px 0 0 var(--diff-add-stripe);
 }
 
-.review-diff .monaco-editor .view-overlays .line-delete {
+/* Deletions need BOTH selectors. Side by side, a deleted row is an overlay on the original
+   editor: `.view-overlays .line-delete`. Inline, the original text isn't in the document at all,
+   so Monaco injects it into the modified editor as a view zone — `.view-zones .view-lines
+   .line-delete`. Same class name, different ancestor, so an overlay-only rule silently missed
+   every inline deletion: the rows rendered with no tint and no stripe, leaving a `−` in the gutter
+   as the only sign that a line had been removed. Worst on an all-deletions file, where there is
+   no added row alongside to compare against. */
+.review-diff .monaco-editor .view-overlays .line-delete,
+.review-diff .monaco-editor .view-zones .line-delete {
   background: var(--diff-del-tint);
   box-shadow: inset 2px 0 0 var(--diff-del-stripe);
 }
