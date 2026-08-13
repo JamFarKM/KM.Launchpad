@@ -4419,12 +4419,28 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-faint);
-  padding: 6px 8px 2px;
+  padding: 8px 8px 2px;
+  overflow: hidden;
+}
+
+/* Stage over job, so the hierarchy is legible without indenting every step under it. */
+.log-group-title .lg-stage,
+.log-group-title .lg-job {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.log-group-title .lg-stage {
+  font-size: 9.5px;
+  opacity: 0.75;
+}
+
+.log-group-title .lg-job { color: var(--ink-muted); }
+
+/* Selects the step's log, so it has to look selectable — a plain div defaults to a text caret,
+   which read as "this is a label" rather than "click me". */
 .log-step {
   display: flex;
   align-items: center;
@@ -4432,6 +4448,7 @@ a {
   padding: 6px 8px 6px 16px;
   border-radius: 6px;
   font-size: 13px;
+  cursor: pointer;
 }
 
 .log-step:hover {

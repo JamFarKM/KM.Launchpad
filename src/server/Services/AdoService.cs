@@ -755,41 +755,86 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         static int Order(JsonElement e) =>
             e.TryGetProperty("order", out var o) && o.ValueKind == JsonValueKind.Number ? o.GetInt32() : 0;
 
-        // The name (and order) of the nearest ancestor-or-self record of type "Job",
-        // used to group the many repeated task names under the job they belong to.
-        (string? name, int order) JobOf(JsonElement r)
+        JsonElement? Parent(JsonElement e) =>
+            e.TryGetProperty("parentId", out var p) && p.ValueKind == JsonValueKind.String
+            && p.GetString() is { } pid && byId.TryGetValue(pid, out var parent) ? parent : null;
+
+        // The nearest ancestor-or-self record of the given type — the Job a task belongs to, or
+        // the Stage that job belongs to.
+        string? AncestorName(JsonElement r, string type)
         {
             var cur = r;
             for (var depth = 0; depth < 12; depth++)
             {
-                var type = cur.TryGetProperty("type", out var t) ? t.GetString() : null;
-                if (string.Equals(type, "Job", StringComparison.OrdinalIgnoreCase))
-                    return (cur.TryGetProperty("name", out var jn) ? jn.GetString() : null, Order(cur));
-                var parentId = cur.TryGetProperty("parentId", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
-                if (parentId is null || !byId.TryGetValue(parentId, out var parent)) break;
-                cur = parent;
+                if (string.Equals(cur.TryGetProperty("type", out var t) ? t.GetString() : null, type,
+                        StringComparison.OrdinalIgnoreCase))
+                    return cur.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (Parent(cur) is not { } next) break;
+                cur = next;
             }
-            return (null, 0);
+            return null;
         }
 
-        var rows = new List<(int jobOrder, int order, LogEntryDto entry)>();
-        foreach (var r in records.EnumerateArray())
+        /*
+         * A sort key built from the record's whole ancestry, root first.
+         *
+         * `order` in a timeline is only unique *among siblings*: the first job of every stage is
+         * order 1, and so is the first task of every job. Sorting on (jobOrder, taskOrder) alone
+         * therefore interleaved parallel jobs — stage A's step 1, then stage B's step 1, then
+         * stage A's step 2 — which is the scattered list this replaces. Comparing whole paths
+         * nests the records the way the timeline actually is, and the way Azure DevOps shows
+         * them: stages in order, each job's steps contiguous beneath it.
+         *
+         * Zero-padded so an ordinal comparison sorts numerically, and so a shorter path sorts
+         * ahead of the longer ones descending from it.
+         */
+        string PathKey(JsonElement r)
         {
-            if (!r.TryGetProperty("log", out var log) || log.ValueKind != JsonValueKind.Object) continue;
-            var (jobName, jobOrder) = JobOf(r);
-            rows.Add((jobOrder, Order(r), new LogEntryDto(
+            var chain = new List<int>();
+            var cur = r;
+            for (var depth = 0; depth < 12; depth++)
+            {
+                chain.Add(Order(cur));
+                if (Parent(cur) is not { } next) break;
+                cur = next;
+            }
+            chain.Reverse();
+            return string.Join("/", chain.Select(o => o.ToString("D6")));
+        }
+
+        /*
+         * Only tasks are steps. Stage, Phase and Job records carry logs of their own — the job's
+         * being the concatenation of its tasks — so including them listed the job's name two or
+         * three times before its actual steps. Azure DevOps shows tasks, so this does too.
+         *
+         * Falling back to every logged record if a timeline somehow has no tasks, rather than
+         * rendering an empty panel.
+         */
+        static bool IsTask(JsonElement e) =>
+            string.Equals(e.TryGetProperty("type", out var t) ? t.GetString() : null, "Task",
+                StringComparison.OrdinalIgnoreCase);
+
+        var logged = records.EnumerateArray()
+            .Where(r => r.TryGetProperty("log", out var l) && l.ValueKind == JsonValueKind.Object)
+            .ToList();
+        var considered = logged.Any(IsTask) ? logged.Where(IsTask) : logged;
+
+        var rows = new List<(string path, LogEntryDto entry)>();
+        foreach (var r in considered)
+        {
+            var log = r.GetProperty("log");
+            rows.Add((PathKey(r), new LogEntryDto(
                 log.GetProperty("id").GetInt32(),
                 r.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
                 r.TryGetProperty("state", out var st) ? st.GetString() ?? "" : "",
                 r.TryGetProperty("result", out var rs) && rs.ValueKind != JsonValueKind.Null ? rs.GetString() : null,
                 r.TryGetProperty("lineCount", out var lc) && lc.ValueKind == JsonValueKind.Number ? lc.GetInt32() : null,
-                jobName)));
+                AncestorName(r, "Job"),
+                AncestorName(r, "Stage"))));
         }
 
-        // Keep each job's steps contiguous and in execution order.
         return rows
-            .OrderBy(x => x.jobOrder)
-            .ThenBy(x => x.order)
+            .OrderBy(x => x.path, StringComparer.Ordinal)
             .Select(x => x.entry)
             .ToList();
     }

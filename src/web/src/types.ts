@@ -80,7 +80,10 @@ export interface LogEntry {
   state: string;
   result?: string | null;
   lineCount?: number | null;
+  /** The job the step ran in. */
   group?: string | null;
+  /** The stage that job ran in, when the pipeline has stages. */
+  stage?: string | null;
 }
 
 export interface LogContent {
