@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ELLIPSIS, groupConsecutive, middleTruncate } from "./truncate";
+import { ELLIPSIS, groupConsecutive, middleTruncate, transformed } from "./truncate";
 
 /** A fixed-width font: every character is 10px wide. Keeps the budgets easy to reason about. */
 const mono = (s: string) => s.length * 10;
@@ -68,6 +68,29 @@ describe("middleTruncate", () => {
   it("returns the text unchanged when the width is unknown", () => {
     // clientWidth is 0 before layout; rendering the full string beats rendering an ellipsis.
     expect(fit("acca-bonus-ladder-switch", 0)).toBe("acca-bonus-ladder-switch");
+  });
+});
+
+describe("transformed — what the element actually renders", () => {
+  it("applies uppercase, which canvas measureText ignores", () => {
+    expect(transformed("Non-Prod/BetServices", "uppercase")).toBe("NON-PROD/BETSERVICES");
+  });
+
+  it("applies lowercase and capitalize", () => {
+    expect(transformed("ABC def", "lowercase")).toBe("abc def");
+    expect(transformed("hello world", "capitalize")).toBe("Hello World");
+  });
+
+  it("leaves text alone for none", () => {
+    expect(transformed("acca-bonus", "none")).toBe("acca-bonus");
+  });
+
+  /* The bug this exists for: uppercase is wider than mixed case in almost every font, so
+     measuring the untransformed string under-reports and the fitter wrongly concludes it fits. */
+  it("produces a string at least as wide as the input", () => {
+    const input = "non-prod/betservices/sb.configregistry";
+    expect(transformed(input, "uppercase").length).toBe(input.length);
+    expect(transformed(input, "uppercase")).not.toBe(input);
   });
 });
 

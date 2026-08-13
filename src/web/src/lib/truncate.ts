@@ -35,11 +35,31 @@ export function fontOf(el: Element): string {
   return `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} / ${cs.lineHeight} ${cs.fontFamily}`;
 }
 
-/** Width of `text` in px, as it would render inside `el`. */
+/** What the element will actually render, which is not always what you passed it. */
+export function transformed(text: string, transform: string): string {
+  if (transform.startsWith("uppercase")) return text.toUpperCase();
+  if (transform.startsWith("lowercase")) return text.toLowerCase();
+  if (transform.startsWith("capitalize")) return text.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+  return text;
+}
+
+/**
+ * Width of `text` in px, as it would render inside `el`.
+ *
+ * Canvas `measureText` honours the font but **not** `text-transform` or `letter-spacing`, so a
+ * naive measurement under-reports both — an uppercase, letter-spaced heading measured as fitting
+ * when it visibly did not, and CSS then tail-clipped the path we had just declined to truncate.
+ * Both are applied here so the budget matches what lands on screen.
+ */
 export function textWidth(text: string, el: Element): number {
+  const cs = getComputedStyle(el);
+  const shown = transformed(text, cs.textTransform);
   const m = measurer();
   m.font = fontOf(el);
-  return m.measureText(text).width;
+  const base = m.measureText(shown).width;
+  const spacing = parseFloat(cs.letterSpacing);
+  // Applied per character, including a trailing one — which is how browsers lay it out.
+  return Number.isFinite(spacing) ? base + spacing * shown.length : base;
 }
 
 /**

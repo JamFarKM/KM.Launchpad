@@ -614,10 +614,26 @@ export function Dashboard() {
                               <div className="shelf-menu" onMouseLeave={() => setColorMenu(null)}>
                                 <button className="menu-item" onClick={() => { setColorMenu(null); renameShelf(shelf); }}>Rename…</button>
                                 <div className="menu-sep" />
+                                {/* POLISH §8: labelled, one row of seven, and the current value
+                                    ringed — the menu previously showed seven unlabelled swatches
+                                    wrapping 5+2 with no indication of what was already set. */}
+                                <div className="menu-label">Shelf accent</div>
                                 <div className="menu-colors">
-                                  <button className="swatch swatch-none" title="No colour" onClick={() => { setShelfColor(shelf, ""); setColorMenu(null); }} />
+                                  <button
+                                    className={`swatch swatch-none ${!shelfColor(activeView, shelf) ? "is-current" : ""}`}
+                                    title="No accent"
+                                    aria-pressed={!shelfColor(activeView, shelf)}
+                                    onClick={() => { setShelfColor(shelf, ""); setColorMenu(null); }}
+                                  />
                                   {SHELF_COLOR_FAMILIES.map((f) => (
-                                    <button key={f} className="swatch" data-color={f} title={f} onClick={() => { setShelfColor(shelf, f); setColorMenu(null); }} />
+                                    <button
+                                      key={f}
+                                      className={`swatch ${shelfColor(activeView, shelf) === f ? "is-current" : ""}`}
+                                      data-color={f}
+                                      title={f}
+                                      aria-pressed={shelfColor(activeView, shelf) === f}
+                                      onClick={() => { setShelfColor(shelf, f); setColorMenu(null); }}
+                                    />
                                   ))}
                                 </div>
                               </div>

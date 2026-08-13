@@ -1483,13 +1483,16 @@ a {
   border-color: transparent;
 }
 
+/* POLISH §8. Rounded squares, not circles: the status glyph and the type badges are squares, so
+   circles were the odd shape out in this system. 22px so seven fit one row of the menu exactly. */
 .swatch {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
   border: 1px solid var(--border-strong);
   cursor: pointer;
   padding: 0;
+  position: relative;
 }
 
 .swatch[data-color] {
@@ -1502,8 +1505,26 @@ a {
   outline-offset: 1px;
 }
 
+/* Which accent is already set — the menu gave no indication at all before. Two rings so the mark
+   reads against both the swatch and the menu behind it, whatever the hue. */
+.swatch.is-current {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--ink-primary);
+}
+
+/* "none" read as a white circle, i.e. as another colour choice. A dashed border and a diagonal
+   slash say absence instead. */
 .swatch-none {
-  background: transparent;
+  background: var(--bg-surface-2);
+  border: 1px dashed var(--border-strong);
+}
+
+.swatch-none::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-top: 1px solid var(--ink-muted);
+  transform: rotate(-45deg);
+  transform-origin: center;
 }
 
 .spin-svg {
@@ -1531,12 +1552,23 @@ a {
   flex: 0 0 auto;
 }
 
+/* POLISH §1.6 — the title takes the slack, the controls never give any up. `Configuration
+   Registry` was truncating with room to spare because it competed with the kebab, the ✕ and the
+   badge for a fixed share; some of this app's truncation was a layout bug, not a length problem. */
 .shelf-title {
+  flex: 1 1 auto;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0; /* allow the title to shrink and ellipsis instead of wrapping */
+}
+
+.shelf-head > .btn,
+.shelf-head .shelf-menu-wrap,
+.shelf-head .shelf-health,
+.shelf-head .shelf-count {
+  flex-shrink: 0;
 }
 
 /* ---------- shelf options menu (kebab) ---------- */
@@ -1583,11 +1615,21 @@ a {
   margin: 0 2px;
 }
 
+/* Seven in one row rather than wrapping 5+2 — at 22px with a 6px gap they fit the menu width. */
 .shelf-menu .menu-colors {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 7px;
-  padding: 2px;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  padding: 3px 2px 5px;
+}
+
+/* Section label, matching the settings menu's. */
+.shelf-menu .menu-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  padding: 5px 2px 4px;
 }
 
 /* ---------- the hairline card grid (invariant A3, §4) ----------
@@ -3053,7 +3095,11 @@ a {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
-  overflow-wrap: anywhere;
+  /* POLISH §1.5: `anywhere` broke mid-word, splitting `Migrations` into `Migratio` / `ns`. The
+     path now carries a <wbr> after each separator (see fileDir's rendering), so `normal` breaks
+     only at the slashes. The two-line allowance is DESIGN_SPEC_REVIEW §7's deliberate choice and
+     is kept — this fixes where it breaks, not how many lines it gets. */
+  overflow-wrap: normal;
 }
 
 .fg-count {
@@ -3974,8 +4020,11 @@ a {
   min-width: 0;
 }
 
+/* POLISH §9: 15px, up from 14.5. Hierarchy was carried almost entirely by weight and colour,
+   which is why dense areas read flat — widening the ratio between the loudest and quietest text
+   is the cheapest way to make a packed card feel organised. Pairs with run-row meta at 10.5px. */
 .card-title-text {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--ink-primary);
   border-radius: 4px;
@@ -4255,6 +4304,35 @@ a {
 .truncated.is-fitted {
   text-overflow: clip;
 }
+
+/* POLISH §6 — a list that matches nothing says so, names the scope, and offers the way out. */
+.pool-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 26px 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.pool-empty b { color: var(--ink-secondary); font-size: 12.5px; }
+
+.pool-empty-act {
+  margin-top: 6px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.pool-empty-act:hover { text-decoration: underline; }
+.pool-empty-hint { font-size: 11px; }
 
 .run-line .rl-meta {
   flex-shrink: 0;

@@ -287,8 +287,19 @@ function ConfigBrowser({ registries, active, onPickRegistry }: {
               order — keys later in the alphabet are missing from this page.
             </div>
           )}
+          {/* POLISH §6: name the term and the scope. The likely fix here is a different
+              namespace, and a bare "No matching keys" doesn't say which one you're in. */}
           {!settingsQ.isLoading && !settingsQ.error && keyGroups.length === 0 && (
-            <div className="faint cfg-note">No matching keys.</div>
+            <div className="pool-empty">
+              {keyNeedle
+                ? <>
+                    <b>No keys match “{keyFilter.trim()}”</b>
+                    <span>in namespace <b>{activeNs}</b></span>
+                    <button className="pool-empty-act" onClick={() => setKeyFilter("")}>Clear the filter</button>
+                    <span className="pool-empty-hint">or pick another namespace on the left</span>
+                  </>
+                : <b>No keys in this namespace.</b>}
+            </div>
           )}
 
           {grouped.map((group) => (

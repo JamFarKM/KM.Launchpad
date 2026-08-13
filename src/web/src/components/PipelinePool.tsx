@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
 import type { Pipeline, Project, Sequence } from "../types";
+import { HEAD_RATIO_BALANCED } from "../lib/truncate";
+import { Combobox } from "./Combobox";
+import { Truncated } from "./Truncated";
 
 interface Props {
   projects: Project[];
@@ -84,11 +87,19 @@ export function PipelinePool({
       </div>
 
       <div className="pool-head">
+        {/* POLISH §9: the native select was the only OS-styled control in the app — it won't
+            follow the dark theme reliably and it sits at the top of the most-used panel. Same
+            prefix-tag + Combobox as the Review page's PROJ/REPO pickers. */}
         {source === "pipelines" && (
-          <select className="select" value={activeProject} onChange={(e) => onProject(e.target.value)}>
-            {projects.length === 0 && <option value="">No projects</option>}
-            {projects.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
-          </select>
+          <span className="picker-wrap" title="Azure DevOps project">
+            <span className="picker-tag">Proj</span>
+            <Combobox
+              value={activeProject}
+              options={projects.map((p) => ({ value: p.name, label: p.name }))}
+              placeholder={projects.length ? "— project —" : "No projects"}
+              onChange={onProject}
+            />
+          </span>
         )}
         <input className="input" placeholder={`Search ${source}…`} value={search} onChange={(e) => onSearch(e.target.value)} />
       </div>
@@ -98,9 +109,24 @@ export function PipelinePool({
           <>
             {loading && <div className="center-note"><span className="spin" /> Loading pipelines…</div>}
             {!loading && pipelines.length === 0 && <div className="center-note">No pipelines in this project.</div>}
+            {/* POLISH §6: a search that matched nothing rendered a completely blank panel — the
+                one case that wasn't covered, since the check above only catches an empty project.
+                Naming the scope matters here specifically: the usual fix is switching project,
+                and you cannot tell that from a blank panel. */}
+            {!loading && pipelines.length > 0 && grouped.length === 0 && (
+              <div className="pool-empty">
+                <b>No pipelines match “{search.trim()}”</b>
+                <span>in project <b>{activeProject}</b></span>
+                <button className="pool-empty-act" onClick={() => onSearch("")}>Clear the filter</button>
+                <span className="pool-empty-hint">or pick another project above</span>
+              </div>
+            )}
             {!loading && grouped.map(([folder, items]) => (
               <div className="pool-group" key={folder}>
-                <div className="pool-group-title">{folder}</div>
+                {/* The folder heading is a path, and long ones — `Non-Prod/BetServices/
+                    SB.ConfigRegistry/Nuget` — were what actually produced the drawer's horizontal
+                    scrollbar, not the pipeline names below them (§7, audited per §1.6). */}
+                <Truncated className="pool-group-title" text={folder} headRatio={HEAD_RATIO_BALANCED} />
                 {items.map((p) => (
                   <div
                     key={p.id}
@@ -109,7 +135,10 @@ export function PipelinePool({
                     onDragStart={(e) => { e.dataTransfer.effectAllowed = "copy"; onDragStart(p); }}
                     title={p.enabled ? "Drag into a shelf, or click +" : "Disabled pipeline"}
                   >
-                    <span className="name">{p.name}</span>
+                    {/* POLISH §7: long names overflowed and produced a horizontal scrollbar in a
+                        vertical list. headRatio 0.5 because a pipeline's head carries real
+                        meaning too — `SB.OfferIntegration…` — unlike a branch. */}
+                    <Truncated className="name" text={p.name} headRatio={HEAD_RATIO_BALANCED} />
                     <button className="btn ghost small" disabled={pinnedIds.has(p.id)} onClick={() => onAdd(p)}
                       title={pinnedIds.has(p.id) ? "Already in this view" : "Add to current shelf"}>
                       {pinnedIds.has(p.id) ? "✓" : "+"}
@@ -126,8 +155,13 @@ export function PipelinePool({
             {filteredSeqs.length === 0 && sequences.length === 0 && (
               <div className="center-note">No sequences yet. Create one below.</div>
             )}
+            {/* Named term and a way out, same as the pipelines list. Sequences are global rather
+                than per-project, so there is no scope line to add here. */}
             {filteredSeqs.length === 0 && sequences.length > 0 && (
-              <div className="center-note">No sequences match.</div>
+              <div className="pool-empty">
+                <b>No sequences match “{search.trim()}”</b>
+                <button className="pool-empty-act" onClick={() => onSearch("")}>Clear the filter</button>
+              </div>
             )}
             {filteredSeqs.map((s) => (
               <div

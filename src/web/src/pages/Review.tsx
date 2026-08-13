@@ -63,6 +63,20 @@ const fileDir = (p: string) => {
   return segs.join("/");
 };
 
+/**
+ * A path with a break opportunity after each separator (POLISH §1.5).
+ *
+ * Without these the CSS had to break anywhere to fit, which split segments mid-word —
+ * `SA.Phase1.Migratio` / `ns/Scripts`. A `<wbr>` per slash means a wrap lands on a boundary that
+ * means something, and nowhere else.
+ */
+const breakOnSeparators = (path: string) =>
+  path.split("/").map((seg, i, all) => (
+    <Fragment key={i}>
+      {seg}{i < all.length - 1 && <>/<wbr /></>}
+    </Fragment>
+  ));
+
 /** Full word for the badge tooltip, so the letter isn't the only carrier. */
 const CHANGE_WORD: Record<string, string> = {
   add: "Added", del: "Deleted", edit: "Modified", ren: "Renamed",
@@ -481,8 +495,10 @@ export function ReviewPage() {
                   >
                     <span className="fg-chevron">{collapsed ? "▸" : "▾"}</span>
                     {/* Folder paths truncate at the START — the tail is what distinguishes
-                        them — and may wrap to two lines. Filenames truncate at the end. */}
-                    <span className="fg-path" title={dir}>{dir}</span>
+                        them — and may wrap to two lines. Filenames truncate at the end.
+                        POLISH §1.5: break opportunities sit after each separator, so a wrap can
+                        never split a segment mid-word ("Migratio" / "ns"). */}
+                    <span className="fg-path" title={dir}>{breakOnSeparators(dir)}</span>
                     <span className="fg-count">{files.length}</span>
                   </button>
 
