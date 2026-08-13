@@ -20,11 +20,11 @@ Docker image.
 
 ---
 
-## Quick start (Docker)
+## Quick start
 
 ```bash
-cp .env.example .env      # optional: set ADO_DEFAULT_ORG, PORT
-docker compose up --build
+cp .env.example .env          # optional: set ADO_DEFAULT_ORG, PORT
+docker compose up -d --build
 ```
 
 Then open <http://localhost:8080>, enter your organization (defaults to
@@ -38,31 +38,57 @@ State (the SQLite database, encryption keys, and saved views) lives in the
 In Azure DevOps: **User settings → Personal access tokens → New Token**, scoped to
 your organization with:
 
-| Scope     | Access         | Why                                    |
-| --------- | -------------- | -------------------------------------- |
-| Build     | Read & execute | list pipelines, read runs, trigger     |
-| Code      | Read           | list branches for the run dialog       |
-| Project   | Read           | list projects                          |
+| Scope     | Access         | Why                                                      |
+| --------- | -------------- | -------------------------------------------------------- |
+| Build     | Read & execute | list pipelines, read runs, trigger                       |
+| Code      | Read & write   | branches and diffs, **and** posting PR comments and votes |
+| Project   | Read           | list projects                                            |
+
+**Code needs write, not just read.** Read alone covers the branch picker and the
+Review page's diffs, but the Review page also posts comment threads, replies,
+thread resolution, and your approve/reject vote — all of which Azure DevOps puts
+behind Code (write). With a read-only token the app signs in and browses fine, and
+then fails the moment you try to comment or vote.
 
 Paste it on the connect screen. The app validates it, resolves your identity, and
 keys your saved views to you.
 
-## Local development
+## Running it
 
-Two terminals:
+Docker is the only supported way to run the app. The image builds the frontend and
+serves it from the ASP.NET Core host, so there is one process, one port, and one
+artifact that behaves the same everywhere — there is no `npm run dev` path to keep
+in sync.
+
+Everyday commands:
 
 ```bash
-# backend (http://localhost:5080)
-cd src/server
-dotnet run
-
-# frontend (http://localhost:5173, proxies /api to :5080)
-cd src/web
-npm install
-npm run dev
+docker compose logs -f          # follow the logs
+docker compose up -d --build    # rebuild and restart after a code change
+docker compose down             # stop (your data survives in the volume)
+docker compose down -v          # stop AND delete the database, keys and views
 ```
 
-Open <http://localhost:5173>.
+A few things worth knowing:
+
+- **Rebuild after changing code.** `docker compose up -d` on its own reuses the
+  existing image; without `--build` your changes won't be in it.
+- **Use compose, not a bare `docker run`.** Compose mounts the
+  `pipeline-launchpad_launchpad-data` volume. A hand-rolled `docker run -v
+  launchpad-data:/data` creates a *different*, empty volume, and the app comes up
+  asking for a PAT as though it had never been configured.
+- **`down -v` is destructive** — it drops the volume, which means the SQLite
+  database, the PAT-encryption keys, and every saved view.
+
+Run the frontend checks directly when you're changing the UI, since they're faster
+than a rebuild:
+
+```bash
+cd src/web
+npm install
+npx tsc --noEmit -p tsconfig.json   # typecheck
+npm test                            # unit tests
+```
 
 ## Configuration
 

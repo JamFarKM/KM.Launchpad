@@ -62,8 +62,12 @@ export function ConnectPage({ onConnected }: { onConnected: (u: User) => void })
             autoComplete="off"
           />
           <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+            {/* Code needs write, not read: the Review page posts comment threads, replies,
+                thread resolution and your approve/reject vote. A read-only token signs in and
+                browses fine, then fails at the first comment — so say so here, not just in the
+                README. */}
             Scopes: <code>Build (Read &amp; execute)</code>,{" "}
-            <code>Code (Read)</code>, <code>Project (Read)</code>.
+            <code>Code (Read &amp; write)</code>, <code>Project (Read)</code>.
           </div>
         </div>
 
