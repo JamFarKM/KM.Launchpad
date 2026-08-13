@@ -273,7 +273,11 @@ export function SequenceCard({
         run={run}
         sequenceName={sequence?.name ?? item.name}
         onClose={() => setShowLog(false)}
-        onOpenRun={onOpenRun}
+        /* Drilling into a step's pipeline log replaces this modal rather than stacking beneath it.
+           Both use the same overlay z-index and this one is portalled to the body, so it painted
+           over the run modal that had just opened. Two full-screen overlays also leave the
+           backdrop click and Escape acting on the wrong one. */
+        onOpenRun={(project, buildId) => { setShowLog(false); onOpenRun(project, buildId); }}
       />
     )}
     </>
