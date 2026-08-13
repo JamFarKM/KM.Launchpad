@@ -358,8 +358,13 @@ export function ReviewPage() {
                   title={`${f.project} / ${f.repoName}`}
                   onClick={() => { setProject(f.project); setRepoId(f.repoId); setPrId(null); }}
                 >
-                  <b>{f.repoName}</b>
-                  <span>{f.project}</span>
+                  {/* Wrapped so the chip can centre the pair as one block while the two labels
+                      keep their shared baseline — centring them individually sags the smaller
+                      project label about 1.5px below the repo name. */}
+                  <span className="ql-chip-text">
+                    <b>{f.repoName}</b>
+                    <span>{f.project}</span>
+                  </span>
                 </button>
               ))}
             </span>

@@ -2672,10 +2672,13 @@ a {
   margin-right: 2px;
 }
 
+/* The two labels sit on a shared baseline, and that pair is centred in the pill as one block.
+   `align-items: baseline` directly on the chip aligned the labels but left the whole group high —
+   1px of space above the text and 6.3px below in a 26px pill. */
 .ql-chip {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  justify-content: center;
   height: 26px;
   padding: 0 10px;
   border-radius: 100px;
@@ -2698,6 +2701,12 @@ a {
   background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.ql-chip-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .ql-chip b { font-weight: 600; }
