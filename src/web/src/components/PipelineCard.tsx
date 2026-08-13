@@ -5,6 +5,7 @@ import type { Run, ViewItem } from "../types";
 import { branchShort, duration, runLabel, runTone, timeAgo, timeAgoShort } from "../lib/format";
 import { notify } from "../lib/notify";
 import { CloseIcon, LogsIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
+import { Truncated } from "./Truncated";
 
 interface Props {
   item: ViewItem;
@@ -110,7 +111,9 @@ export function PipelineCard({
             title={`${r.branch ?? "—"} — ${timeAgo(r.startTime ?? r.queueTime)}`}
           >
             <span className={`rl-dot ${runTone(r)}`} />
-            <span className="rl-branch">{branchShort(r.branch)}</span>
+            {/* Middle-truncated (POLISH §1.1): four runs on branches sharing a prefix were four
+                identical rows of `acca-bonus-lad…`. The tail is what tells them apart. */}
+            <Truncated className="rl-branch" text={branchShort(r.branch)} title={r.branch ?? undefined} />
             <span className="rl-meta">
               {r.state === "completed" ? duration(r) : r.state === "inProgress" ? "running" : "queued"}
               {" · "}

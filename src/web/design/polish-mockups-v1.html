@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Launchpad — polish mockups</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+
+  /* ============ harness ============ */
+  .bar{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;
+    gap:14px;background:#1a1a19;color:#fff;padding:9px 18px;font-size:12.5px}
+  .bar .l{color:#898781;font-size:11.5px}
+  .tg{display:inline-flex;background:rgba(255,255,255,.08);border-radius:8px;padding:3px;gap:2px}
+  .tg button{border:none;background:transparent;color:#c3c2b7;font:inherit;font-size:12px;font-weight:600;
+    padding:5px 11px;border-radius:6px;cursor:pointer}
+  .tg button.on{background:#fff;color:#0b0b0b}
+
+  /* ============ tokens ============ */
+  body{
+    --bg-page:#f7f7f5;--bg-surface:#fff;--bg-surface-2:#fbfbf9;
+    --border-hairline:rgba(11,11,11,.09);--border-strong:rgba(11,11,11,.14);
+    --ink-primary:#0b0b0b;--ink-secondary:#52514e;--ink-muted:#8b8a84;
+    --accent:#2a78d6;--accent-hover:#1c5cab;--accent-tint:#eaf1fc;
+    --status-good:#0ca30c;--status-bad:#d03b3b;--status-warn:#e59400;
+    --hover-wash:#f2f1ec;--shadow-card:0 1px 2px rgba(16,24,32,.05),0 5px 14px rgba(16,24,32,.045);
+    --hatch:rgba(11,11,11,.05);--dot:rgba(11,11,11,.055);
+    --hue-blue:#2a78d6;--hue-violet:#6b5bd6;--hue-aqua:#1097a8;--hue-orange:#d9722b;
+    --hue-magenta:#c14d80;--hue-slate:#5c6672;
+    background:var(--bg-page);color:var(--ink-primary)}
+  body[data-theme="dark"]{
+    --bg-page:#0d0d0d;--bg-surface:#1a1a19;--bg-surface-2:#212120;
+    --border-hairline:rgba(255,255,255,.11);--border-strong:rgba(255,255,255,.18);
+    --ink-primary:#fff;--ink-secondary:#c3c2b7;--ink-muted:#8b8a84;
+    --accent:#3987e5;--accent-hover:#5aa2ee;--accent-tint:rgba(57,135,229,.16);
+    --status-good:#1abd1a;--status-bad:#e66767;--status-warn:#fab219;
+    --hover-wash:rgba(255,255,255,.06);--shadow-card:none;
+    --hatch:rgba(255,255,255,.045);--dot:rgba(255,255,255,.06);
+    --hue-blue:#4a90e8;--hue-violet:#9085e9;--hue-aqua:#35b3c4;--hue-orange:#e08a4a;
+    --hue-magenta:#d97aa6;--hue-slate:#8b95a3}
+
+  /* ============ page ============ */
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 24px 90px}
+  h1{font-size:22px;font-weight:700;margin:6px 0 4px}
+  .sub{font-size:13.5px;color:var(--ink-secondary);margin-bottom:26px;line-height:1.55;max-width:760px}
+
+  section{background:var(--bg-surface);border:1px solid var(--border-hairline);border-radius:12px;
+    box-shadow:var(--shadow-card);margin-bottom:20px;overflow:hidden}
+  .sec-h{padding:15px 18px 13px;border-bottom:1px solid var(--border-hairline)}
+  .sec-h .n{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+  .sec-h h2{font-size:16px;font-weight:600;margin:5px 0 5px}
+  .sec-h p{font-size:12.5px;color:var(--ink-secondary);margin:0;line-height:1.55;max-width:740px}
+  .sec-b{padding:18px}
+
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  .pair.three{grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:880px){.pair,.pair.three{grid-template-columns:1fr}}
+  .slot{min-width:0}
+  .slot-h{display:flex;align-items:center;gap:7px;margin-bottom:9px}
+  .tag{font-size:9.5px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:100px}
+  .tag.now{background:var(--hover-wash);color:var(--ink-muted)}
+  .tag.new{background:color-mix(in oklab,var(--hue-aqua) 15%,transparent);color:var(--hue-aqua)}
+  .tag.alt{background:color-mix(in oklab,var(--hue-violet) 15%,transparent);color:var(--hue-violet)}
+  .slot-h .why{font-size:11.5px;color:var(--ink-muted)}
+  .note{font-size:12px;color:var(--ink-secondary);margin-top:11px;line-height:1.55;
+    padding-left:11px;border-left:2px solid var(--border-hairline)}
+  .note b{color:var(--ink-primary)}
+
+  /* ============ app components ============ */
+  .shelf{background:var(--bg-surface);border:1px solid var(--border-hairline);border-radius:12px;
+    overflow:hidden;position:relative;display:inline-flex;flex-direction:column;vertical-align:top}
+  .shelf::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--shelf-accent,var(--hue-blue));z-index:2}
+  .shead{display:flex;align-items:center;gap:8px;padding:14px 12px 11px;flex-shrink:0;
+    border-bottom:1px solid var(--border-hairline);font-size:13.5px;font-weight:600}
+  .shead .grip{color:var(--ink-muted);font-size:11px}
+  .shead .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .shead .ctl{color:var(--ink-muted);font-size:13px;padding:2px 4px;border-radius:5px;cursor:pointer;flex-shrink:0}
+  .sbody{display:flex;margin:0 -1px -1px 0}
+
+  .card{width:236px;padding:13px 15px;background:var(--bg-surface);display:flex;flex-direction:column;
+    border-right:1px solid var(--border-hairline);border-bottom:1px solid var(--border-hairline)}
+  .ctop{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px}
+  .ctitle{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ctopr{display:flex;align-items:center;gap:4px;flex-shrink:0}
+  .glyph{width:17px;height:17px;display:inline-flex}.glyph svg{width:17px;height:17px}
+  .cclose{width:20px;height:20px;border-radius:5px;border:none;background:transparent;color:var(--ink-muted);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px}
+  .cclose:hover{background:color-mix(in oklab,var(--status-bad) 12%,transparent);color:var(--status-bad)}
+  .runs{margin:6px 0 11px;flex:1}
+  .row{display:flex;align-items:center;gap:8px;padding:5px 5px;margin:0 -5px;border-radius:6px}
+  .row:hover{background:var(--hover-wash)}
+  .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .dot.good{background:var(--status-good)}.dot.bad{background:var(--status-bad)}
+  .dot.run{background:var(--status-warn)}
+  .b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+  .b.fitted,.bghead.fitted{text-overflow:clip}
+  .m{flex-shrink:0;font-size:11px;color:var(--ink-muted);font-variant-numeric:tabular-nums}
+  .cact{display:flex;align-items:center;gap:6px;margin-top:auto}
+  .runbtn{width:30px;height:30px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--border-hairline);background:transparent;color:var(--accent);cursor:pointer;flex-shrink:0}
+  .runbtn svg{width:11px;height:11px}
+  .runbtn:hover{background:var(--accent-tint);border-color:var(--accent)}
+  .iconbtn{height:30px;min-width:30px;padding:0 8px;border-radius:7px;border:1px solid var(--border-hairline);
+    background:transparent;color:var(--ink-secondary);display:inline-flex;align-items:center;justify-content:center;
+    gap:5px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.04em}
+  .iconbtn:hover{background:var(--hover-wash);color:var(--ink-primary)}
+  .iconbtn svg{width:13px;height:13px}
+  .dots{width:30px;height:30px;border-radius:7px;border:none;background:transparent;color:var(--ink-muted);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;margin-left:auto;font-size:14px}
+  .dots:hover{background:var(--hover-wash);color:var(--ink-primary)}
+
+  /* branch grouping */
+  .bgroup{margin-bottom:7px}
+  .bgroup:last-child{margin-bottom:0}
+  .bghead{display:flex;align-items:baseline;gap:6px;font-size:11.5px;font-weight:600;color:var(--ink-secondary);
+    padding:2px 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bghead .cnt{font-size:10px;color:var(--ink-muted);font-weight:500;font-variant-numeric:tabular-nums}
+  .grow{display:flex;align-items:center;gap:8px;padding:3px 5px;margin:0 -5px;border-radius:5px}
+  .grow:hover{background:var(--hover-wash)}
+  .grow .m{flex:1;text-align:left;font-size:11.5px;color:var(--ink-secondary)}
+  .grow .t{font-size:11px;color:var(--ink-muted);font-variant-numeric:tabular-nums}
+
+  /* type scale demo */
+  .scale{font-size:11px;color:var(--ink-muted)}
+  .swatchrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  /* running glyph */
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes breathe{0%,100%{opacity:1}50%{opacity:.45}}
+  .glyph.running svg{animation:spin 1.8s linear infinite;transform-origin:50% 50%}
+  .dot.run.live{animation:breathe 1.6s ease-in-out infinite}
+  @media(prefers-reduced-motion:reduce){
+    .glyph.running svg{animation:none}
+    .dot.run.live{animation:none}
+  }
+
+  /* focus demo */
+  .focusrow{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .focusrow .dots{margin-left:0}
+  body[data-focus="on"] .fdemo :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:7px}
+  body[data-focus="off"] .fdemo :focus-visible{outline:none}
+
+  /* step rows */
+  .steps{list-style:none;margin:5px 0 10px;padding:0}
+  .steps li{position:relative;padding:3px 6px 3px 15px;margin:0 -6px;border-radius:5px;font-size:12.5px;
+    color:var(--ink-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .steps li::before{content:"";position:absolute;left:5px;top:9px;width:5px;height:5px;border-radius:2px;
+    background:var(--border-strong)}
+  .steps.interactive li{cursor:pointer}
+  .steps.interactive li:hover{background:var(--hover-wash);color:var(--ink-primary)}
+  .steps.interactive li:hover::after{content:"logs";position:absolute;right:7px;top:3px;font-size:9.5px;
+    font-weight:700;letter-spacing:.04em;color:var(--ink-muted)}
+
+  /* empty states */
+  .drawerbox{width:266px;border:1px solid var(--border-hairline);border-radius:10px;overflow:hidden;
+    background:var(--bg-surface)}
+  .dsearch{margin:9px 10px;width:calc(100% - 20px);height:30px;padding:0 10px;border-radius:7px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface-2);color:var(--ink-primary);font-size:12.5px}
+  .dempty{padding:26px 18px;text-align:center;color:var(--ink-muted);font-size:12px;line-height:1.6}
+  .dempty b{color:var(--ink-secondary);display:block;font-size:12.5px;margin-bottom:3px}
+  .dempty .act{display:inline-block;margin-top:9px;font-size:11.5px;color:var(--accent);cursor:pointer;font-weight:600}
+  .drow{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12.5px;cursor:grab}
+  .drow:hover{background:var(--hover-wash)}
+  .drow .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .drow .grab{color:var(--ink-muted);font-size:11px}
+  .drow.of{overflow-x:auto}
+  .drow.of .nm{overflow:visible;text-overflow:clip}
+
+  /* accent picker */
+  .menu{width:214px;background:var(--bg-surface);border:1px solid var(--border-hairline);border-radius:10px;
+    box-shadow:0 10px 28px rgba(16,24,32,.16);padding:8px}
+  .mlabel{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-muted);padding:6px 7px 5px}
+  .mitem{font-size:13px;padding:8px 7px;border-radius:6px;cursor:pointer;color:var(--ink-primary)}
+  .mitem:hover{background:var(--hover-wash)}
+  .sw{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;padding:3px 7px 6px}
+  .sw i{width:22px;height:22px;border-radius:7px;cursor:pointer;display:block;position:relative}
+  .sw i.none{background:var(--bg-surface-2);border:1px dashed var(--border-strong)}
+  .sw i.none::after{content:"";position:absolute;inset:5px;border-top:1px solid var(--ink-muted);
+    transform:rotate(-45deg);transform-origin:center}
+  .sw i.sel{box-shadow:0 0 0 2px var(--bg-surface),0 0 0 4px var(--ink-primary)}
+  .swold{display:flex;flex-wrap:wrap;gap:6px;padding:6px 7px;max-width:150px}
+  .swold i{width:22px;height:22px;border-radius:50%;display:block}
+  .swold i.none{background:#fff;border:1px solid var(--border-hairline)}
+
+  /* select */
+  .nativesel{width:100%;height:32px;font-size:13px}
+  .customsel{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:7px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface-2);cursor:pointer;font-size:12.5px}
+  .customsel .k{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-muted)}
+  .customsel .v{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .customsel svg{width:9px;height:9px;color:var(--ink-muted)}
+
+  /* minimap */
+  .mmwrap{display:flex;gap:2px;height:150px;align-items:stretch}
+  .mm{width:12px;display:flex;flex-direction:column;background:var(--bg-surface-2);
+    border-left:1px solid var(--border-hairline)}
+  .mm i{flex:1;min-height:1px;display:block}
+  .mm.loud i.add{background:#22a722}
+  .mm.calm i.add{background:color-mix(in oklab,var(--status-good) 55%,transparent)}
+  .mm.calm i.del{background:color-mix(in oklab,var(--status-bad) 55%,transparent)}
+  .codefake{flex:1;background:var(--bg-surface-2);border-radius:6px}
+
+  /* path */
+  .pathbox{width:250px;border:1px solid var(--border-hairline);border-radius:8px;padding:9px 11px;
+    background:var(--bg-surface-2)}
+  .pbad{font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace;word-break:break-all;line-height:1.45}
+  .pgood{font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace;line-height:1.45;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fname{font-size:12px;font-family:ui-monospace,Menlo,monospace;margin-bottom:2px}
+
+  code{background:var(--hover-wash);padding:1px 5px;border-radius:4px;font-size:11.5px}
+</style>
+</head>
+<body data-theme="light" data-focus="on">
+
+<div class="bar">
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="l">Theme</span>
+    <div class="tg">
+      <button id="t-l" class="on" onclick="theme('light')">☀ Light</button>
+      <button id="t-d" onclick="theme('dark')">☾ Dark</button>
+    </div>
+    <span class="l">Focus ring demo</span>
+    <div class="tg">
+      <button id="f-off" onclick="focusMode('off')">Now</button>
+      <button id="f-on" class="on" onclick="focusMode('on')">Proposed</button>
+    </div>
+  </div>
+  <span class="l">Every panel below is live — hover the rows, Tab through the buttons</span>
+</div>
+
+<div class="wrap">
+  <h1>Visual polish — mockups</h1>
+  <p class="sub">Each section shows the current treatment beside the proposal, at real size with real data from your DEV Deployment view. Nothing here changes the colour system, the card geometry or the diff — it's all the 10–12px layer.</p>
+
+  <!-- ============================================================ 1 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">01 · biggest win</div>
+      <h2>Run rows — truncation and grouping</h2>
+      <p>Four rows of <code>acca-bonus-ladder-swit…</code> carry no information. Two independent fixes: change <em>how</em> we truncate, and stop repeating a branch that doesn't change between runs.</p>
+    </div>
+    <div class="sec-b">
+      <div class="pair three">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">tail truncation</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-blue)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Placement</span></div>
+            <div class="sbody"><div class="card" id="c-now"></div></div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED A</span><span class="why">middle truncation</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-blue)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Placement</span></div>
+            <div class="sbody"><div class="card" id="c-mid"></div></div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag alt">PROPOSED B</span><span class="why">grouped by branch</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-blue)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Placement</span></div>
+            <div class="sbody"><div class="card" id="c-grp"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">
+        <b>A</b> is the general fix — one helper applied to branches, paths and pipeline names everywhere.
+        <b>B</b> wins hard on your actual data, where all four runs share a branch: the name is stated once and the rows carry only timings.
+        They compose — group first, middle-truncate the group heading if it's still too long.
+      </div>
+
+      <div style="height:22px"></div>
+      <div class="pair">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">mixed branches, tail-truncated</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-violet)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Settlement Engine</span></div>
+            <div class="sbody"><div class="card" id="c-mix-now"></div></div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">middle-truncated</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-violet)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Settlement Engine</span></div>
+            <div class="sbody"><div class="card" id="c-mix-new"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Four different branches sharing a prefix. On the left they're indistinguishable; on the right every one is identifiable. This is the case middle-truncation exists for.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 2 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">02</div>
+      <h2>The logs button</h2>
+      <p>Detail dies below about 16px. Two enclosed circles with an internal gap is past that limit — at 12px the binoculars read as <code>6ᐤ</code>.</p>
+    </div>
+    <div class="sec-b">
+      <div class="pair three">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">binoculars</span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="runbtn"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+            <button class="iconbtn" title="View logs">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3">
+                <circle cx="6" cy="12" r="3.4"/><circle cx="14" cy="12" r="3.4"/>
+                <path d="M6 8.6V5.5h1.8M14 8.6V5.5h-1.8"/></svg>
+            </button>
+            <button class="dots">⋯</button>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED A</span><span class="why">document + lines</span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="runbtn"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+            <button class="iconbtn" title="View logs">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M3.5 2.5h6l3 3v8h-9z" stroke-linejoin="round"/><path d="M5.5 8h5M5.5 10.5h3.5"/></svg>
+            </button>
+            <button class="dots">⋯</button>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag alt">PROPOSED B</span><span class="why">just say it</span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="runbtn"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+            <button class="iconbtn">LOGS</button>
+            <button class="dots">⋯</button>
+          </div>
+        </div>
+      </div>
+      <div class="note">The footer has the room for <b>B</b>, and four characters can't be misread. <b>A</b> keeps the row tighter if you'd rather stay iconographic — the shape survives at 12px because it has one enclosed area, not two.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 3 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">03</div>
+      <h2>The running state should breathe</h2>
+      <p>It's the only genuinely live state in the product. A static ring reads as a screenshot of something that <em>was</em> running.</p>
+    </div>
+    <div class="sec-b">
+      <div class="pair">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">static</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-orange)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Cashout</span></div>
+            <div class="sbody"><div class="card" id="c-run-now"></div></div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">1.8s rotation + row pulse</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-orange)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Cashout</span></div>
+            <div class="sbody"><div class="card" id="c-run-new"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Slow enough not to nag — 1.8s rotation on the glyph, 1.6s opacity pulse on the running row's dot. Both wrapped in <code>prefers-reduced-motion</code>. Nothing else in the app animates.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 4 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">04</div>
+      <h2>Sequence steps are buttons — make them look it</h2>
+      <p>Clicking a step opens its logs. Today they render as static bullets with no hover state, so nobody finds it.</p>
+    </div>
+    <div class="sec-b">
+      <div class="pair">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">no affordance</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-aqua)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Configuration Registry</span></div>
+            <div class="sbody"><div class="card">
+              <div class="ctop"><span class="ctitle">Build All</span></div>
+              <ul class="steps">
+                <li>Package: Tooling</li><li>Package: Acca Bonus</li>
+                <li>Package: Flexicut</li><li>Package: Generosity</li>
+              </ul>
+              <div class="cact"><button class="runbtn"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button><button class="dots">⋯</button></div>
+            </div></div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">hover reveals the action</span></div>
+          <div class="shelf" style="--shelf-accent:var(--hue-aqua)">
+            <div class="shead"><span class="grip">⠿</span><span class="title">Configuration Registry</span></div>
+            <div class="sbody"><div class="card">
+              <div class="ctop"><span class="ctitle">Build All</span></div>
+              <ul class="steps interactive">
+                <li>Package: Tooling</li><li>Package: Acca Bonus</li>
+                <li>Package: Flexicut</li><li>Package: Generosity</li>
+              </ul>
+              <div class="cact"><button class="runbtn"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button><button class="dots">⋯</button></div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Hover the right-hand list. A background wash, ink promotion and a small <code>logs</code> hint — no new controls, an existing feature just becomes findable.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 5 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">05</div>
+      <h2>Keyboard focus</h2>
+      <p>Nothing is focus-styled today. With this many small controls it's both an accessibility requirement and a polish win. Flip the toggle in the top bar, then Tab through these.</p>
+    </div>
+    <div class="sec-b fdemo">
+      <div class="focusrow">
+        <button class="runbtn"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg></button>
+        <button class="iconbtn">LOGS</button>
+        <button class="dots">⋯</button>
+        <button class="cclose">✕</button>
+        <input class="dsearch" style="width:180px;margin:0" placeholder="Filter…">
+      </div>
+      <div class="note">2px <code>--accent</code>, 2px offset, and crucially <code>:focus-visible</code> rather than <code>:focus</code> — so it appears for keyboard users and never on a mouse click.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 6 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">06</div>
+      <h2>Empty states and drawer overflow</h2>
+      <p>Searching <code>Placement</code> inside the <code>Account</code> project returns a blank panel. In a 720-pipeline project, long names produce a horizontal scrollbar.</p>
+    </div>
+    <div class="sec-b">
+      <div class="pair">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">nothing at all</span></div>
+          <div class="drawerbox">
+            <input class="dsearch" value="Placement" readonly>
+            <div style="height:120px"></div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">names the term and the scope</span></div>
+          <div class="drawerbox">
+            <input class="dsearch" value="Placement" readonly>
+            <div class="dempty">
+              <b>No pipelines match “Placement”</b>
+              in project <b style="display:inline">Account</b>
+              <span class="act">Search all projects →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height:20px"></div>
+      <div class="pair">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">horizontal scroll</span></div>
+          <div class="drawerbox">
+            <div class="drow of"><span class="grab">⠿</span><span class="nm">SB.OfferIntegrationProxyApi - Dev - universal deploy</span></div>
+            <div class="drow of"><span class="grab">⠿</span><span class="nm">SB.MiddlewareSettlement - Dev - build and push to ACR</span></div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">middle-truncated, full name on hover</span></div>
+          <div class="drawerbox" id="drawer-good"></div>
+        </div>
+      </div>
+      <div class="note">Horizontal scroll inside a vertical list is always the wrong answer. Same truncation helper as §01.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 7 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">07</div>
+      <h2>Shelf accent picker</h2>
+      <p>Seven swatches, no heading, no indication of the current value, wrapping 5+2, and a "none" that looks like white.</p>
+    </div>
+    <div class="sec-b">
+      <div class="pair">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span></div>
+          <div class="menu" style="width:170px">
+            <div class="mitem">Rename…</div>
+            <div class="swold">
+              <i class="none"></i><i style="background:var(--hue-blue)"></i><i style="background:var(--hue-violet)"></i>
+              <i style="background:var(--hue-aqua)"></i><i style="background:var(--hue-orange)"></i>
+              <i style="background:var(--hue-magenta)"></i><i style="background:var(--hue-slate)"></i>
+            </div>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">one row, labelled, current value marked</span></div>
+          <div class="menu">
+            <div class="mitem">Rename…</div>
+            <div class="mlabel">Shelf accent</div>
+            <div class="sw">
+              <i class="none" title="No accent"></i>
+              <i class="sel" style="background:var(--hue-blue)" title="Blue"></i>
+              <i style="background:var(--hue-violet)"></i><i style="background:var(--hue-aqua)"></i>
+              <i style="background:var(--hue-orange)"></i><i style="background:var(--hue-magenta)"></i>
+              <i style="background:var(--hue-slate)"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Seven in one row at 22px fits the menu width exactly. Rounded squares match the status glyph and the type badges; the current value gets a ring; "none" gets a dashed slash instead of reading as white.</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 8 -->
+  <section>
+    <div class="sec-h">
+      <div class="n">08</div>
+      <h2>Odds and ends</h2>
+      <p>Each of these is a one-line change.</p>
+    </div>
+    <div class="sec-b">
+      <div class="pair">
+        <div class="slot">
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">native select</span></div>
+          <select class="nativesel"><option>Account</option><option>Sportsteam</option></select>
+          <div style="height:16px"></div>
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">break-all splits the word</span></div>
+          <div class="pathbox">
+            <div class="fname">054_SalesForce.Search…</div>
+            <div class="pbad">SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user</div>
+          </div>
+          <div style="height:16px"></div>
+          <div class="slot-h"><span class="tag now">NOW</span><span class="why">saturated minimap</span></div>
+          <div class="mmwrap"><div class="codefake"></div><div class="mm loud" id="mm-loud"></div></div>
+        </div>
+        <div class="slot">
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">matches every other control</span></div>
+          <div class="customsel"><span class="k">Proj</span><span class="v">Account</span>
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5L6 7.5l3-3" stroke-linecap="round"/></svg></div>
+          <div style="height:16px"></div>
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">middle-truncated, one line</span></div>
+          <div class="pathbox">
+            <div class="fname">054_SalesForce.Search…</div>
+            <div class="pgood" title="SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user">SA.Phase1.Mig…/Scripts/tps-user</div>
+          </div>
+          <div style="height:16px"></div>
+          <div class="slot-h"><span class="tag new">PROPOSED</span><span class="why">stripe colour at 55%, shows deletions</span></div>
+          <div class="mmwrap"><div class="codefake"></div><div class="mm calm" id="mm-calm"></div></div>
+        </div>
+      </div>
+      <div class="note">
+        Also in this bucket, not worth a mockup: <b>tabular figures</b> everywhere numbers stack (durations, counts, <code>+45 −1</code>) — some places have them, some don't;
+        and <b>relative times never truncate</b> — <code>20h a…</code> should degrade to <code>20h</code>, never to a cut word.
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ---------- helpers ---------- */
+const seg = s => s.split('/').pop();
+
+/* Measured middle-truncation. Budget comes from the element's real width, not a
+   guessed character count — otherwise CSS ellipsis clips the result a second
+   time and you get `acca-bon…r-sw…`. headRatio favours the tail, because for
+   branches and paths the distinguishing part is at the end. */
+const _c = document.createElement('canvas').getContext('2d');
+function fitMiddle(el, full, headRatio){
+  headRatio = headRatio ?? 0.34;
+  const cs = getComputedStyle(el);
+  _c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const avail = el.clientWidth;
+  if(!avail){ el.textContent = full; return; }
+  if(_c.measureText(full).width <= avail){ el.textContent = full; el.classList.add('fitted'); return; }
+  let lo = 1, hi = full.length, best = '…';
+  while(lo <= hi){
+    const n = (lo + hi) >> 1;
+    const keep = n - 1;
+    const head = Math.max(1, Math.round(keep * headRatio));
+    const tail = Math.max(1, keep - head);
+    const cand = full.slice(0, head) + '…' + full.slice(full.length - tail);
+    if(_c.measureText(cand).width <= avail){ best = cand; lo = n + 1; } else { hi = n - 1; }
+  }
+  el.textContent = best;
+  el.classList.add('fitted');
+  if(!el.title) el.title = full;
+}
+function fitAll(){
+  document.querySelectorAll('[data-full]').forEach(el=>{
+    el.classList.remove('fitted');
+    fitMiddle(el, el.dataset.full, parseFloat(el.dataset.head || '0.34'));
+  });
+}
+const glyphGood = `<span class="glyph" title="Succeeded"><svg viewBox="0 0 16 16"><rect x=".5" y=".5" width="15" height="15" rx="4.5" fill="var(--status-good)"/><path d="M4.6 8.2l2.2 2.2 4.6-4.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+const glyphRun = live => `<span class="glyph ${live?'running':''}" title="Running"><svg viewBox="0 0 16 16">
+  <circle cx="8" cy="8" r="6" fill="none" stroke="var(--border-hairline)" stroke-width="2.2"/>
+  <circle cx="8" cy="8" r="6" fill="none" stroke="var(--status-warn)" stroke-width="2.2" stroke-dasharray="20 40" stroke-linecap="round"/></svg></span>`;
+const play = `<svg viewBox="0 0 10 10" fill="currentColor"><path d="M1 .5v9l8-4.5z"/></svg>`;
+const logsBtn = `<button class="iconbtn">LOGS</button>`;
+
+function footer(){ return `<div class="cact"><button class="runbtn">${play}</button>${logsBtn}<button class="dots">⋯</button></div>`; }
+function head(title, glyph){ return `<div class="ctop"><span class="ctitle">${title}</span>
+  <span class="ctopr">${glyph}<button class="cclose" title="Remove">✕</button></span></div>`; }
+
+/* ---------- data (from DEV Deployment) ---------- */
+const SAME = [
+  {b:'acca-bonus-ladder-switch', d:'1m 17s', t:'18h'},
+  {b:'acca-bonus-ladder-switch', d:'1m 25s', t:'18h'},
+  {b:'acca-bonus-ladder-switch', d:'1m 27s', t:'19h'},
+  {b:'acca-bonus-ladder-switch', d:'1m 28s', t:'19h'},
+];
+const MIXED = [
+  {b:'acca-bonus-ladder-switch',   d:'1m 32s', t:'57m'},
+  {b:'acca-bonus-ladder-rollback', d:'1m 24s', t:'18h'},
+  {b:'acca-bonus-ladder-hotfix',   d:'1m 25s', t:'18h'},
+  {b:'acca-bonus-ladder-revert',   d:'1m 49s', t:'19h'},
+];
+
+/* ---------- renderers ---------- */
+const rowTail = r => `<div class="row" title="${r.b}"><span class="dot good"></span>
+  <span class="b">${r.b}</span><span class="m">${r.d} · ${r.t}</span></div>`;
+const rowMid = r => `<div class="row" title="${r.b}"><span class="dot good"></span>
+  <span class="b" data-full="${seg(r.b)}"></span><span class="m">${r.d} · ${r.t}</span></div>`;
+
+function grouped(rows){
+  const groups=[]; rows.forEach(r=>{
+    const g=groups[groups.length-1];
+    if(g && g.b===r.b) g.items.push(r); else groups.push({b:r.b, items:[r]});
+  });
+  return groups.map(g=>`<div class="bgroup">
+    <div class="bghead" title="${g.b}"><span data-full="${seg(g.b)}" style="min-width:0;overflow:hidden;white-space:nowrap"></span><span class="cnt">×${g.items.length}</span></div>
+    ${g.items.map(r=>`<div class="grow"><span class="dot good"></span>
+      <span class="m">${r.d}</span><span class="t">${r.t}</span></div>`).join('')}
+  </div>`).join('');
+}
+
+document.getElementById('c-now').innerHTML =
+  head('Build', glyphGood) + `<div class="runs">${SAME.map(rowTail).join('')}</div>` + footer();
+document.getElementById('c-mid').innerHTML =
+  head('Build', glyphGood) + `<div class="runs">${SAME.map(rowMid).join('')}</div>` + footer();
+document.getElementById('c-grp').innerHTML =
+  head('Build', glyphGood) + `<div class="runs">${grouped(SAME)}</div>` + footer();
+
+document.getElementById('c-mix-now').innerHTML =
+  head('Build', glyphGood) + `<div class="runs">${MIXED.map(rowTail).join('')}</div>` + footer();
+document.getElementById('c-mix-new').innerHTML =
+  head('Build', glyphGood) + `<div class="runs">${MIXED.map(rowMid).join('')}</div>` + footer();
+
+/* running state */
+const RUN = [
+  {b:'acca-bonus-ladder-switch', d:'running', t:'13s', s:'run'},
+  {b:'acca-bonus-ladder-switch', d:'53s',     t:'19h', s:'good'},
+  {b:'acca-bonus-ladder-switch', d:'1m 56s',  t:'19h', s:'good'},
+];
+function runCard(live){
+  const rows = RUN.map(r=>`<div class="row" title="${r.b}">
+    <span class="dot ${r.s}${live&&r.s==='run'?' live':''}"></span>
+    <span class="b" data-full="${seg(r.b)}"></span>
+    <span class="m">${r.d} · ${r.t}</span></div>`).join('');
+  return head('Build', glyphRun(live)) + `<div class="runs">${rows}</div>` + footer();
+}
+document.getElementById('c-run-now').innerHTML = runCard(false);
+document.getElementById('c-run-new').innerHTML = runCard(true);
+
+/* drawer good */
+const LONG = ['SB.OfferIntegrationProxyApi - Dev - universal deploy',
+              'SB.MiddlewareSettlement - Dev - build and push to ACR'];
+document.getElementById('drawer-good').innerHTML = LONG.map(n=>
+  `<div class="drow" title="${n}"><span class="grab">⠿</span><span class="nm" data-full="${n}" data-head="0.5"></span></div>`).join('');
+
+/* minimaps */
+const pattern = ['','add','add','','del','add','add','add','','','add','','del','del','add','','add','add','','add','','','add','add','add','','','del','add',''];
+document.getElementById('mm-loud').innerHTML = pattern.map(c=>`<i class="${c==='del'?'add':c}"></i>`).join('');
+document.getElementById('mm-calm').innerHTML = pattern.map(c=>`<i class="${c}"></i>`).join('');
+
+/* fit everything once the DOM is built, and again on resize */
+fitAll();
+addEventListener('resize', fitAll);
+
+/* chrome */
+function theme(t){ document.body.setAttribute('data-theme',t);
+  document.getElementById('t-l').classList.toggle('on',t==='light');
+  document.getElementById('t-d').classList.toggle('on',t==='dark'); }
+function focusMode(m){ document.body.setAttribute('data-focus',m);
+  document.getElementById('f-on').classList.toggle('on',m==='on');
+  document.getElementById('f-off').classList.toggle('on',m==='off'); }
+</script>
+</body>
+</html>

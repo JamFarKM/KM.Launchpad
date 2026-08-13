@@ -4101,6 +4101,24 @@ a {
   white-space: nowrap;
 }
 
+/* POLISH §1.2 — anything fitted by <Truncated>.
+   `display: block` and `min-width: 0` are load-bearing: an inline element has no measurable
+   width, and a flex child without min-width:0 refuses to shrink, so in either case clientWidth
+   is useless and the string renders untruncated. The ellipsis is the pre-measurement fallback. */
+.truncated {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* REQUIRED. Without this, CSS clips the already-fitted string a second time and you get
+   `acca-bon…r-sw…` — worse than the tail truncation this replaces. */
+.truncated.is-fitted {
+  text-overflow: clip;
+}
+
 .run-line .rl-meta {
   flex-shrink: 0;
   font-size: 11px;
