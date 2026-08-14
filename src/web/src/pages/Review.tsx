@@ -1,12 +1,12 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
-import { RailResizer, useRailWidth } from "../components/RailResizer";
+import { DockResizer, RailResizer, useDockHeight, useRailWidth } from "../components/RailResizer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import type { DiffStats } from "../components/MonacoDiff";
-import type { Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
+import type { PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
 
 /** ADO's vote scale, as review actions. */
 /* Approve is the only solid fill: "approve" genuinely is a good/bad axis and it's a single
@@ -263,23 +263,34 @@ export function ReviewPage() {
 
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 
-  // Which rail tab is showing, and the citation the diff should reveal.
-  const [rail, setRail] = useState<"files" | "agent">("files");
+  // The citation the diff should reveal.
   const [cite, setCite] = useState<{ line: number; nonce: number } | null>(null);
   const [agentPrefill, setAgentPrefill] = useState<string | null>(null);
 
-  /* The rail's width, dragged by the reviewer and persisted. A long answer beside a wide diff is a
-     genuine tension, and which one deserves the space changes by the minute — so it is theirs to
-     decide rather than ours to fix at one number. */
+  /* The rail's width and the dock's height, dragged by the reviewer and persisted. A long answer
+     beside a wide diff is a genuine tension, and which one deserves the space changes by the minute
+     — so it is theirs to decide rather than ours to fix at one number. */
   const [railWidth, setRailWidth] = useRailWidth();
+  const [dockHeight, setDockHeight] = useDockHeight();
+  const [dockOpen, setDockOpen] = useState(false);
 
   /**
-   * The tab is named by whichever connector holds the capability — never a literal (§7.1). With
-   * nothing assigned it reads `Agent` and stays neutral, because there is no identity to name yet.
+   * Reveal a cited line, switching file first if the citation points elsewhere.
+   *
+   * Resolved against the real file list rather than trusting the two strings to match: the context
+   * block declares paths without a leading slash and Azure DevOps hands them back with one, so a
+   * plain equality check set a path that matched no file and the chip silently scrolled nowhere —
+   * which §5.2 calls out as worse than having no chip.
    */
-  const connectorsQ = useQuery<Connector[]>({ queryKey: ["connectors"], queryFn: api.connectors });
-  const agentTabLabel =
-    connectorsQ.data?.find((c) => c.capabilities.includes("pr.questions"))?.name ?? "Agent";
+  const revealCitation = useCallback((citedPath: string, line: number) => {
+    const norm = (p: string) => p.replace(/^\//, "");
+    const match = changes.find((c) => norm(c.path) === norm(citedPath));
+    if (!match) return;
+    if (match.path !== path) setPath(match.path);
+    // The nonce makes a repeat click on the same chip a fresh instruction.
+    setCite({ line, nonce: Date.now() });
+  }, [changes, path]);
+
   const [viewed, setViewed] = useState<Set<string>>(new Set());
 
   // Reload viewed state whenever the PR or its head commit changes.
@@ -436,10 +447,18 @@ export function ReviewPage() {
         className="review"
         data-left={leftOpen ? "on" : "off"}
         data-right={prId && rightOpen ? "on" : "off"}
-        style={{ "--w-right": `${railWidth}px` } as React.CSSProperties}
+        /* "none" rather than "off" with no PR: a strip announcing a connector over an empty page is
+           furniture. Once a PR is open the dock always occupies at least its 44px strip.
+
+           Keyed on `pr`, not `prId`, so this and the dock element below agree on exactly one
+           condition. They briefly disagreed when keyed separately — a selected id whose PR list was
+           still loading left the grid reserving a dock row with no dock in it, and the dock element
+           auto-placed itself into an implicit column, which silently narrowed the diff. */
+        data-dock={!pr ? "none" : dockOpen ? "on" : "off"}
+        style={{ "--w-right": `${railWidth}px`, "--h-dock": `${dockHeight}px` } as React.CSSProperties}
       >
         {/* ---------- pull requests ---------- */}
-        <div className="cfg-col">
+        <div className="cfg-col prlist">
           {/* An active repo can carry dozens of PRs; scanning for "the one about sport ids"
               shouldn't mean scrolling. Matches id, title or author (§8). */}
           <div className="cfg-head">
@@ -490,25 +509,12 @@ export function ReviewPage() {
         </div>
 
         {/* ---------- changed files (right-hand rail, so the diff stays centred) ---------- */}
-        <div className="cfg-col review-files" style={{ order: 3 }}>
+        <div className="cfg-col review-files">
           {/* On the rail's left edge, so it sits on the boundary it moves. Hidden when the rail is
               collapsed — there is no edge to drag then. */}
           {prId && rightOpen && <RailResizer width={railWidth} onWidth={setRailWidth} />}
-          {/* A tab on the existing rail, not a fourth column: you never need the file tree and an
-              answer at once, and the diff stays centred — which matters, because answers cite lines
-              in it. The tab is named by the connector, never by a literal (§7.1). */}
-          {pr && (
-            <div className="ag-tabs">
-              <button className={`ag-tab ${rail === "files" ? "on" : ""}`} onClick={() => setRail("files")}>
-                Files <span className="ag-tabn">{changes.length}</span>
-              </button>
-              <button className={`ag-tab bot ${rail === "agent" ? "on" : ""}`} onClick={() => setRail("agent")}>
-                {agentTabLabel}
-              </button>
-            </div>
-          )}
 
-          <div className="keys-head rail-head" style={{ display: rail === "files" ? undefined : "none" }}>
+          <div className="keys-head rail-head">
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="keys-title">{pr ? `!${pr.id}` : "Files"}</div>
               <div className="keys-sub">
@@ -524,35 +530,7 @@ export function ReviewPage() {
               )}
             </div>
           </div>
-          {/* The agent pane is a sibling rather than a wrapper, so the file tree's own scroll
-              position survives switching tabs and coming back. */}
-          {pr && rail === "agent" && (
-            <div className="ag-pane">
-              <AgentPanel
-                project={project}
-                repoId={repoId}
-                pr={pr}
-                prefill={agentPrefill}
-                onPrefillConsumed={() => setAgentPrefill(null)}
-                onCite={(citedPath, line) => {
-                  /* Resolve against the real file list rather than trusting the two strings to
-                     match. The context block declares paths without a leading slash and Azure
-                     DevOps hands them back with one, so a plain equality check set a path that
-                     matched no file and the chip silently scrolled nowhere — which §5.2 calls out
-                     as worse than having no chip. Compared on the normalised form, so a citation in
-                     either shape resolves to the file the page actually keys on. */
-                  const norm = (p: string) => p.replace(/^\//, "");
-                  const match = changes.find((c) => norm(c.path) === norm(citedPath));
-                  if (!match) return;
-                  if (match.path !== path) setPath(match.path);
-                  // The nonce makes a repeat click on the same chip a fresh instruction.
-                  setCite({ line, nonce: Date.now() });
-                }}
-              />
-            </div>
-          )}
-
-          <div className="cfg-scroll" style={{ display: rail === "files" ? undefined : "none" }}>
+          <div className="cfg-scroll">
             {changesQ.isLoading && <div className="center-note"><span className="spin" /> loading…</div>}
             {fileGroups.map(([dir, files]) => {
               const collapsed = collapsedDirs.has(dir);
@@ -606,7 +584,7 @@ export function ReviewPage() {
         </div>
 
         {/* ---------- diff ---------- */}
-        <div className="cfg-col review-diff" style={{ order: 2 }}>
+        <div className="cfg-col review-diff">
           {/* §9: the toolbar is hidden entirely when there's no PR, so the empty state below is
               the only message on screen. */}
           {pr && (
@@ -705,6 +683,22 @@ export function ReviewPage() {
                 <path d="M10 2.5v11" />
               </svg>
             </button>
+
+            {/* Grouped with the right-panel toggle, since both affect the region on that side of the
+                diff. Collapsing the dock is the move for reading a tall diff uninterrupted, the same
+                way collapsing both side panels is the move for a wide one — independent axes that
+                combine (§5). */}
+            <button
+              className={`iconbtn ${dockOpen ? "on" : ""}`}
+              title={dockOpen ? "Collapse the agent panel" : "Expand the agent panel"}
+              aria-pressed={dockOpen}
+              onClick={() => setDockOpen((v) => !v)}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+                <path d="M1.5 10.5h13" />
+              </svg>
+            </button>
           </div>
           )}
 
@@ -755,6 +749,32 @@ export function ReviewPage() {
             )}
           </div>
         </div>
+
+        {/* ---------- the agent dock (DESIGN_SPEC_REVIEW.md §5) ---------- */}
+        {pr && (
+          <div className="cfg-col review-dock">
+            {/* On the dock's top edge, so it sits on the boundary it moves. Nothing to drag when
+                collapsed — the strip has one height. */}
+            {dockOpen && (
+              <DockResizer
+                height={dockHeight}
+                onHeight={setDockHeight}
+                // A drag below the minimum is a collapse rather than an unusably short dock (§5).
+                onCollapse={() => setDockOpen(false)}
+              />
+            )}
+            <AgentPanel
+              project={project}
+              repoId={repoId}
+              pr={pr}
+              prefill={agentPrefill}
+              onPrefillConsumed={() => setAgentPrefill(null)}
+              onCite={revealCitation}
+              collapsed={!dockOpen}
+              onToggleCollapsed={() => setDockOpen((v) => !v)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

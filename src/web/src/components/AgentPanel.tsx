@@ -28,17 +28,26 @@ interface Props {
   /** Prefilled from the diff gutter's ask action, so a question can be scoped to a line. */
   prefill?: string | null;
   onPrefillConsumed?: () => void;
+  /** Dock collapsed to its 44px identity strip (DESIGN_SPEC_REVIEW.md §5). */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 /**
- * The agent panel on the Review page (DESIGN_SPEC_CONNECTORS.md §7).
+ * The agent panel, in the Review page's bottom dock (DESIGN_SPEC_CONNECTORS.md §7).
  *
- * <b>Nothing here names a provider or an agent.</b> The header, the tab label, the composer
- * placeholder and the outage copy all read the assigned connector's own `name` — which is why a
- * connector called "BetBot" that happens to be Anthropic underneath reads as BetBot throughout,
- * and why swapping the provider changes only text.
+ * <b>Nothing here names a provider or an agent.</b> The header, the composer placeholder and the
+ * outage copy all read the assigned connector's own `name` — which is why a connector called
+ * "BetBot" that happens to be Anthropic underneath reads as BetBot throughout, and why swapping the
+ * provider changes only text.
+ *
+ * The identity strip is this component's header rather than the dock's, so the connector is looked up
+ * in one place. Collapsed, the strip is all that renders — never nothing, because it is the only
+ * surface an outage banner has.
  */
-export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillConsumed }: Props) {
+export function AgentPanel({
+  project, repoId, pr, onCite, prefill, onPrefillConsumed, collapsed, onToggleCollapsed,
+}: Props) {
   const connectorsQ = useQuery<Connector[]>({ queryKey: ["connectors"], queryFn: api.connectors });
   const providersQ = useQuery<ConnectorProvider[]>({
     queryKey: ["connector-providers"],
@@ -146,37 +155,67 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
     }
   }
 
+  const name = connector?.name ?? "Agent";
+  const unreachable = connector?.status === "unreachable";
+  const missing = !connectorsQ.isLoading && !connector;
+
+  /* The identity strip. Always rendered, at both dock heights, because it is the only place an
+     outage or a CACHED tag can appear — a dock that collapsed to nothing would hide one silently. */
+  const strip = (
+    <div className="ag-head">
+      <span className={`ag-dot ${missing ? "none" : unreachable ? "down" : "ok"}`} aria-hidden="true" />
+      <div className="ag-id">
+        <div className="ag-name">
+          {missing ? "No agent connected" : name}
+          {/* Provider identity is text and never colour — violet stays reserved for "this is the
+              connector answering right now" (§7.1). */}
+          {provider && <span className="ag-ptag">{provider.key.replace("_", " ").toUpperCase()}</span>}
+        </div>
+        <div className="ag-meta">
+          {missing ? "Settings › Connectors" : unreachable ? "Unreachable on the last attempt" : connector?.model ?? ""}
+        </div>
+      </div>
+      {onToggleCollapsed && (
+        <button
+          className="ag-chev"
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand the agent panel" : "Collapse the agent panel"}
+          onClick={onToggleCollapsed}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
+            strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            style={{ transform: collapsed ? "none" : "rotate(180deg)" }}>
+            <path d="M4 10l4-4 4 4" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+
+  // Collapsed: the strip and nothing else. Not a hidden panel — a visible one, 44px tall.
+  if (collapsed) return strip;
+
   // §7.2 — the one state where a full-panel takeover is right: nothing to preserve, and exactly
   // one useful action.
-  if (!connectorsQ.isLoading && !connector) {
+  if (missing) {
     return (
-      <div className="ag-noconn">
-        <b>No agent connected</b>
-        <p>
-          Connect an agent and this panel will explain the pull request and answer questions
-          about it.
-        </p>
-        <p className="ag-fine">Settings › Connectors. Takes a credential, and a URL for your own endpoint.</p>
-      </div>
+      <>
+        {strip}
+        <div className="ag-noconn">
+          <b>No agent connected</b>
+          <p>
+            Connect an agent and this panel will explain the pull request and answer questions
+            about it.
+          </p>
+          <p className="ag-fine">Settings › Connectors. Takes a credential, and a URL for your own endpoint.</p>
+        </div>
+      </>
     );
   }
 
-  const name = connector?.name ?? "Agent";
-  const unreachable = connector?.status === "unreachable";
-
   return (
     <>
-      <div className="ag-head">
-        <div className="ag-id">
-          <div className="ag-name">
-            {name}
-            {/* Provider identity is text and never colour — violet stays reserved for "this is the
-                connector answering right now" (§7.1). */}
-            {provider && <span className="ag-ptag">{provider.key.replace("_", " ").toUpperCase()}</span>}
-          </div>
-          <div className="ag-meta">{connector?.model ?? ""}</div>
-        </div>
-      </div>
+      {strip}
 
       <div className="ag-scroll" ref={scroller}>
         {/* An outage is a banner, not a takeover — the thread below it is still the most useful
