@@ -24,7 +24,8 @@ public class ThreadStore(AppDbContext db)
     public async Task<AgentThread?> FindAsync(
         string userId, string project, string repoId, int prId, CancellationToken ct) =>
         await db.AgentThreads.FirstOrDefaultAsync(t =>
-            t.UserId == userId && t.Project == project && t.RepoId == repoId && t.PullRequestId == prId, ct);
+            t.UserId == userId && t.Project == project && t.RepoId == repoId && t.PullRequestId == prId
+            && t.Kind == AgentThreadKinds.Main, ct);
 
     public async Task<AgentThread> GetOrCreateAsync(
         string userId, string project, string repoId, int prId, CancellationToken ct)
@@ -39,12 +40,86 @@ public class ThreadStore(AppDbContext db)
             Project = project,
             RepoId = repoId,
             PullRequestId = prId,
+            Kind = AgentThreadKinds.Main,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
         db.AgentThreads.Add(thread);
         await db.SaveChangesAsync(ct);
         return thread;
+    }
+
+    // ---------- inline annotations (§7.6) ----------
+
+    /// <summary>
+    /// Every annotation on this pull request, for this reviewer.
+    ///
+    /// Per-user, and that is a hard rule rather than a default: these are never written to Azure
+    /// DevOps and never shown to another reviewer looking at the same pull request. Sharing them is a
+    /// separate, parked proposal — the query filtering on <paramref name="userId"/> is what keeps it
+    /// from becoming an accident.
+    /// </summary>
+    public async Task<List<AgentThread>> AnnotationsAsync(
+        string userId, string project, string repoId, int prId, CancellationToken ct) =>
+        await db.AgentThreads
+            .Where(t => t.UserId == userId && t.Project == project && t.RepoId == repoId
+                     && t.PullRequestId == prId && t.Kind == AgentThreadKinds.Annotation)
+            .OrderBy(t => t.Path).ThenBy(t => t.Line)
+            .ToListAsync(ct);
+
+    public async Task<AgentThread?> FindAnnotationAsync(string userId, string id, CancellationToken ct) =>
+        await db.AgentThreads.FirstOrDefaultAsync(t =>
+            t.Id == id && t.UserId == userId && t.Kind == AgentThreadKinds.Annotation, ct);
+
+    /// <summary>
+    /// The annotation for a cited line, created on first open.
+    ///
+    /// Keyed on the line rather than on the segment that cited it: two segments — or two answers on
+    /// different days — can land on the same line, and they belong in one conversation about that
+    /// spot rather than in two cards fighting over the same gutter marker. The seed is therefore
+    /// whichever claim opened it first, and a later citation joins the existing thread.
+    /// </summary>
+    public async Task<AgentThread> GetOrCreateAnnotationAsync(
+        string userId, string project, string repoId, int prId,
+        string path, int line, int? endLine, string? commitSha, string? seed, CancellationToken ct)
+    {
+        var normalised = path.TrimStart('/');
+
+        var existing = await db.AgentThreads.FirstOrDefaultAsync(t =>
+            t.UserId == userId && t.Project == project && t.RepoId == repoId && t.PullRequestId == prId
+            && t.Kind == AgentThreadKinds.Annotation && t.Path == normalised && t.Line == line, ct);
+
+        if (existing is not null) return existing;
+
+        var annotation = new AgentThread
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            UserId = userId,
+            Project = project,
+            RepoId = repoId,
+            PullRequestId = prId,
+            Kind = AgentThreadKinds.Annotation,
+            Path = normalised,
+            Line = line,
+            EndLine = endLine,
+            CommitSha = commitSha,
+            Seed = seed,
+            Status = AgentThreadStatus.Open,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        db.AgentThreads.Add(annotation);
+        await db.SaveChangesAsync(ct);
+        return annotation;
+    }
+
+    public async Task SetStatusAsync(AgentThread thread, string status, CancellationToken ct)
+    {
+        thread.Status = status == AgentThreadStatus.Resolved
+            ? AgentThreadStatus.Resolved
+            : AgentThreadStatus.Open;
+        thread.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<List<AgentThreadTurn>> TurnsAsync(string threadId, CancellationToken ct) =>

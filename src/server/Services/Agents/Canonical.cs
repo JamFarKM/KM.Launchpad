@@ -189,13 +189,42 @@ public record AgentUsage(int? PromptTokens, int? CompletionTokens);
 /// <summary>
 /// The §5.5 budget. Uniform across adapters on purpose: an adapter that cannot meet these has a
 /// problem the timeout is correctly surfacing, not a reason for its own numbers.
+///
+/// <b>Raised from the spec's table, because the spec's table predates two things it was written
+/// without.</b> §5.5 assumed one question was one call with a short prompt. It is now a loop of up to
+/// five exchanges, each carrying a diff that can run to hundreds of kilobytes — and a large prompt
+/// genuinely takes a long time to produce a first token, because the model reads it all before saying
+/// anything. Timing that out reported "the agent didn't answer" for an agent that was working
+/// correctly, which is the failure mode a timeout exists to distinguish from.
+///
+/// <see cref="ConnectionTest"/> is deliberately unchanged. It is a model-list call on the diagnostic
+/// path — the thing a reviewer hits when something looks broken — and it must stay fast enough that
+/// waiting on it is never itself the problem.
 /// </summary>
 public static class AgentTimeouts
 {
     public static readonly TimeSpan ConnectionTest = TimeSpan.FromSeconds(10);
-    public static readonly TimeSpan FirstToken = TimeSpan.FromSeconds(20);
-    public static readonly TimeSpan WholeCompletion = TimeSpan.FromSeconds(120);
-    public static readonly TimeSpan IdleBetweenDeltas = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Two minutes to the first token. Long, and it has to be: with a 700 KB diff the model reads the
+    /// whole thing before it emits a character, and 20 seconds was killing perfectly good answers.
+    /// </summary>
+    public static readonly TimeSpan FirstToken = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Per exchange, not per question. Five exchanges of a tool loop can legitimately exceed any single
+    /// figure here, which is why the loop is bounded by its iteration count and its byte budget rather
+    /// than by a wall clock: a cap that cannot tell "reading five files" from "hung" would have to be
+    /// set high enough to be useless as either.
+    /// </summary>
+    public static readonly TimeSpan WholeCompletion = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Silence between deltas. Raised less than the others: once tokens are flowing, a two-minute gap
+    /// really is a hang, and this is the timeout that catches a stalled stream while the answer still
+    /// looks like it is coming.
+    /// </summary>
+    public static readonly TimeSpan IdleBetweenDeltas = TimeSpan.FromSeconds(60);
 }
 
 /// <summary>
@@ -292,7 +321,15 @@ public abstract record AgentEvent
 /// </summary>
 public sealed class AgentBudget(int maxBytes = AgentBudget.DefaultMaxBytes, int maxIterations = AgentBudget.DefaultMaxIterations)
 {
-    public const int DefaultMaxBytes = 200 * 1024;
+    /// <summary>
+    /// Cumulative reading budget for one question, on top of the diff already sent.
+    ///
+    /// Raised alongside <see cref="PrContextBuilder.MaxDiffBytes"/>: a question that reads five files
+    /// to answer "is this called anywhere" was hitting the old 200 KB before it had looked at enough
+    /// to answer, and an agent that runs out of budget mid-search reports what it could not check —
+    /// correct, but useless when the cause was a cap set for a smaller diff.
+    /// </summary>
+    public const int DefaultMaxBytes = 400 * 1024;
     public const int DefaultMaxIterations = 5;
 
     /// <summary>Per single read. A generated migration should not consume the whole question.</summary>

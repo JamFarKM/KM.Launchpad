@@ -339,3 +339,35 @@ public record AgentTurnDto(
 
 /// <param name="Id">Null when the reviewer has never asked anything about this pull request.</param>
 public record ThreadDto(string? Id, List<AgentTurnDto> Turns);
+
+// ----- inline annotations (§7.6) -----
+
+/// <summary>
+/// A citation the reviewer left on the diff, plus whatever they went on to ask about it.
+/// </summary>
+/// <param name="Seed">The claim that opened it — the card's first turn, and the agent's own words.</param>
+/// <param name="CommitSha">
+/// The commit the citation was made against. Drives the "based on an earlier commit" note when the PR
+/// head has moved: the cited line may have shifted or stopped existing, and pointing confidently at
+/// the wrong line is worse than admitting the anchor is old.
+/// </param>
+/// <param name="Status">
+/// <c>open</c> or <c>resolved</c>. Resolving dims the marker and drops it from the cycle count; it
+/// never deletes, so `Show resolved` can bring it back.
+/// </param>
+public record AnnotationDto(
+    string Id,
+    string Path,
+    int Line,
+    int? EndLine,
+    string? CommitSha,
+    string? Seed,
+    string Status,
+    List<AgentTurnDto> Turns,
+    DateTime CreatedAt,
+    DateTime UpdatedAt);
+
+public record CreateAnnotationRequest(
+    string Path, int Line, int? EndLine, string? CommitSha, string? Seed);
+
+public record AnnotationStatusRequest(string Status);

@@ -31,7 +31,7 @@ silently reverts; change `CanonicalSchema` instead and the fixtures follow.
 
 ## 0.0 Amendments found while implementing
 
-Five places where this spec and the app it targets disagree. Recorded here rather than silently worked around,
+Seven places where this spec and the app it targets disagree. Recorded here rather than silently worked around,
 because each would otherwise be rediscovered. Carried forward across this revision of the doc — the code they
 describe has not changed.
 
@@ -67,6 +67,21 @@ describe has not changed.
    available to a reviewer deciding whether something is safe to delete. `read_file` and `list_files` work, so the
    agent locates by listing instead — slower, and it says which parts it could not verify. Installing the Code
    Search extension turns the tool on with no change here.
+6. **§5.5's timeouts were written for a single call with a short prompt, and they killed working answers.**
+   Raised: first token 20 s → **2 minutes**, whole completion 120 s → **5 minutes per exchange**, idle between
+   deltas 30 s → **60 s**. Two things changed under that table. A question is now a loop of up to five exchanges
+   rather than one call, so a single figure cannot bound it — the loop is bounded by its iteration count and its
+   byte budget instead. And a large prompt genuinely takes a long time to produce a first token, because the model
+   reads all of it before saying anything; timing that out reported "the agent didn't answer" about an agent that
+   was answering, which is precisely the distinction a timeout exists to make. The connection test stays at 10 s:
+   it is the diagnostic path, and waiting on it must never itself be the problem.
+7. **§5.1's 200 KB diff cap truncated real pull requests far short of any model's limit.** Raised to **700 KB**
+   (≈175k tokens of diff, which fits a 200k-token context alongside the prompt, the history and the tool results),
+   and the cumulative tool-reading budget from 200 KB to 400 KB. 200 KB was chosen when the open question was
+   "what will an unknown internal endpoint accept"; against a real PR it meant reviewers were reading answers
+   based on a partial diff for no reason. The truncation machinery is unchanged and still matters — a cap that is
+   never hit is not an argument for having no cap, and the prioritised-partial behaviour is what makes the
+   overflow case a stated partial answer rather than a rejected request.
 
 ---
 

@@ -182,6 +182,13 @@ using (var scope = app.Services.CreateScope())
             "Project" TEXT NOT NULL,
             "RepoId" TEXT NOT NULL,
             "PullRequestId" INTEGER NOT NULL,
+            "Kind" TEXT NOT NULL DEFAULT 'main',
+            "Path" TEXT NULL,
+            "Line" INTEGER NULL,
+            "EndLine" INTEGER NULL,
+            "CommitSha" TEXT NULL,
+            "Seed" TEXT NULL,
+            "Status" TEXT NOT NULL DEFAULT 'open',
             "CreatedAt" TEXT NOT NULL,
             "UpdatedAt" TEXT NOT NULL
         );
@@ -230,6 +237,17 @@ using (var scope = app.Services.CreateScope())
        synthesised segment (see ThreadStore.Segments), so an existing thread stays readable rather
        than being migrated or discarded. */
     AddColumnIfMissing("AgentThreadTurns", "SegmentsJson", "TEXT NULL");
+
+    /* An inline annotation (§7.6) is a thread with an anchor, so these are columns on the existing
+       table rather than a second one. Every existing row is a main-thread conversation, which is
+       exactly what the defaults say. */
+    AddColumnIfMissing("AgentThreads", "Kind", "TEXT NOT NULL DEFAULT 'main'");
+    AddColumnIfMissing("AgentThreads", "Path", "TEXT NULL");
+    AddColumnIfMissing("AgentThreads", "Line", "INTEGER NULL");
+    AddColumnIfMissing("AgentThreads", "EndLine", "INTEGER NULL");
+    AddColumnIfMissing("AgentThreads", "CommitSha", "TEXT NULL");
+    AddColumnIfMissing("AgentThreads", "Seed", "TEXT NULL");
+    AddColumnIfMissing("AgentThreads", "Status", "TEXT NOT NULL DEFAULT 'open'");
 
     void AddColumnIfMissing(string table, string column, string declaration)
     {

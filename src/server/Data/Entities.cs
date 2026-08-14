@@ -211,6 +211,13 @@ public class ConnectorCapability
 /// interchangeable, and it is why a thread survives swapping the provider underneath it —
 /// mid-conversation if need be.
 /// </summary>
+/// <remarks>
+/// <b>An inline annotation (§7.6) is a thread too.</b> The spec asks for a shape "deliberately close
+/// to §7.5's conversation rather than a parallel model", and this is what that means in practice: an
+/// annotation is a thread with <see cref="Kind"/> = <c>annotation</c> and an anchor, so it inherits
+/// the whole turn machinery — replay, appending, postability, attribution surviving the connector's
+/// removal. The alternative was a second table and a second copy of all of it.
+/// </remarks>
 public class AgentThread
 {
     public string Id { get; set; } = default!;
@@ -218,8 +225,53 @@ public class AgentThread
     public string Project { get; set; } = "";
     public string RepoId { get; set; } = "";
     public int PullRequestId { get; set; }
+
+    /// <summary><c>main</c> for the dock's conversation, <c>annotation</c> for one anchored to a line.</summary>
+    public string Kind { get; set; } = AgentThreadKinds.Main;
+
+    /// <summary>Annotations only: the cited file and line the card is anchored to.</summary>
+    public string? Path { get; set; }
+    public int? Line { get; set; }
+    public int? EndLine { get; set; }
+
+    /// <summary>
+    /// Annotations only: the commit the citation was made against.
+    ///
+    /// Drives the "based on an earlier commit" note the same way §7.3's banner does — the cited line
+    /// may have moved or stopped existing, and pointing confidently at the wrong line is worse than
+    /// saying the anchor is old.
+    /// </summary>
+    public string? CommitSha { get; set; }
+
+    /// <summary>
+    /// Annotations only: the segment text that opened it — the card's first turn.
+    ///
+    /// Copied rather than referenced. The agent already said it; a link back to a turn that a later
+    /// re-ask could replace would let the card silently change what it claims to be about.
+    /// </summary>
+    public string? Seed { get; set; }
+
+    /// <summary>
+    /// Annotations only: <c>open</c> or <c>resolved</c>. Resolving dims the marker and drops it from
+    /// the cycle count — it never deletes, on the same "never destroy a record of what was asked"
+    /// principle as §7.5.
+    /// </summary>
+    public string Status { get; set; } = AgentThreadStatus.Open;
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+public static class AgentThreadKinds
+{
+    public const string Main = "main";
+    public const string Annotation = "annotation";
+}
+
+public static class AgentThreadStatus
+{
+    public const string Open = "open";
+    public const string Resolved = "resolved";
 }
 
 /// <summary>

@@ -21,6 +21,44 @@ public static class TaskPrompt
         Core(diffTruncated, withRepoTools);
 
     /// <summary>
+    /// Appended when the conversation is an inline annotation on one line (§7.6).
+    ///
+    /// The anchor arrives as a note on the prompt rather than folded into the reviewer's question, so
+    /// the stored question stays what they actually typed and the scope survives into the second turn
+    /// instead of applying only to the first.
+    ///
+    /// <paramref name="seed"/> — the claim that opened the annotation — is stated here rather than
+    /// replayed as a user turn, because nobody asked it: the agent volunteered it, and a fabricated
+    /// question in the history is a small lie that the model then reasons from.
+    /// </summary>
+    public static string AnnotationScope(string path, int line, string? seed)
+    {
+        var previously = string.IsNullOrWhiteSpace(seed)
+            ? ""
+            : $"""
+
+
+              You had already said this about that line:
+
+              {seed.Trim()}
+              """;
+
+        return $"""
+
+
+        # This conversation is about one line
+
+        The reviewer opened this from a marker on `{path}` line {line}, and every question in it is
+        about that line unless they say otherwise. Answer for that spot specifically rather than
+        restating what the whole pull request does.{previously}
+
+        Cite that line when your answer rests on it, and a different line when it doesn't — a
+        follow-up often turns out to be about somewhere else, and saying so is more useful than
+        forcing the citation back to where the conversation started.
+        """;
+    }
+
+    /// <summary>
     /// Mode 2: the connector rejected forced structure, so the same rules plus a request for a
     /// fenced JSON block. Kept as an addition to the core text rather than a separate prompt, so
     /// the two modes cannot drift apart on the things that matter.

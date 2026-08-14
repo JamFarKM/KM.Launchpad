@@ -49,8 +49,22 @@ public record PrContext(
 /// </summary>
 public static class PrContextBuilder
 {
-    /// <summary>§5.1's cap. Deliberately in bytes, since that is what a token budget approximates.</summary>
-    public const int MaxDiffBytes = 200 * 1024;
+    /// <summary>
+    /// The diff cap, in bytes — bytes rather than tokens because that is what a token budget
+    /// approximates and what we can actually measure before sending.
+    ///
+    /// <b>Raised from §5.1's 200 KB to 700 KB.</b> 200 KB was chosen when the number that mattered
+    /// was "what will an unknown internal endpoint accept", and against a real pull request it
+    /// truncated far too eagerly: reviewers saw an answer working from a partial diff on changes that
+    /// were nowhere near a model's actual limit. 700 KB is roughly 175k tokens of diff, which fits
+    /// inside a 200k-token context alongside the prompt, the history and the tool results — with
+    /// enough headroom that the model isn't refusing the request instead of truncating it.
+    ///
+    /// The truncation machinery below is unchanged and still matters. A cap that is never hit is not
+    /// an argument for having no cap: <see cref="SelectFiles"/> is what makes the overflow case a
+    /// stated, prioritised partial answer rather than a rejected request.
+    /// </summary>
+    public const int MaxDiffBytes = 700 * 1024;
 
     public static PrContext Build(PrContextInput input, string? question = null)
     {
