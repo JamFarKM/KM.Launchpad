@@ -18,6 +18,17 @@ var dataDir = builder.Configuration["PL_DATA_DIR"]
     ?? Path.Combine(builder.Environment.ContentRootPath, ".pl-data");
 Directory.CreateDirectory(dataDir);
 
+/* Announced at boot, because getting this wrong is silent and total.
+ *
+ * Everything durable lives here — the database and the keys that decrypt every stored PAT and API
+ * key. Point it somewhere unmounted and the app works perfectly, writes to the container's own
+ * filesystem, and loses the lot on the next `docker rm`: the user is simply logged out again with no
+ * error anywhere to explain it. That happened, from a `docker run -e PL_DATA_DIR=/data` issued in Git
+ * Bash, which rewrites a lone `/data` into a Windows path before Docker ever sees it. The Dockerfile
+ * already sets this correctly; the fix is to stop passing it by hand (use `docker compose`), and this
+ * line is so the next occurrence is one `docker logs` away instead of a mystery. */
+Console.WriteLine($"[launchpad] data directory: {Path.GetFullPath(dataDir)}");
+
 // --- persistence ---
 builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseSqlite($"Data Source={Path.Combine(dataDir, "launchpad.db")}"));

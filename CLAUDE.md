@@ -17,6 +17,15 @@ Azure DevOps pipelines, shipped as a single Docker image. See `README.md` for wh
 docker compose up -d --build
 ```
 
+**Always this, never a hand-rolled `docker run`.** The Dockerfile already sets `PL_DATA_DIR=/data`
+and compose already mounts the volume there, so there is nothing to pass — and passing it anyway is
+actively dangerous from Git Bash, which rewrites a lone `/data` argument into `C:/Program Files/Git/data`
+before Docker sees it. The app then writes its database *and its PAT-encryption keys* into the
+container's own filesystem, works perfectly, and loses everything on the next `docker rm`: the user is
+silently logged out with their connectors gone and no error anywhere. This is not hypothetical; it
+happened, four deploys in a row. `docker logs` now prints the resolved data directory at boot — check
+it says `/data` after any change to how the container is started.
+
 Serves on `http://localhost:8080`. The frontend typechecks with
 `cd src/web && npx tsc --noEmit -p tsconfig.json`; the server builds with
 `cd src/server && dotnet build`.
