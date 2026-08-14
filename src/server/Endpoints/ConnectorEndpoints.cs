@@ -19,10 +19,12 @@ public static class ConnectorEndpoints
 
         // The picker grid's source of truth, so the four-card layout in §3.0 isn't duplicated in
         // TypeScript where it could drift from what the server will actually accept.
-        api.MapGet("/connector-providers", (AdoContext ctx) =>
+        api.MapGet("/connector-providers", (AdoContext ctx, Services.Agents.AgentRegistry registry) =>
         {
             if (!ctx.IsAuthenticated) return Results.Unauthorized();
-            return Results.Ok(ConnectorProviders.Selectable().Select(p => new ProviderDto(
+            // Ask the registry rather than a hand-kept list, so the picker can never offer a
+            // provider the server has no adapter for.
+            return Results.Ok(ConnectorProviders.Selectable(registry.Supports).Select(p => new ProviderDto(
                 p.Key,
                 p.DisplayName,
                 p.Auth == ConnectorAuth.OAuth ? "oauth" : "api_key",

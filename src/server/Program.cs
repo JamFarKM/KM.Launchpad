@@ -35,6 +35,13 @@ builder.Services.AddSingleton<ConnectorProtector>();
 // per-phase inside the adapters instead.
 builder.Services.AddHttpClient("agent", c => c.Timeout = Timeout.InfiniteTimeSpan);
 builder.Services.AddSingleton<PipelineLaunchpad.Server.Services.Agents.IAgentAdapter, PipelineLaunchpad.Server.Services.Agents.AnthropicAdapter>();
+// One class, two providers: OpenAI is 5.A with the host pinned, not a separate contract.
+builder.Services.AddSingleton<PipelineLaunchpad.Server.Services.Agents.IAgentAdapter>(sp =>
+    new PipelineLaunchpad.Server.Services.Agents.OpenAiCompatibleAdapter(
+        sp.GetRequiredService<IHttpClientFactory>(), PipelineLaunchpad.Server.Services.ConnectorProviders.Custom));
+builder.Services.AddSingleton<PipelineLaunchpad.Server.Services.Agents.IAgentAdapter>(sp =>
+    new PipelineLaunchpad.Server.Services.Agents.OpenAiCompatibleAdapter(
+        sp.GetRequiredService<IHttpClientFactory>(), PipelineLaunchpad.Server.Services.ConnectorProviders.OpenAi));
 // The stub is registered but not selectable (ConnectorProviders.Selectable omits it), so the SSE
 // relay and the panel states can be exercised without a real provider or a real credential.
 builder.Services.AddSingleton<PipelineLaunchpad.Server.Services.Agents.IAgentAdapter>(

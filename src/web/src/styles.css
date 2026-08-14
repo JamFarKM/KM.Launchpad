@@ -4803,3 +4803,413 @@ a {
     transform: rotate(360deg);
   }
 }
+
+/* ==========================================================================
+   Settings sheet + Connectors (DESIGN_SPEC_CONNECTORS.md §3)
+   ========================================================================== */
+
+.sheet-modal {
+  max-width: 912px;
+  width: calc(100% - 48px);
+  height: 660px;
+  max-height: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.sheet-nav {
+  width: 178px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-hairline);
+  background: var(--bg-surface-2);
+  padding: 9px 8px;
+}
+
+.sheet-navi {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  margin-bottom: 1px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.sheet-navi:hover { background: var(--hover-wash); }
+
+/* The selected section is the one carve-out A1 allows: a selection background plus accent text,
+   the same treatment list rows already use. */
+.sheet-navi.on {
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sheet-cnt {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 100px;
+  background: var(--hover-wash);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px 22px;
+  min-width: 0;
+}
+
+/* ---------- connectors ---------- */
+
+.cx-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cx-head > div:first-child { flex: 1; min-width: 0; }
+.cx-lede { font-size: 12px; line-height: 1.6; }
+.cx-lede b { color: var(--ink-primary); }
+
+.cx-empty {
+  margin-top: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  padding: 20px 24px;
+  text-align: center;
+}
+
+.cx-empty b { display: block; font-size: 13.5px; }
+
+.cx-empty p {
+  margin: 6px auto 0;
+  max-width: 460px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-secondary);
+}
+
+/* A3 — one bordered container, hairlines between rows, no gaps and no per-row border. */
+.cx-list {
+  margin-top: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cx-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.cx-list > :last-child .cx-row,
+.cx-list > .cx-row:last-child { border-bottom: none; }
+.cx-row:hover { background: var(--hover-wash); }
+.cx-row.open { background: var(--bg-surface-2); }
+
+.cx-main { flex: 1; min-width: 0; }
+
+.cx-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cx-sub {
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  margin-top: 2px;
+}
+
+/* Violet marks "the connector answering right now", not a provider identity — so it stays this
+   hue whichever provider is underneath (§1). */
+.cx-assigned {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 100px;
+  background: color-mix(in oklab, var(--hue-violet) 15%, transparent);
+  color: var(--hue-violet);
+}
+
+/* A4 — four states, four treatments, and the word is always beside the mark. */
+.cx-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.cx-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ink-muted);
+}
+
+.cx-st.connected { color: var(--status-good); }
+.cx-st.connected .cx-dot { background: var(--status-good); }
+.cx-st.unreachable { color: var(--status-bad); }
+.cx-st.unreachable .cx-dot { background: var(--status-bad); }
+
+/* Never tested is a hollow square, so the state differs in shape as well as in hue. */
+.cx-st.not_tested .cx-dot {
+  border-radius: 1px;
+  background: transparent;
+  border: 1.5px solid var(--ink-muted);
+}
+
+.cx-st.connecting .cx-dot { animation: dot-breathe 1.2s ease-in-out infinite; }
+
+.cx-chev {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--ink-muted);
+  transition: transform 130ms ease;
+}
+
+.cx-row.open .cx-chev { transform: rotate(90deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-chev { transition: none; }
+  .cx-st.connecting .cx-dot { animation: none; }
+}
+
+/* ---------- provider picker ---------- */
+
+.cx-pick { margin-top: 14px; }
+
+.cx-pick-h {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+  margin-bottom: 10px;
+}
+
+.cx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.cx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+  padding: 13px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 11px;
+  background: var(--bg-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cx-card:hover {
+  border-color: var(--border-strong);
+  background: var(--hover-wash);
+}
+
+.cx-card-n { font-size: 13px; font-weight: 600; }
+.cx-card-d { font-size: 11px; line-height: 1.5; color: var(--ink-secondary); }
+
+.cx-card-a {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-hairline);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* ---------- editor ---------- */
+
+.cx-editor {
+  padding: 2px 13px 15px;
+  background: var(--bg-surface-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.cx-list > .cx-editor:last-child { border-bottom: none; }
+
+.cx-frow { display: flex; gap: 12px; margin-top: 11px; }
+.cx-f { flex: 1; min-width: 0; }
+.cx-f.narrow { max-width: 220px; }
+
+.cx-l {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 5px;
+}
+
+.cx-hint {
+  margin: 5px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ink-secondary);
+}
+
+.cx-hint code,
+.cx-result code {
+  background: var(--hover-wash);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 10.5px;
+}
+
+/* Read-only text, not a disabled input: there is nothing to edit, so nothing should look like a
+   field you could edit (§3.2). */
+.cx-fixed {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hover-wash);
+  color: var(--ink-secondary);
+}
+
+.cx-tokrow { display: flex; align-items: center; gap: 8px; }
+.cx-tokrow .input { flex: 1; }
+
+/* The credential after saving: a last-four plate, never a value (§3.3). */
+.cx-stored {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hover-wash);
+  color: var(--ink-secondary);
+  font-size: 11.5px;
+}
+
+.cx-age {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-family: system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.cx-result {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-secondary);
+}
+
+.cx-result b { color: var(--ink-primary); }
+
+.cx-result.pass {
+  background: color-mix(in oklab, var(--status-good) 10%, var(--bg-surface));
+  border-left: 2px solid var(--status-good);
+}
+
+.cx-result.fail {
+  background: color-mix(in oklab, var(--status-bad) 9%, var(--bg-surface));
+  border-left: 2px solid var(--status-bad);
+}
+
+.cx-caps {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cx-cap {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 0 0;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.cx-cap input { margin: 2px 0 0; accent-color: var(--accent); flex-shrink: 0; }
+
+.cx-cd {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-secondary);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.cx-cd b { color: var(--ink-primary); }
+
+.cx-efoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* A2 — Remove is a red outline and hover tint, never a solid red fill. */
+.cx-danger {
+  color: var(--status-bad);
+  border-color: color-mix(in oklab, var(--status-bad) 30%, transparent);
+}
+
+.cx-danger:hover { background: color-mix(in oklab, var(--status-bad) 10%, transparent); }
+
+.cx-foot {
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border-hairline);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-secondary);
+}
+
+.cx-foot b { color: var(--ink-primary); }

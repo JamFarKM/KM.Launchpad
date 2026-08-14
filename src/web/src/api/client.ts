@@ -1,4 +1,7 @@
 import type {
+  Connector,
+  ConnectorProvider,
+  ProbeResult,
   AzureCredential,
   Branch,
   ConfigRegistry,
@@ -252,4 +255,28 @@ export const api = {
       body: JSON.stringify({ tenantId, clientId, clientSecret }),
     }),
   clearAzureCredential: () => req<void>("/api/azure-credential", { method: "DELETE" }),
+
+  // ----- connectors (DESIGN_SPEC_CONNECTORS.md §2.1) -----
+  connectorProviders: () => req<ConnectorProvider[]>("/api/connector-providers"),
+  connectors: () => req<Connector[]>("/api/connectors"),
+
+  /** The credential is sent once, in a body, and is never returned by anything (§3.3). */
+  addConnector: (body: {
+    provider: string; name?: string; baseUrl?: string; model?: string;
+    token?: string; capabilities?: string[];
+  }) => req<Connector>("/api/connectors", { method: "POST", body: JSON.stringify(body) }),
+
+  /** Omit a field to leave it alone — omitting `token` keeps the stored credential. */
+  patchConnector: (id: string, body: {
+    name?: string; baseUrl?: string; model?: string; token?: string; capabilities?: string[];
+  }) => req<Connector>(`/api/connectors/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteConnector: (id: string) => req<void>(`/api/connectors/${id}`, { method: "DELETE" }),
+
+  /** Pre-save test — the only way "Save is disabled until green" can hold for a new connector. */
+  testConnector: (body: { provider: string; baseUrl?: string; token: string }) =>
+    req<ProbeResult>("/api/connectors/test", { method: "POST", body: JSON.stringify(body) }),
+
+  testSavedConnector: (id: string) =>
+    req<ProbeResult>(`/api/connectors/${id}/test`, { method: "POST" }),
 };

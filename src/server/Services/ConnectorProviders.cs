@@ -76,12 +76,20 @@ public static class ConnectorProviders
             : throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unknown provider.");
 
     /// <summary>
-    /// Providers this build can actually talk to. Copilot is deliberately absent: §5.C is an
-    /// unvalidated sketch pending a spike against a seated account, and offering a card that
-    /// leads nowhere is worse than not offering it.
+    /// Providers a reviewer may pick, in the order §3.0 wants them: named providers first, Custom
+    /// last as the escape hatch.
+    ///
+    /// <paramref name="hasAdapter"/> is asked about each one rather than a list being maintained
+    /// here by hand. Offering a card that leads nowhere is worse than not offering it, and a
+    /// hand-kept list is exactly the thing that goes stale the moment an adapter lands or is
+    /// removed — the picker now cannot disagree with what the server can actually talk to. The stub
+    /// is excluded unconditionally: it has an adapter, but it is not a product provider.
     /// </summary>
-    public static IReadOnlyList<ProviderInfo> Selectable() =>
-        [All[Anthropic], All[OpenAi], All[Custom]];
+    public static IReadOnlyList<ProviderInfo> Selectable(Func<string, bool> hasAdapter) =>
+        new[] { Anthropic, OpenAi, GitHubCopilot, Custom }
+            .Where(hasAdapter)
+            .Select(k => All[k])
+            .ToList();
 
     public static string AuthTypeOf(string provider) =>
         Info(provider).Auth == ConnectorAuth.OAuth ? "oauth" : "api_key";

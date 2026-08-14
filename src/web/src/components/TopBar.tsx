@@ -2,10 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { canInstall as pwaCanInstall, promptInstall } from "../pwa";
 import { SettingsModal } from "./SettingsModal";
-import {
-  getSettings, setSettings,
-  type ShelfStyle, type Texture, type Theme,
-} from "../lib/settings";
 import type { User } from "../types";
 
 export type Page = "views" | "review" | "configurations" | "keyvault";
@@ -70,16 +66,15 @@ const NAV: { id: Page; label: string; icon: JSX.Element }[] = [
   },
 ];
 
-const THEMES: Theme[] = ["light", "dark", "system"];
-const SHELF_STYLES: ShelfStyle[] = ["rail", "tint", "both", "none"];
-const TEXTURES: Texture[] = ["off", "dots", "hatch", "both"];
+
+
+
 
 export function TopBar({ user, page, hidden, onNav, onDisconnect, onImported }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [menu, setMenu] = useState<"transfer" | "settings" | null>(null);
-  const [prefs, setPrefs] = useState(getSettings());
   const [canInstall, setCanInstall] = useState(pwaCanInstall());
 
   useEffect(() => {
@@ -103,11 +98,6 @@ export function TopBar({ user, page, hidden, onNav, onDisconnect, onImported }: 
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, [menu]);
-
-  function updatePrefs(next: typeof prefs) {
-    setPrefs(next);
-    setSettings(next);
-  }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -225,57 +215,17 @@ export function TopBar({ user, page, hidden, onNav, onDisconnect, onImported }: 
           </svg>
         </button>
         {menu === "settings" && (
-          <div className="dropdown" style={{ minWidth: 232 }}>
-            <div className="dropdown-label">Appearance</div>
-            <div className="theme-switch">
-              {THEMES.map((t) => (
-                <button
-                  key={t}
-                  className={`theme-opt ${prefs.theme === t ? "active" : ""}`}
-                  onClick={() => updatePrefs({ ...prefs, theme: t })}
-                >
-                  {t === "light" ? "☀ Light" : t === "dark" ? "☾ Dark" : "Auto"}
-                </button>
-              ))}
-            </div>
-
-            <div className="dropdown-label">Shelf accent</div>
-            <div className="theme-switch" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-              {SHELF_STYLES.map((v) => (
-                <button
-                  key={v}
-                  className={`theme-opt ${prefs.shelfStyle === v ? "active" : ""}`}
-                  style={{ textTransform: "capitalize" }}
-                  onClick={() => updatePrefs({ ...prefs, shelfStyle: v })}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-
-            <div className="dropdown-label">Texture</div>
-            <div className="theme-switch" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-              {TEXTURES.map((v) => (
-                <button
-                  key={v}
-                  className={`theme-opt ${prefs.texture === v ? "active" : ""}`}
-                  style={{ textTransform: "capitalize" }}
-                  onClick={() => updatePrefs({ ...prefs, texture: v })}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-
-            <div className="dropdown-sep" />
+          <div className="dropdown" style={{ minWidth: 200 }}>
+            {/* Appearance moved into the settings sheet: a connector editor cannot live in a
+                dropdown, and theme controls in two places would only drift apart. */}
+            <button className="menu-item" onClick={() => { setMenu(null); setShowSettings(true); }}>
+              Settings…
+            </button>
             {canInstall && (
               <button className="menu-item" onClick={async () => { setMenu(null); await promptInstall(); setCanInstall(pwaCanInstall()); }}>
                 ⇩ Install as an app
               </button>
             )}
-            <button className="menu-item" onClick={() => { setMenu(null); setShowSettings(true); }}>
-              Notifications &amp; stores…
-            </button>
           </div>
         )}
       </div>

@@ -62,3 +62,13 @@ export function applyAll(s: Settings = getSettings()): void {
 export function notificationsEnabled(): boolean {
   return getSettings().notifications;
 }
+
+/**
+ * The option lists, beside the types they belong to.
+ *
+ * These lived in TopBar until the settings sheet needed them too — a UI component is the wrong home
+ * for the set of legal values.
+ */
+export const THEMES: Theme[] = ["light", "dark", "system"];
+export const SHELF_STYLES: ShelfStyle[] = ["rail", "tint", "both", "none"];
+export const TEXTURES: Texture[] = ["off", "dots", "hatch", "both"];

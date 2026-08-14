@@ -1,11 +1,75 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { getSettings, setSettings } from "../lib/settings";
+import { getSettings, setSettings, SHELF_STYLES, TEXTURES, THEMES } from "../lib/settings";
 import { ensureNotifyPermission } from "../lib/notify";
-import type { AzureCredential, ConfigRegistry, VaultRegistry } from "../types";
+import type { AzureCredential, ConfigRegistry, Connector, VaultRegistry } from "../types";
+import { ConnectorsSection } from "./ConnectorsSection";
 
-export function SettingsModal({ onClose }: { onClose: () => void }) {
+type Section = "appearance" | "connectors" | "stores";
+
+/**
+ * The settings sheet (DESIGN_SPEC_CONNECTORS.md §3).
+ *
+ * This was a single-purpose "Notifications & stores" modal. §3 needs a section nav, because a
+ * connector editor — list, inline form, capability assignment, test results — cannot live in a
+ * dropdown, and the appearance controls that were in the dropdown belong beside it rather than in a
+ * second place.
+ *
+ * The mockup also shows a `Projects` section. It is specified nowhere, so it is left out; `Stores`
+ * carries this app's real equivalent, which is the Azure credentials and registries that were
+ * already here.
+ */
+export function SettingsModal({ onClose, initialSection = "appearance" }: {
+  onClose: () => void;
+  initialSection?: Section;
+}) {
+  const [section, setSection] = useState<Section>(initialSection);
+
+  // The count belongs on the nav item, so "have I set an agent up?" is answerable without opening
+  // the section (§3).
+  const connectorsQ = useQuery<Connector[]>({ queryKey: ["connectors"], queryFn: api.connectors });
+
+  return (
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal sheet-modal">
+        <div className="modal-head">
+          <div className="title">Settings</div>
+          <button className="btn ghost small" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="sheet-body">
+          <nav className="sheet-nav">
+            <button className={`sheet-navi ${section === "appearance" ? "on" : ""}`}
+              onClick={() => setSection("appearance")}>Appearance</button>
+            <button className={`sheet-navi ${section === "connectors" ? "on" : ""}`}
+              onClick={() => setSection("connectors")}>
+              Connectors
+              <span className="sheet-cnt">{connectorsQ.data?.length ?? 0}</span>
+            </button>
+            <button className={`sheet-navi ${section === "stores" ? "on" : ""}`}
+              onClick={() => setSection("stores")}>Stores</button>
+          </nav>
+
+          <div className="sheet-content">
+            {section === "appearance" && <AppearanceSection />}
+            {section === "connectors" && <ConnectorsSection />}
+            {section === "stores" && (
+              <>
+                <AzureCredentialSection />
+                <ConfigRegistriesSection />
+                <VaultRegistriesSection />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Theme, shelf accent, texture and notifications — moved here from the cog dropdown. */
+function AppearanceSection() {
   const [s, setS] = useState(getSettings());
 
   function update(next: typeof s) {
@@ -16,35 +80,55 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const denied = "Notification" in window && Notification.permission === "denied";
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 560 }}>
-        <div className="modal-head">
-          <div className="title">Notifications &amp; stores</div>
-          <button className="btn ghost small" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          {/* Theme and presentation preferences live in the settings gear menu —
-              that is the only theme control (§2.1). */}
-          <div className="field">
-            <label className="label">Desktop notifications</label>
-            <label className="row" style={{ gap: 8, cursor: "pointer" }}>
-              <input type="checkbox" checked={s.notifications}
-                onChange={(e) => { const on = e.target.checked; update({ ...s, notifications: on }); if (on) ensureNotifyPermission(); }} />
-              <span>Notify me when a run or sequence finishes</span>
-            </label>
-            {s.notifications && denied && (
-              <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-                Your browser is blocking notifications for this site — enable them in the browser’s site settings.
-              </div>
-            )}
-          </div>
-
-          <AzureCredentialSection />
-          <ConfigRegistriesSection />
-          <VaultRegistriesSection />
+    <>
+      <div className="field">
+        <label className="label">Theme</label>
+        <div className="theme-switch">
+          {THEMES.map((t) => (
+            <button key={t} className={`theme-opt ${s.theme === t ? "active" : ""}`}
+              onClick={() => update({ ...s, theme: t })}>
+              {t === "light" ? "☀ Light" : t === "dark" ? "☾ Dark" : "Auto"}
+            </button>
+          ))}
         </div>
       </div>
-    </div>
+
+      <div className="field">
+        <label className="label">Shelf accent</label>
+        <div className="theme-switch" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+          {SHELF_STYLES.map((v) => (
+            <button key={v} className={`theme-opt ${s.shelfStyle === v ? "active" : ""}`}
+              style={{ textTransform: "capitalize" }}
+              onClick={() => update({ ...s, shelfStyle: v })}>{v}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="field">
+        <label className="label">Texture</label>
+        <div className="theme-switch" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+          {TEXTURES.map((v) => (
+            <button key={v} className={`theme-opt ${s.texture === v ? "active" : ""}`}
+              style={{ textTransform: "capitalize" }}
+              onClick={() => update({ ...s, texture: v })}>{v}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="field">
+        <label className="label">Desktop notifications</label>
+        <label className="row" style={{ gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={s.notifications}
+            onChange={(e) => { const on = e.target.checked; update({ ...s, notifications: on }); if (on) ensureNotifyPermission(); }} />
+          <span>Notify me when a run or sequence finishes</span>
+        </label>
+        {s.notifications && denied && (
+          <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+            Your browser is blocking notifications for this site — enable them in the browser’s site settings.
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 

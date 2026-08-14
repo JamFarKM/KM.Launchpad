@@ -46,11 +46,12 @@ because each would otherwise be rediscovered.
    convention; this app has no proxy at all — Kestrel serves `wwwroot` directly. The header costs nothing and is
    kept for the day one is introduced, but what actually prevents buffering here is explicit flushing on the SSE
    response. Setting the header and considering §6 done would ship the exact bug the section exists to prevent.
-3. **§3 says "the Settings sheet gains a left-hand section nav". There is no Settings sheet.** Settings today is a
-   cog dropdown holding the theme toggle and notification prefs. The connector list, inline editor, capability
-   radios and test-result banner cannot live in a dropdown, so this feature builds the sheet. `Appearance` takes
-   over the dropdown's existing contents; `Projects` and `About` appear in the mockup, are specified nowhere, and
-   are left out until they are.
+3. **§3 says "the Settings sheet gains a left-hand section nav". A modal existed; the nav did not.**
+   Corrected while implementing: `SettingsModal` was already there, titled "Notifications & stores", carrying the
+   Azure service principal, Key Vaults and App Config registries. What was missing was the section nav and
+   Connectors, so this was a restructure. `Appearance` took over the cog dropdown's theme, shelf-accent, texture
+   and notification controls, since keeping them in two places would only let them drift. The mockup's `Projects`
+   and `About` sections are specified nowhere and are left out; `Stores` carries this app's real equivalent.
 4. **`--prov-doc` and `--bot` are the same violet** (`#6b5bd6` light, `#9085e9` dark). §5.2.1 requires the badge
    hue never to become an identity colour, but violet already *is* the assistant identity — the answer's left
    border, the name, the cursor, the citation hover and the cited diff row all use it. So on a `doc`-grounded

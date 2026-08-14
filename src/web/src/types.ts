@@ -314,3 +314,46 @@ export interface VaultSecretValue {
   name: string;
   value?: string | null;
 }
+
+// ----- connectors (DESIGN_SPEC_CONNECTORS.md §2.1) -----
+
+/** Note there is no credential field of any shape: the server never returns one. */
+export interface Connector {
+  id: string;
+  provider: string;
+  name: string;
+  baseUrl?: string | null;
+  model?: string | null;
+  authType: string;
+  /** The only part of a credential the UI is ever shown. */
+  tokenLast4?: string | null;
+  tokenSetAt?: string | null;
+  oauthLogin?: string | null;
+  oauthScope?: string | null;
+  /** connected | unreachable | not_tested | connecting — each gets its own shape, per A4. */
+  status: string;
+  lastOkAt?: string | null;
+  lastErrorCode?: string | null;
+  lastErrorAt?: string | null;
+  capabilities: string[];
+}
+
+export interface ConnectorProvider {
+  key: string;
+  displayName: string;
+  auth: string;
+  fixedBaseUrl?: string | null;
+  credentialLabel: string;
+  urlEditable: boolean;
+}
+
+/** The result of a connection test — one of §4's codes, never free text. */
+export interface ProbeResult {
+  ok: boolean;
+  latencyMs: number;
+  models: string[];
+  errorCode?: string | null;
+  httpStatus?: number | null;
+  detail?: string | null;
+  retryAfterSeconds?: number | null;
+}
