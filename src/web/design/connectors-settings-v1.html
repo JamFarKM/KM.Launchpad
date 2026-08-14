@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Launchpad — Settings › Connectors</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+  button,input,textarea,select{font-family:inherit}
+
+  /* ================= harness (NOT part of the product) ================= */
+  .hb{position:fixed;inset:0 0 auto 0;z-index:200;display:flex;align-items:center;justify-content:space-between;
+    gap:12px;background:#1a1a19;color:#fff;padding:8px 16px;font-size:12.5px;flex-wrap:wrap}
+  .hb .l{color:#898781;font-size:11.5px}
+  .tg{display:inline-flex;background:rgba(255,255,255,.08);border-radius:8px;padding:3px;gap:2px;flex-wrap:wrap}
+  .tg button{border:none;background:transparent;color:#c3c2b7;font-size:12px;font-weight:600;
+    padding:5px 10px;border-radius:6px;cursor:pointer}
+  .tg button.on{background:#fff;color:#0b0b0b}
+  .hbtn{border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff;font-size:12px;
+    padding:6px 12px;border-radius:6px;cursor:pointer}
+  .hbtn:hover{background:rgba(255,255,255,.1)}
+  .notes{position:fixed;top:37px;left:0;right:0;z-index:199;background:#fcfcfb;color:#52514e;
+    border-bottom:1px solid #e1e0d9;padding:14px 20px;font-size:12.5px;display:none;max-height:66vh;overflow:auto}
+  .notes.open{display:block}
+  .notes ul{margin:6px 0 0;padding-left:18px;columns:2;column-gap:28px}
+  .notes li{margin-bottom:7px;break-inside:avoid}
+  .notes strong{color:#0b0b0b}
+  .notes code{background:rgba(0,0,0,.06);padding:1px 5px;border-radius:4px}
+
+  /* ================= tokens (identical to the other mockups) ================= */
+  .app{
+    --bg-page:#f7f7f5;--bg-surface:#fff;--bg-surface-2:#fbfbf9;--code-bg:#fcfcfb;
+    --border-hairline:rgba(11,11,11,.09);--border-strong:rgba(11,11,11,.14);
+    --ink-primary:#0b0b0b;--ink-secondary:#52514e;--ink-muted:#8b8a84;
+    --accent:#2a78d6;--accent-hover:#1c5cab;--accent-tint:#eaf1fc;
+    --status-good:#0ca30c;--status-bad:#d03b3b;--status-warn:#e59400;
+    --hover-wash:#f2f1ec;--shadow-pop:0 10px 28px rgba(16,24,32,.16);
+    --hue-violet:#6b5bd6;--hue-aqua:#1097a8;--hue-slate:#5c6672;
+    --bot:#6b5bd6;--prov-infer:#5c6672;
+    background:var(--bg-page);color:var(--ink-primary)}
+  [data-theme="dark"] .app{
+    --bg-page:#0d0d0d;--bg-surface:#1a1a19;--bg-surface-2:#212120;--code-bg:#161615;
+    --border-hairline:rgba(255,255,255,.11);--border-strong:rgba(255,255,255,.18);
+    --ink-primary:#fff;--ink-secondary:#c3c2b7;--ink-muted:#8b8a84;
+    --accent:#3987e5;--accent-hover:#5aa2ee;--accent-tint:rgba(57,135,229,.16);
+    --status-good:#1abd1a;--status-bad:#e66767;--status-warn:#fab219;
+    --hover-wash:rgba(255,255,255,.06);--shadow-pop:0 12px 32px rgba(0,0,0,.5);
+    --hue-violet:#9085e9;--hue-aqua:#35b3c4;--hue-slate:#8b95a3;
+    --bot:#9085e9;--prov-infer:#8b95a3}
+
+  /* ================= shell ================= */
+  .app{position:fixed;inset:37px 0 0 0;overflow:hidden}
+  .backdrop{position:absolute;inset:0;background:var(--bg-page);
+    background-image:radial-gradient(var(--border-hairline) 1px,transparent 1px);background-size:22px 22px}
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.3)}
+
+  /* ================= settings sheet ================= */
+  .sheet{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:912px;max-width:calc(100% - 48px);height:672px;max-height:calc(100% - 48px);
+    background:var(--bg-surface);border:1px solid var(--border-strong);border-radius:14px;
+    box-shadow:var(--shadow-pop);display:flex;flex-direction:column;overflow:hidden}
+  .sh-top{display:flex;align-items:center;gap:10px;padding:14px 16px;flex-shrink:0;
+    border-bottom:1px solid var(--border-hairline)}
+  .sh-top b{font-size:15px;flex:1}
+  .xbtn{width:28px;height:28px;border-radius:7px;border:none;background:transparent;color:var(--ink-muted);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px}
+  .xbtn:hover{background:var(--hover-wash);color:var(--ink-primary)}
+  .sh-body{flex:1;display:flex;min-height:0}
+
+  .snav{width:178px;flex-shrink:0;border-right:1px solid var(--border-hairline);padding:9px 8px;
+    background:var(--bg-surface-2)}
+  .snav a{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:7px;font-size:12.5px;
+    color:var(--ink-secondary);cursor:pointer;margin-bottom:1px}
+  .snav a:hover{background:var(--hover-wash)}
+  .snav a.on{background:var(--accent-tint);color:var(--accent);font-weight:600}
+  .snav svg{width:14px;height:14px;flex-shrink:0}
+  .snav .cnt{margin-left:auto;font-size:10px;font-weight:600;padding:1px 6px;border-radius:100px;
+    background:var(--hover-wash);color:var(--ink-muted);font-variant-numeric:tabular-nums}
+
+  .scontent{flex:1;overflow-y:auto;padding:18px 20px 22px;min-width:0}
+  .sect-h{display:flex;align-items:flex-start;gap:12px;margin-bottom:4px}
+  .sect-h h2{margin:0;font-size:15px}
+  .sect-h .grow{flex:1;min-width:0}
+  .lede{margin:5px 0 0;font-size:12px;line-height:1.6;color:var(--ink-secondary)}
+  .lede b{color:var(--ink-primary)}
+
+  .btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface);color:var(--ink-primary);
+    font-size:12.5px;font-weight:600;cursor:pointer;flex-shrink:0}
+  .btn:hover{background:var(--hover-wash)}
+  .btn.pri{background:var(--accent);border-color:transparent;color:#fff}
+  .btn.pri:hover{background:var(--accent-hover)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn:disabled:hover{background:var(--bg-surface)}
+  .btn.pri:disabled:hover{background:var(--accent)}
+  .btn svg{width:13px;height:13px}
+  .btn:focus-visible,.snav a:focus-visible,input:focus-visible,select:focus-visible,.pcard:focus-visible{
+    outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---------- empty state ---------- */
+  .empty{margin-top:16px;border:1px dashed var(--border-strong);border-radius:12px;padding:22px 24px;text-align:center}
+  .empty .ei{width:26px;height:26px;color:var(--ink-muted);opacity:.6}
+  .empty b{display:block;margin-top:8px;font-size:13.5px}
+  .empty p{margin:6px auto 0;max-width:460px;font-size:12px;line-height:1.6;color:var(--ink-secondary)}
+
+  /* ---------- provider picker ---------- */
+  .pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+  .pcard{border:1px solid var(--border-hairline);border-radius:11px;padding:13px 12px;text-align:left;
+    background:var(--bg-surface);cursor:pointer;display:flex;flex-direction:column;gap:8px;color:inherit}
+  .pcard:hover{border-color:var(--border-strong);background:var(--hover-wash)}
+  .pcard .pav{width:30px;height:30px;border-radius:9px;background:var(--hover-wash);color:var(--ink-secondary);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .pcard .pav svg{width:17px;height:17px}
+  .pcard .pn{font-size:13px;font-weight:600}
+  .pcard .pd{font-size:11px;line-height:1.5;color:var(--ink-secondary)}
+  .pcard .pauth{margin-top:auto;padding-top:8px;border-top:1px solid var(--border-hairline);
+    font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-muted);
+    display:flex;align-items:center;gap:5px}
+  .pcard .pauth svg{width:11px;height:11px}
+  .pback{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-secondary);
+    cursor:pointer;margin-top:14px;background:none;border:none;padding:0;font-weight:600}
+  .pback:hover{color:var(--ink-primary)}
+  .pback svg{width:12px;height:12px}
+  .padd-h{font-size:12.5px;font-weight:600;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-hairline)}
+
+  /* ---------- suggested ---------- */
+  .sugg{margin-top:14px;border:1px solid var(--border-hairline);border-radius:12px;overflow:hidden;
+    background:var(--bg-surface-2)}
+  .sugg-h{display:flex;align-items:center;gap:9px;padding:11px 13px}
+  .sugg-h .grow{flex:1;min-width:0}
+  .sugg-h .nm{font-size:13px;font-weight:600}
+  .sugg-h .sub{font-size:11px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tagline{display:flex;align-items:center;gap:6px;padding:0 13px 11px;font-size:11px;color:var(--ink-secondary)}
+  .tag{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;letter-spacing:.04em;
+    padding:2px 7px;border-radius:100px;background:var(--hover-wash);color:var(--ink-muted);flex-shrink:0}
+
+  /* ---------- connector list: hairline grid, no gaps (A3) ---------- */
+  .clist{margin-top:14px;border:1px solid var(--border-hairline);border-radius:12px;overflow:hidden}
+  .crow{display:flex;align-items:center;gap:11px;padding:12px 13px;cursor:pointer;
+    border-bottom:1px solid var(--border-hairline)}
+  .clist .crow:last-child{border-bottom:none}
+  .crow:hover{background:var(--hover-wash)}
+  .crow.open{background:var(--bg-surface-2)}
+  .avatar{width:28px;height:28px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--hover-wash);color:var(--ink-secondary)}
+  .avatar svg{width:16px;height:16px}
+  .cmain{flex:1;min-width:0}
+  .cname{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600}
+  .curl{display:block;font-size:11px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace;
+    margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .st{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;flex-shrink:0}
+  .st .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .st.ok{color:var(--status-good)}.st.ok .dot{background:var(--status-good)}
+  .st.bad{color:var(--status-bad)}.st.bad .dot{background:var(--status-bad)}
+  .st.idle{color:var(--ink-muted)}.st.idle .dot{background:var(--ink-muted);border-radius:1px}
+  .st.wait{color:var(--ink-muted)}.st.wait .dot{background:var(--ink-muted);border-radius:50%;
+    animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media(prefers-reduced-motion:reduce){.st.wait .dot{animation:none}}
+  .chev{width:13px;height:13px;color:var(--ink-muted);flex-shrink:0;transition:transform 130ms ease}
+  .crow.open .chev{transform:rotate(90deg)}
+  @media(prefers-reduced-motion:reduce){.chev{transition:none}}
+
+  /* ---------- editor ---------- */
+  .editor{display:none;padding:2px 13px 15px;border-bottom:1px solid var(--border-hairline);
+    background:var(--bg-surface-2)}
+  .editor.open{display:block}
+  .clist .editor:last-child{border-bottom:none}
+  .frow{display:flex;gap:12px;margin-top:11px}
+  .f{flex:1;min-width:0}
+  .f.narrow{max-width:220px}
+  label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--ink-muted);margin-bottom:5px}
+  input[type=text],input[type=password],select{width:100%;height:32px;padding:0 10px;border-radius:8px;font-size:12.5px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface);color:var(--ink-primary)}
+  input::placeholder{color:var(--ink-muted)}
+  input:disabled,select:disabled{background:var(--hover-wash);color:var(--ink-muted);cursor:not-allowed}
+  .mono{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+  .hint{margin:5px 0 0;font-size:11px;line-height:1.55;color:var(--ink-secondary)}
+  .hint code{background:var(--hover-wash);padding:1px 4px;border-radius:4px;font-size:10.5px}
+  .fixedval{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:8px;font-size:11.5px;
+    border:1px solid var(--border-hairline);background:var(--hover-wash);color:var(--ink-secondary)}
+
+  /* token: stored server-side, never returned to the browser */
+  .tokrow{display:flex;align-items:center;gap:8px}
+  .tokrow input{flex:1}
+  .stored{flex:1;display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:8px;
+    border:1px solid var(--border-hairline);background:var(--hover-wash);color:var(--ink-secondary);
+    font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+  .stored .lk{width:12px;height:12px;flex-shrink:0;color:var(--ink-muted)}
+  .stored .age{margin-left:auto;font-size:10.5px;color:var(--ink-muted);font-family:system-ui,sans-serif;
+    font-variant-numeric:tabular-nums}
+
+  /* GitHub OAuth device flow */
+  .oauthbox{margin-top:11px;border:1px solid var(--border-hairline);border-radius:9px;padding:13px 14px;
+    background:var(--bg-surface)}
+  .oauthbox .ttl{font-size:12px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+  .oauthbox .spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--border-strong);
+    border-top-color:var(--ink-secondary);animation:spin 1s linear infinite;flex-shrink:0}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){.oauthbox .spin{animation:none}}
+  .devcode{font-family:ui-monospace,Menlo,monospace;font-size:19px;font-weight:700;letter-spacing:.08em;
+    padding:9px 12px;border-radius:8px;background:var(--hover-wash);display:inline-block;margin:2px 0 9px}
+  .oauthbox p{margin:0 0 3px;font-size:11.5px;line-height:1.6;color:var(--ink-secondary)}
+  .oauthbox a{color:var(--accent);text-decoration:none;font-weight:600}
+  .oauthbox a:hover{text-decoration:underline}
+  .acctchip{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface)}
+  .acctchip .av{width:26px;height:26px;border-radius:50%;background:var(--hover-wash);color:var(--ink-secondary);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .acctchip .av svg{width:14px;height:14px}
+  .acctchip .grow{flex:1;min-width:0}
+  .acctchip .login{font-size:12.5px;font-weight:600}
+  .acctchip .scope{font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace}
+
+  /* test result */
+  .result{display:none;margin-top:12px;padding:9px 11px;border-radius:9px;font-size:11.5px;line-height:1.55;
+    gap:8px;align-items:flex-start}
+  .result.on{display:flex}
+  .result .ri{width:14px;height:14px;flex-shrink:0;margin-top:1px}
+  .result b{display:block;margin-bottom:2px}
+  .result.pass{background:color-mix(in oklab,var(--status-good) 10%,var(--bg-surface));
+    border-left:2px solid var(--status-good);color:var(--ink-secondary)}
+  .result.pass b,.result.fail b{color:var(--ink-primary)}
+  .result.pass .ri{color:var(--status-good)}
+  .result.fail{background:color-mix(in oklab,var(--status-bad) 9%,var(--bg-surface));
+    border-left:2px solid var(--status-bad);color:var(--ink-secondary)}
+  .result.fail .ri{color:var(--status-bad)}
+  .result code{background:var(--hover-wash);padding:1px 5px;border-radius:4px;font-size:10.5px}
+  .result .fix{display:block;margin-top:4px}
+
+  /* capability assignment */
+  .caps{margin-top:13px;padding-top:12px;border-top:1px solid var(--border-hairline)}
+  .capttl{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-muted);
+    margin-bottom:7px}
+  .cap{display:flex;align-items:flex-start;gap:9px;padding:7px 0;font-size:12.5px;cursor:pointer;
+    text-transform:none;letter-spacing:normal;font-weight:400;color:var(--ink-primary);margin-bottom:0}
+  .cap input{margin:2px 0 0;accent-color:var(--accent);width:14px;height:14px;flex-shrink:0}
+  .cap .cd{font-size:11px;color:var(--ink-secondary);line-height:1.5;margin-top:2px}
+  .cap.taken .cd b{color:var(--ink-primary)}
+
+  .efoot{display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:12px;
+    border-top:1px solid var(--border-hairline)}
+  .efoot .sp{margin-left:auto}
+  .danger{color:var(--status-bad);border-color:color-mix(in oklab,var(--status-bad) 30%,transparent)}
+  .danger:hover{background:color-mix(in oklab,var(--status-bad) 10%,transparent)}
+
+  /* assigned badge on the row — violet regardless of provider: this is "the
+     connector currently answering", not a provider identity marker */
+  .assigned{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;letter-spacing:.04em;
+    padding:2px 7px;border-radius:100px;background:color-mix(in oklab,var(--bot) 15%,transparent);color:var(--bot);
+    flex-shrink:0}
+
+  /* footnote */
+  .foot{margin-top:16px;display:flex;gap:8px;align-items:flex-start;font-size:11px;line-height:1.6;
+    color:var(--ink-secondary);padding-top:13px;border-top:1px solid var(--border-hairline)}
+  .foot svg{width:13px;height:13px;flex-shrink:0;margin-top:2px;color:var(--ink-muted)}
+  .foot b{color:var(--ink-primary)}
+</style>
+</head>
+<body data-theme="light">
+
+<div class="hb">
+  <div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap">
+    <span class="l">State</span>
+    <div class="tg">
+      <button id="s-none"  onclick="setState('none')">Nothing connected</button>
+      <button id="s-pick"  onclick="setState('picker')">Choose provider</button>
+      <button id="s-anth"  onclick="setState('anthropic')">Anthropic</button>
+      <button id="s-cop1"  onclick="setState('copilot_pending')">Copilot · connecting</button>
+      <button id="s-cop2"  onclick="setState('copilot_connected')">Copilot · connected</button>
+      <button id="s-fail"  onclick="setState('failed')">Token rejected</button>
+      <button id="s-ok" class="on" onclick="setState('connected')">Connected</button>
+      <button id="s-two"   onclick="setState('contend')">Capability contest</button>
+      <button id="s-ros"   onclick="setState('roster')">Three providers</button>
+      <button id="s-down"  onclick="setState('unreachable')">Unreachable</button>
+    </div>
+    <span class="l">Theme</span>
+    <div class="tg">
+      <button id="t-l" class="on" onclick="theme('light')">☀</button>
+      <button id="t-d" onclick="theme('dark')">☾</button>
+    </div>
+  </div>
+  <button class="hbtn" onclick="document.getElementById('notes').classList.toggle('open')">Design notes</button>
+</div>
+
+<div class="notes" id="notes">
+  <strong>Settings › Connectors — what the design is arguing</strong>
+  <ul>
+    <li><strong>An agent is a connector, not a feature.</strong> No agent — BetBot or otherwise — is hard-coded.
+      The Review page asks for <em>whichever connector holds the PR-questions capability</em>, so switching from
+      BetBot to Anthropic directly, adding a second opinion from Copilot, or pointing a laptop at a local model is
+      a settings change, never a code change.</li>
+    <li><strong>Provider first, not URL first.</strong> Adding a connector starts with "which provider" —
+      Anthropic, OpenAI, GitHub Copilot, or a Custom OpenAI-compatible endpoint — because the honest answer to
+      "what do I need to paste" is different for each. An API key, an OAuth grant, and a URL-plus-token are three
+      different mental models, and hiding that behind one generic form is what creates seams, not what removes
+      them.</li>
+    <li><strong>The seam moves to Launchpad's server, not away.</strong> "No seams" for the reviewer means the
+      Review panel — badges, citations, streaming, the composer — is identical no matter which provider answers.
+      That uniformity is bought by a server-side adapter per provider that speaks each one's native wire format
+      and maps it to one canonical shape. See <code>DESIGN_SPEC_CONNECTORS.md</code> §5 for the adapter table.</li>
+    <li><strong>Two different credential models, one write-only rule.</strong> Anthropic and OpenAI take a pasted
+      API key; GitHub Copilot takes an OAuth grant instead, because Copilot access is tied to a licensed seat on a
+      GitHub identity, not a bare secret you can copy around. Either way, nothing reaches this page a second time
+      — a key becomes a <code>••••4f2a</code> plate, an OAuth grant becomes an account chip with a
+      <code>Disconnect</code> button. Neither can be read back out of the browser.</li>
+    <li><strong>The browser never calls a provider.</strong> Every request — key-authenticated or OAuth-token-
+      authenticated — goes out from the Launchpad server. That's what makes a write-only credential possible for
+      either kind, and it's also why Copilot's OAuth redirect is a device-code flow shown inside this dialog
+      rather than a pop-up: there is no browser-side callback to catch.</li>
+    <li><strong>OpenAI needs no separate demo.</strong> Its editor is the Custom editor with the base URL fixed to
+      <code>api.openai.com/v1</code> — same header, same shape, so it reuses the Custom/OpenAI-compatible adapter
+      verbatim. Anthropic and Copilot get dedicated states here because their auth genuinely differs
+      (<code>x-api-key</code>, and OAuth, respectively); OpenAI does not.</li>
+    <li><strong>Test before save, and name the failure.</strong> Every provider's <code>Test connection</code>
+      calls that provider's own model-list endpoint. Each failure mode gets its own copy and its own next step —
+      see the taxonomy in the spec. "Something went wrong" is never acceptable.</li>
+    <li><strong>The model list is earned, not typed.</strong> Every provider's model dropdown is disabled until a
+      successful test (or, for Copilot, a completed OAuth grant) populates it, so a typo in a model name can
+      never be saved.</li>
+    <li><strong>Capabilities are exclusive and visible, across providers.</strong> Exactly one connector answers
+      PR questions, regardless of which provider it is. Assigning the capability to a different connector says
+      which one it's taking it from, in the same sentence — see <em>Capability contest</em> and
+      <em>Three providers</em>.</li>
+    <li><strong>Colour follows the invariants.</strong> Blue is action only (A1). Green and red are status only
+      (A2). The violet <code>assigned</code> badge marks <em>whichever connector currently answers</em> — it is
+      not a provider identity colour, so it stays consistent even when the underlying provider changes. Providers
+      are told apart by icon and name, not by hue, which keeps the palette from growing one colour per vendor.</li>
+    <li><strong>Every state is designed, including the bad ones.</strong> Nothing connected, choosing a provider,
+      an API key mid-add, an OAuth grant pending, an OAuth grant completed, a rejected key, healthy, two
+      connectors competing for one capability, three heterogeneous providers coexisting, and healthy-but-now-
+      unreachable.</li>
+  </ul>
+</div>
+
+<div class="app" data-state="connected">
+  <div class="backdrop"></div>
+  <div class="scrim"></div>
+
+  <div class="sheet">
+    <div class="sh-top">
+      <b>Settings</b>
+      <button class="xbtn" title="Close">✕</button>
+    </div>
+
+    <div class="sh-body">
+      <nav class="snav">
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3" stroke-linecap="round"/></svg>Appearance</a>
+        <a class="on"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 9.4L4.8 11.2a2.6 2.6 0 1 0 3.7 3.7l1.8-1.8" transform="translate(0 -1.6)"/><path d="M9.4 6.6l1.8-1.8a2.6 2.6 0 1 0-3.7-3.7L5.7 2.9" transform="translate(0 1.6)"/><path d="M6.1 9.9l3.8-3.8"/></svg>Connectors<span class="cnt" id="navcount">1</span></a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="10" rx="2"/><path d="M2.5 6.2h11" /></svg>Projects</a>
+        <a><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.6M8 5.2v.1" stroke-linecap="round"/></svg>About</a>
+      </nav>
+
+      <div class="scontent">
+        <div class="sect-h">
+          <div class="grow">
+            <h2>Connectors</h2>
+            <p class="lede">Agents that Launchpad can talk to — Anthropic, OpenAI, GitHub Copilot, or any
+              OpenAI-compatible endpoint of your own. Connectors are <b>yours</b> — credentials are stored against
+              your account, and questions you ask are attributed to you rather than to a shared service identity.</p>
+          </div>
+          <button class="btn" id="addbtn" onclick="setState('picker')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            Add connector</button>
+        </div>
+
+        <!-- ============ nothing connected: the picker doubles as the empty state ============ -->
+        <div id="emptyblock" style="display:none">
+          <div class="empty">
+            <svg class="ei" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.9 14.1l-2.7 2.7a3.8 3.8 0 1 0 5.4 5.4l2.7-2.7" transform="translate(0 -2.4)"/>
+              <path d="M14.1 9.9l2.7-2.7a3.8 3.8 0 1 0-5.4-5.4L8.7 4.5" transform="translate(0 2.4)"/>
+              <path d="M9.2 14.8l5.6-5.6"/></svg>
+            <b>No agent connected</b>
+            <p>Launchpad can ask an AI agent to explain a pull request, answer questions about it, and surface the
+              automated review on the Review page. Connect one below — an API key for Anthropic or OpenAI, your
+              GitHub account for Copilot, or a URL and token for anything else that speaks the same protocol.</p>
+          </div>
+          <div id="pgrid-empty"></div>
+        </div>
+
+        <!-- ============ connector list ============ -->
+        <div class="clist" id="clist">
+
+          <!-- row1: BetBot, a Custom/OpenAI-compatible connector -->
+          <div class="crow" id="row1" onclick="toggle(1)">
+            <span class="avatar">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                <rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5M6 8.5v1M10 8.5v1" stroke-linecap="round"/>
+                <circle cx="8" cy="2" r="1" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <div class="cmain">
+              <div class="cname">BetBot
+                <span class="assigned" id="asg1">PR QUESTIONS</span></div>
+              <span class="curl" id="url1">Custom · betbot.internal.kingmakers.com/v1 · claude-opus-4</span>
+            </div>
+            <span class="st ok" id="st1" title="Last call succeeded 4m ago"><span class="dot"></span><span id="st1t">Connected</span></span>
+            <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 3.5l5 4.5-5 4.5"/></svg>
+          </div>
+
+          <!-- BetBot editor -->
+          <div class="editor" id="ed1">
+            <div class="frow">
+              <div class="f">
+                <label for="n1">Display name</label>
+                <input id="n1" type="text" value="BetBot">
+                <p class="hint">Shown on the Review page. Free text — it doesn't have to match the service name.</p>
+              </div>
+              <div class="f narrow">
+                <label for="m1">Model</label>
+                <select id="m1">
+                  <option>claude-opus-4</option>
+                  <option>claude-sonnet-4</option>
+                  <option>claude-haiku-4</option>
+                </select>
+                <p class="hint">Loaded from <code>/v1/models</code>.</p>
+              </div>
+            </div>
+
+            <div class="frow">
+              <div class="f">
+                <label for="u1">Base URL</label>
+                <input id="u1" class="mono" type="text" value="https://betbot.internal.kingmakers.com/v1">
+                <p class="hint">A <b>Custom</b> connector — any OpenAI-compatible endpoint. Launchpad calls
+                  <code>POST /chat/completions</code> and <code>GET /models</code> under this path.</p>
+              </div>
+            </div>
+
+            <div class="frow">
+              <div class="f">
+                <label for="k1">API token</label>
+                <div class="tokrow" id="tok1">
+                  <div class="stored">
+                    <svg class="lk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                      <rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>
+                    ••••••••••••4f2a
+                    <span class="age">added 12 Aug</span>
+                  </div>
+                  <button class="btn" onclick="replaceTok('tok1','the new token')">Replace</button>
+                </div>
+                <p class="hint">Held on the Launchpad server against your account and sent only to the URL above.
+                  It is never returned to this page, so it can't be read back out of the browser.</p>
+              </div>
+            </div>
+
+            <div class="result pass on" id="res1">
+              <svg class="ri" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.4l3.2 3.2L13 4.6"/></svg>
+              <div><b>Reachable — 3 models available.</b>
+                Answered <code>GET /v1/models</code> in 210&nbsp;ms.</div>
+            </div>
+
+            <div class="caps">
+              <div class="capttl">Used for</div>
+              <label class="cap">
+                <input type="radio" name="cap-prq" checked>
+                <span>Answering questions on the Review page
+                  <span class="cd">Powers the agent panel next to the diff, and renders the automated review it
+                    posted to the pull request.</span></span>
+              </label>
+            </div>
+
+            <div class="efoot">
+              <button class="btn">Test connection</button>
+              <span class="sp"></span>
+              <button class="btn danger">Remove</button>
+              <button class="btn pri">Save</button>
+            </div>
+          </div>
+
+          <!-- row2: a second Custom connector, used for the capability-contest state -->
+          <div class="crow" id="row2" onclick="toggle(2)" style="display:none">
+            <span class="avatar">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M8 2.2l1.7 3.6 3.9.5-2.9 2.7.8 3.9L8 11l-3.5 1.9.8-3.9L2.4 6.3l3.9-.5z"/></svg>
+            </span>
+            <div class="cmain">
+              <div class="cname">Scratchpad (local)</div>
+              <span class="curl">Custom · 127.0.0.1:11434/v1 · qwen2.5-coder:14b</span>
+            </div>
+            <span class="st idle" title="Not tested since the URL changed"><span class="dot"></span>Not tested</span>
+            <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 3.5l5 4.5-5 4.5"/></svg>
+          </div>
+
+          <div class="editor" id="ed2">
+            <div class="frow">
+              <div class="f">
+                <label for="n2">Display name</label>
+                <input id="n2" type="text" value="Scratchpad (local)">
+              </div>
+              <div class="f narrow">
+                <label for="m2">Model</label>
+                <select id="m2" disabled><option>— test to load —</option></select>
+              </div>
+            </div>
+            <div class="frow">
+              <div class="f">
+                <label for="u2">Base URL</label>
+                <input id="u2" class="mono" type="text" value="http://127.0.0.1:11434/v1">
+                <p class="hint">Resolved from the <b>Launchpad server</b>, not from your machine — a
+                  <code>127.0.0.1</code> URL points at the server's own loopback.</p>
+              </div>
+            </div>
+            <div class="frow">
+              <div class="f">
+                <label for="k2">API token</label>
+                <div class="tokrow">
+                  <input id="k2" type="password" class="mono" placeholder="Paste the token issued to you">
+                </div>
+                <p class="hint">Required even for a local endpoint — Launchpad sends
+                  <code>Authorization: Bearer</code> on every call and won't save a connector it can't
+                  authenticate against.</p>
+              </div>
+            </div>
+
+            <div class="caps">
+              <div class="capttl">Used for</div>
+              <label class="cap taken">
+                <input type="radio" name="cap-prq">
+                <span>Answering questions on the Review page
+                  <span class="cd">Currently handled by <b>BetBot</b>. Choosing this connector takes the
+                    capability from it — only one agent answers PR questions.</span></span>
+              </label>
+            </div>
+            <div class="efoot">
+              <button class="btn">Test connection</button>
+              <span class="sp"></span>
+              <button class="btn danger">Remove</button>
+              <button class="btn pri" disabled title="Test the connection first">Save</button>
+            </div>
+          </div>
+
+          <!-- row3: shared editor for a NEW Custom / OpenAI / Anthropic connector.
+               A JS preset toggles labels, the fixed-vs-editable URL, and defaults. -->
+          <div class="crow open" id="row3" style="display:none">
+            <span class="avatar" id="av3">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            </span>
+            <div class="cmain">
+              <div class="cname" id="rowname3">New connector</div>
+              <span class="curl">Not saved yet</span>
+            </div>
+            <span class="st idle"><span class="dot"></span>Not tested</span>
+          </div>
+
+          <div class="editor" id="ed3">
+            <div class="frow">
+              <div class="f">
+                <label for="n3">Display name</label>
+                <input id="n3" type="text" value="BetBot">
+              </div>
+              <div class="f narrow">
+                <label for="m3">Model</label>
+                <select id="m3" disabled><option>— test to load —</option></select>
+                <p class="hint" id="m3hint">Populated from <code>/v1/models</code>, so a typo can't be saved.</p>
+              </div>
+            </div>
+            <div class="frow" id="urlrow3">
+              <div class="f">
+                <label for="u3" id="u3label">Base URL</label>
+                <input id="u3" class="mono" type="text" value="https://betbot.internal.kingmakers.com/v1">
+                <div class="fixedval mono" id="u3fixed" style="display:none"></div>
+                <p class="hint" id="u3hint" style="display:none"></p>
+              </div>
+            </div>
+            <div class="frow">
+              <div class="f">
+                <label for="k3" id="k3label">API token</label>
+                <div class="tokrow">
+                  <input id="k3" type="password" class="mono" value="sk-bb-7f3a9c21e8b4d05f6a1c" placeholder="Paste the token issued to you">
+                  <button class="btn" id="testbtn" onclick="setState('failed')">Test connection</button>
+                </div>
+                <p class="hint" id="k3hint">Sent to the Launchpad server once, over the wire you're already using,
+                  and stored against your account. It won't be shown again — only a last-four hint.</p>
+              </div>
+            </div>
+
+            <!-- failure -->
+            <div class="result fail" id="res3">
+              <svg class="ri" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.4v5.2M8 11.3v.1"/><circle cx="8" cy="8" r="6.2"/></svg>
+              <div id="res3body"></div>
+            </div>
+
+            <div class="caps">
+              <div class="capttl">Used for</div>
+              <label class="cap">
+                <input type="radio" name="cap-prq2" checked>
+                <span>Answering questions on the Review page
+                  <span class="cd">Nothing handles this yet, so the panel next to the diff is currently empty.</span></span>
+              </label>
+            </div>
+
+            <div class="efoot">
+              <button class="btn" onclick="setState('none')">Cancel</button>
+              <span class="sp"></span>
+              <button class="btn pri" id="savebtn" disabled title="Test the connection first">Save connector</button>
+            </div>
+          </div>
+
+          <!-- row4: Anthropic -->
+          <div class="crow" id="row4" onclick="toggle(4)" style="display:none">
+            <span class="avatar">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M8 2.2v2.3M8 11.5v2.3M2.2 8h2.3M11.5 8h2.3M4.3 4.3l1.6 1.6M10.1 10.1l1.6 1.6M11.7 4.3l-1.6 1.6M5.9 10.1l-1.6 1.6"/></svg>
+            </span>
+            <div class="cmain">
+              <div class="cname">Claude
+                <span class="assigned" id="asg4" style="display:none">PR QUESTIONS</span></div>
+              <span class="curl">Anthropic · api.anthropic.com · claude-opus-4</span>
+            </div>
+            <span class="st ok" title="Last call succeeded 1m ago"><span class="dot"></span>Connected</span>
+            <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 3.5l5 4.5-5 4.5"/></svg>
+          </div>
+
+          <div class="editor" id="ed4">
+            <div class="frow">
+              <div class="f">
+                <label for="n4">Display name</label>
+                <input id="n4" type="text" value="Claude">
+                <p class="hint">Free text. Doesn't have to match the provider's own name for the model.</p>
+              </div>
+              <div class="f narrow">
+                <label for="m4">Model</label>
+                <select id="m4">
+                  <option>claude-opus-4</option>
+                  <option selected>claude-sonnet-4</option>
+                  <option>claude-haiku-4</option>
+                </select>
+                <p class="hint">Loaded from Anthropic's <code>/v1/models</code>.</p>
+              </div>
+            </div>
+            <div class="frow">
+              <div class="f">
+                <label>Endpoint</label>
+                <div class="fixedval mono">api.anthropic.com</div>
+                <p class="hint">Fixed per provider — there's nothing to type. Switch to a <b>Custom</b> connector
+                  if you need to point at a different host, such as a proxy or a private deployment.</p>
+              </div>
+            </div>
+            <div class="frow">
+              <div class="f">
+                <label for="k4">API key</label>
+                <div class="tokrow" id="tok4">
+                  <div class="stored">
+                    <svg class="lk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                      <rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>
+                    ••••••••••••9c31
+                    <span class="age">added 13 Aug</span>
+                  </div>
+                  <button class="btn" onclick="replaceTok('tok4','the new key')">Replace</button>
+                </div>
+                <p class="hint">Sent as <code>x-api-key</code> plus <code>anthropic-version</code> — Anthropic's
+                  own headers, not <code>Authorization: Bearer</code>. Held on the Launchpad server and never
+                  returned to this page.</p>
+              </div>
+            </div>
+            <div class="result pass on">
+              <svg class="ri" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.4l3.2 3.2L13 4.6"/></svg>
+              <div><b>Reachable — 6 models available.</b> Answered <code>GET /v1/models</code> in 130&nbsp;ms.</div>
+            </div>
+            <div class="caps">
+              <div class="capttl">Used for</div>
+              <label class="cap taken">
+                <input type="radio" name="cap-prq4">
+                <span>Answering questions on the Review page
+                  <span class="cd">Currently handled by <b>BetBot</b>. Choosing this connector takes the
+                    capability from it — only one agent answers PR questions.</span></span>
+              </label>
+            </div>
+            <div class="efoot">
+              <button class="btn">Test connection</button>
+              <span class="sp"></span>
+              <button class="btn danger">Remove</button>
+              <button class="btn pri">Save</button>
+            </div>
+          </div>
+
+          <!-- row5: GitHub Copilot -->
+          <div class="crow" id="row5" onclick="toggle(5)" style="display:none">
+            <span class="avatar">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 2.3c-2.9 0-4.6 1.9-4.6 4.7 0 .9.1 1.7.4 2.4-.5.4-.8 1-.8 1.7 0 1.2 1 2.1 2.2 2.1.6 0 1.1-.2 1.5-.6.7.2 1.5.3 2.3.3s1.6-.1 2.3-.3c.4.4.9.6 1.5.6 1.2 0 2.2-.9 2.2-2.1 0-.7-.3-1.3-.8-1.7.3-.7.4-1.5.4-2.4 0-2.8-1.7-4.7-4.6-4.7z"/>
+                <circle cx="5.9" cy="8.2" r=".9" fill="currentColor" stroke="none"/>
+                <circle cx="10.1" cy="8.2" r=".9" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <div class="cmain">
+              <div class="cname">GitHub Copilot
+                <span class="assigned" id="asg5" style="display:none">PR QUESTIONS</span></div>
+              <span class="curl" id="url5">GitHub Copilot · connecting…</span>
+            </div>
+            <span class="st wait" id="st5" title="Waiting for GitHub authorization"><span class="dot"></span><span id="st5t">Connecting</span></span>
+            <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 3.5l5 4.5-5 4.5"/></svg>
+          </div>
+
+          <div class="editor" id="ed5">
+            <div class="frow">
+              <div class="f">
+                <label for="n5">Display name</label>
+                <input id="n5" type="text" value="GitHub Copilot">
+              </div>
+              <div class="f narrow">
+                <label for="m5">Model</label>
+                <select id="m5" disabled><option>— connect to load —</option></select>
+                <p class="hint">Copilot's own model picker, mirrored here once connected.</p>
+              </div>
+            </div>
+
+            <div class="frow" id="oauthrow5">
+              <div class="f">
+                <label>GitHub account</label>
+
+                <!-- pending -->
+                <div class="oauthbox" id="oauth-pending">
+                  <div class="ttl"><span class="spin"></span>Waiting for you to authorize in GitHub</div>
+                  <p>Go to <a href="#">github.com/login/device</a> and enter this code:</p>
+                  <span class="devcode">WXJM-2K9P</span>
+                  <p>This connects automatically once you approve — no need to come back to this page.</p>
+                  <button class="btn" style="margin-top:8px" onclick="setState('none')">Cancel</button>
+                </div>
+
+                <!-- connected -->
+                <div class="acctchip" id="oauth-connected" style="display:none">
+                  <span class="av">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="5.6" r="2.6"/><path d="M2.8 13.4c.6-2.6 2.6-4 5.2-4s4.6 1.4 5.2 4" stroke-linecap="round"/></svg>
+                  </span>
+                  <div class="grow">
+                    <div class="login">Connected as @kingmakers-james</div>
+                    <div class="scope">scope: read:user, copilot</div>
+                  </div>
+                  <button class="btn" onclick="setState('none')">Disconnect</button>
+                </div>
+
+                <p class="hint">Launchpad never sees your GitHub password — only a token scoped to Copilot chat,
+                  which it refreshes automatically and never returns to this page either. Requires an active
+                  Copilot seat on this account; without one, the connection succeeds but every question fails
+                  with <code>402</code>.</p>
+              </div>
+            </div>
+
+            <div class="caps">
+              <div class="capttl">Used for</div>
+              <label class="cap taken">
+                <input type="radio" name="cap-prq5">
+                <span>Answering questions on the Review page
+                  <span class="cd">Currently handled by <b>BetBot</b>. Choosing this connector takes the
+                    capability from it — only one agent answers PR questions.</span></span>
+              </label>
+            </div>
+            <div class="efoot">
+              <button class="btn">Test connection</button>
+              <span class="sp"></span>
+              <button class="btn danger">Remove</button>
+              <button class="btn pri" id="savebtn5" disabled title="Waiting for GitHub authorization">Save</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- inline "add another" picker, shown below an existing list -->
+        <div id="pgrid-inline" style="display:none">
+          <div class="padd-h">Add a connector</div>
+        </div>
+
+        <div class="foot">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>
+          <div><b>Launchpad's server makes every call to a connector; your browser never does.</b>
+            Conversations on the Review page are stored by Launchpad against you and this pull request, and are
+            not visible to other reviewers.</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- provider picker: one grid, rendered into either the empty state or the
+   inline "add another" slot, per the flow it's reached from ---- */
+function providerGridHTML(){
+  return `
+  <div class="pgrid">
+    <button class="pcard" onclick="pick('anthropic')">
+      <span class="pav"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <path d="M8 2.2v2.3M8 11.5v2.3M2.2 8h2.3M11.5 8h2.3M4.3 4.3l1.6 1.6M10.1 10.1l1.6 1.6M11.7 4.3l-1.6 1.6M5.9 10.1l-1.6 1.6"/></svg></span>
+      <span class="pn">Anthropic</span>
+      <span class="pd">Claude models, direct. Paste an API key issued from your Anthropic account.</span>
+      <span class="pauth"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>API key</span>
+    </button>
+    <button class="pcard" onclick="pick('openai')">
+      <span class="pav"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+        <path d="M8 1.8l5.4 3.1v6.2L8 14.2l-5.4-3.1V4.9z"/><path d="M8 1.8v12.4M2.6 4.9l5.4 3.1 5.4-3.1M2.6 11.1l5.4-3.1 5.4 3.1"/></svg></span>
+      <span class="pn">OpenAI</span>
+      <span class="pd">GPT models, direct. Same shape as a Custom connector, with the URL already filled in.</span>
+      <span class="pauth"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>API key</span>
+    </button>
+    <button class="pcard" onclick="pick('copilot')">
+      <span class="pav"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 2.3c-2.9 0-4.6 1.9-4.6 4.7 0 .9.1 1.7.4 2.4-.5.4-.8 1-.8 1.7 0 1.2 1 2.1 2.2 2.1.6 0 1.1-.2 1.5-.6.7.2 1.5.3 2.3.3s1.6-.1 2.3-.3c.4.4.9.6 1.5.6 1.2 0 2.2-.9 2.2-2.1 0-.7-.3-1.3-.8-1.7.3-.7.4-1.5.4-2.4 0-2.8-1.7-4.7-4.6-4.7z"/>
+        <circle cx="5.9" cy="8.2" r=".9" fill="currentColor" stroke="none"/><circle cx="10.1" cy="8.2" r=".9" fill="currentColor" stroke="none"/></svg></span>
+      <span class="pn">GitHub Copilot</span>
+      <span class="pd">Uses your existing Copilot seat. Connect your GitHub account — no key to copy.</span>
+      <span class="pauth"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 2.2v2.3M8 11.5v2.3M2.2 8h2.3M11.5 8h2.3"/></svg>GitHub OAuth</span>
+    </button>
+    <button class="pcard" onclick="pick('custom')">
+      <span class="pav"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></span>
+      <span class="pn">Custom</span>
+      <span class="pd">Any OpenAI-compatible endpoint — BetBot, a local model, or an in-house agent.</span>
+      <span class="pauth"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>URL + token</span>
+    </button>
+  </div>`;
+}
+document.getElementById('pgrid-empty').innerHTML = providerGridHTML();
+document.getElementById('pgrid-inline').insertAdjacentHTML('beforeend', providerGridHTML() +
+  `<button class="pback" onclick="setState(document.getElementById('clist').children.length?'connected':'none')">
+     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M10 3.5L5 8l5 4.5"/></svg>
+     Cancel</button>`);
+
+const PRESETS = {
+  custom: { avatar:'plug', name:'BetBot', url:'https://betbot.internal.kingmakers.com/v1', urlEditable:true,
+    keyLabel:'API token', tokHint:"Sent to the Launchpad server once, over the wire you're already using, and stored against your account. It won't be shown again — only a last-four hint.",
+    models:['— test to load —'] },
+  openai: { avatar:'openai', name:'ChatGPT', url:'https://api.openai.com/v1', urlEditable:false,
+    keyLabel:'API key', tokHint:'Sent as <code>Authorization: Bearer</code>. Held on the Launchpad server and never returned to this page.',
+    models:['— test to load —'] },
+};
+
+function pick(provider){
+  if(provider==='copilot'){ setState('copilot_pending'); return; }
+  if(provider==='anthropic'){ setState('anthropic'); return; }
+  const p = PRESETS[provider];
+  document.getElementById('n3').value = p.name;
+  document.getElementById('u3').value = p.url;
+  document.getElementById('u3').style.display = p.urlEditable ? 'block':'none';
+  document.getElementById('u3fixed').style.display = p.urlEditable ? 'none':'flex';
+  document.getElementById('u3fixed').textContent = p.url.replace('https://','');
+  document.getElementById('u3label').textContent = p.urlEditable ? 'Base URL' : 'Endpoint';
+  document.getElementById('u3hint').style.display = p.urlEditable ? 'none':'block';
+  document.getElementById('u3hint').innerHTML = "Fixed per provider. Switch to <b>Custom</b> if you need a different host.";
+  document.getElementById('k3label').textContent = p.keyLabel;
+  document.getElementById('k3hint').innerHTML = p.tokHint;
+  document.getElementById('rowname3').textContent = p.name;
+  setState('adding');
+}
+
+function toggle(i){
+  const row=document.getElementById('row'+i), ed=document.getElementById('ed'+i);
+  const open=!ed.classList.contains('open');
+  [1,2,3,4,5].forEach(k=>{
+    const r=document.getElementById('row'+k), e=document.getElementById('ed'+k);
+    if(r) r.classList.remove('open'); if(e) e.classList.remove('open');
+  });
+  if(open){ row.classList.add('open'); ed.classList.add('open'); }
+}
+function replaceTok(id,label){
+  document.getElementById(id).innerHTML =
+    `<input type="password" class="mono" placeholder="Paste ${label}" autofocus>
+     <button class="btn">Test connection</button>`;
+}
+
+const STATES={
+  none:            {rows:[],        editor:null, empty:true,  inline:false, count:'0', add:false},
+  picker:          {rows:[1],       editor:null, empty:false, inline:true,  count:'1', add:false},
+  adding:          {rows:[3],       editor:3,    empty:false, inline:false, count:'0', add:false, res3:null},
+  failed:          {rows:[3],       editor:3,    empty:false, inline:false, count:'0', add:false, res3:'fail'},
+  connected:       {rows:[1],       editor:null, empty:false, inline:false, count:'1', add:true},
+  contend:         {rows:[1,2],     editor:2,    empty:false, inline:false, count:'2', add:true},
+  unreachable:     {rows:[1],       editor:1,    empty:false, inline:false, count:'1', add:true, down:true},
+  anthropic:       {rows:[1,4],     editor:4,    empty:false, inline:false, count:'2', add:true},
+  copilot_pending: {rows:[1,5],     editor:5,    empty:false, inline:false, count:'2', add:true, copilot:'pending'},
+  copilot_connected:{rows:[1,5],    editor:5,    empty:false, inline:false, count:'2', add:true, copilot:'connected'},
+  roster:          {rows:[1,4,5],   editor:null, empty:false, inline:false, count:'3', add:true, copilot:'connected'},
+};
+
+function setState(s){
+  const cfg=STATES[s];
+  document.querySelector('.app').setAttribute('data-state',s);
+  [1,2,3,4,5].forEach(k=>{
+    const r=document.getElementById('row'+k), e=document.getElementById('ed'+k);
+    const on=cfg.rows.includes(k);
+    r.style.display = on ? 'flex' : 'none';
+    r.classList.toggle('open', on && cfg.editor===k);
+    e.classList.toggle('open', on && cfg.editor===k);
+  });
+  document.getElementById('emptyblock').style.display = cfg.empty ? 'block' : 'none';
+  document.getElementById('clist').style.display = cfg.rows.length ? 'block' : 'none';
+  document.getElementById('pgrid-inline').style.display = cfg.inline ? 'block' : 'none';
+  document.getElementById('navcount').textContent = cfg.count;
+  document.getElementById('addbtn').style.visibility = cfg.add ? 'visible' : 'hidden';
+
+  // adding vs failed differ only by whether the test has been run — and the
+  // failure copy differs by provider, since a URL-based rejection and a
+  // key-based rejection are diagnosed differently
+  const r3=document.getElementById('res3');
+  r3.classList.toggle('on', cfg.res3==='fail');
+  if(cfg.res3==='fail'){
+    const isCustom = document.getElementById('u3').style.display!=='none';
+    document.getElementById('res3body').innerHTML = isCustom
+      ? `<b>The endpoint rejected the token — HTTP 401.</b>
+         <code>GET /v1/models</code> reached <code>betbot.internal.kingmakers.com</code> and answered in
+         180&nbsp;ms, so the URL is right and the token isn't.
+         <span class="fix">Check you pasted the whole value, and that the token was issued for your account
+         rather than for a service.</span>`
+      : `<b>The endpoint rejected the key — HTTP 401.</b>
+         <code>GET /v1/models</code> reached the provider and answered quickly, so the key is what's wrong.
+         <span class="fix">Check you pasted the whole value, and that the key hasn't been revoked.</span>`;
+  }
+
+  // healthy vs unreachable (BetBot / row1)
+  const down=!!cfg.down, st1=document.getElementById('st1'), res1=document.getElementById('res1');
+  st1.className='st '+(down?'bad':'ok');
+  document.getElementById('st1t').textContent = down?'Unreachable':'Connected';
+  st1.title = down ? 'Last call failed 3m ago — connection refused'
+                   : 'Last call succeeded 4m ago';
+  res1.className='result on '+(down?'fail':'pass');
+  res1.innerHTML = down
+    ? `<svg class="ri" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.4v5.2M8 11.3v.1"/><circle cx="8" cy="8" r="6.2"/></svg>
+       <div><b>No response — connection refused.</b> This connector worked until 3m ago, and the token is still
+       stored, so nothing here needs changing. <code>SB.Internal.BetBot</code> is most likely down in the cluster.
+       <span class="fix">The Review page is showing its last cached review in the meantime.</span></div>`
+    : `<svg class="ri" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.4l3.2 3.2L13 4.6"/></svg>
+       <div><b>Reachable — 3 models available.</b> Answered <code>GET /v1/models</code> in 210&nbsp;ms.</div>`;
+
+  // capability badge follows the ONE connector holding it in this state
+  const holder = (s==='roster') ? 1 : 1; // BetBot holds it in every demo state — see note below
+  [1,4,5].forEach(k=>{
+    const a=document.getElementById('asg'+k);
+    if(a) a.style.display = (k===holder) ? 'inline-flex':'none';
+  });
+
+  // GitHub Copilot: pending vs connected
+  if(cfg.copilot){
+    const pend = cfg.copilot==='pending';
+    document.getElementById('oauth-pending').style.display = pend?'block':'none';
+    document.getElementById('oauth-connected').style.display = pend?'none':'flex';
+    document.getElementById('m5').disabled = pend;
+    document.getElementById('m5').innerHTML = pend
+      ? '<option>— connect to load —</option>'
+      : '<option selected>gpt-4.1 (Copilot)</option><option>claude-3.5-sonnet (Copilot)</option><option>o4-mini (Copilot)</option>';
+    document.getElementById('savebtn5').disabled = pend;
+    document.getElementById('savebtn5').title = pend ? 'Waiting for GitHub authorization' : '';
+    const st5=document.getElementById('st5');
+    st5.className = 'st '+(pend?'wait':'ok');
+    document.getElementById('st5t').textContent = pend?'Connecting':'Connected';
+    document.getElementById('url5').textContent = pend
+      ? 'GitHub Copilot · connecting…'
+      : 'GitHub Copilot · @kingmakers-james · gpt-4.1';
+  }
+
+  Object.keys(STATES).forEach(k=>{
+    const id={none:'s-none',picker:'s-pick',anthropic:'s-anth',copilot_pending:'s-cop1',
+      copilot_connected:'s-cop2',failed:'s-fail',connected:'s-ok',contend:'s-two',
+      roster:'s-ros',unreachable:'s-down'}[k];
+    const b=document.getElementById(id); if(b) b.classList.toggle('on',k===s);
+  });
+}
+function theme(t){ document.body.setAttribute('data-theme',t);
+  document.getElementById('t-l').classList.toggle('on',t==='light');
+  document.getElementById('t-d').classList.toggle('on',t==='dark'); }
+
+setState('connected');
+</script>
+</body>
+</html>

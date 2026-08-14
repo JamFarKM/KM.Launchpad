@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Launchpad — BetBot on the Review page</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+  button,input,textarea{font-family:inherit}
+
+  /* ================= harness ================= */
+  .hb{position:fixed;inset:0 0 auto 0;z-index:200;display:flex;align-items:center;justify-content:space-between;
+    gap:12px;background:#1a1a19;color:#fff;padding:8px 16px;font-size:12.5px;flex-wrap:wrap}
+  .hb .l{color:#898781;font-size:11.5px}
+  .tg{display:inline-flex;background:rgba(255,255,255,.08);border-radius:8px;padding:3px;gap:2px}
+  .tg button{border:none;background:transparent;color:#c3c2b7;font-size:12px;font-weight:600;
+    padding:5px 10px;border-radius:6px;cursor:pointer}
+  .tg button.on{background:#fff;color:#0b0b0b}
+  .hbtn{border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff;font-size:12px;
+    padding:6px 12px;border-radius:6px;cursor:pointer}
+  .hbtn:hover{background:rgba(255,255,255,.1)}
+  .panel{position:fixed;top:37px;left:0;right:0;z-index:199;background:#fcfcfb;color:#52514e;
+    border-bottom:1px solid #e1e0d9;padding:14px 20px;font-size:12.5px;display:none;max-height:64vh;overflow:auto}
+  .panel.open{display:block}
+  .panel ul{margin:6px 0 0;padding-left:18px;columns:2;column-gap:28px}
+  .panel li{margin-bottom:6px;break-inside:avoid}
+  .panel strong{color:#0b0b0b}
+  .panel code{background:rgba(0,0,0,.06);padding:1px 5px;border-radius:4px}
+
+  /* ================= tokens ================= */
+  .app{
+    --bg-page:#f7f7f5;--bg-surface:#fff;--bg-surface-2:#fbfbf9;--code-bg:#fcfcfb;
+    --border-hairline:rgba(11,11,11,.09);--border-strong:rgba(11,11,11,.14);
+    --ink-primary:#0b0b0b;--ink-secondary:#52514e;--ink-muted:#8b8a84;
+    --accent:#2a78d6;--accent-hover:#1c5cab;--accent-tint:#eaf1fc;
+    --status-good:#0ca30c;--status-bad:#d03b3b;--status-warn:#e59400;
+    --hover-wash:#f2f1ec;--shadow-pop:0 10px 28px rgba(16,24,32,.16);
+    --hatch:rgba(11,11,11,.05);
+    --hue-violet:#6b5bd6;--hue-aqua:#1097a8;--hue-slate:#5c6672;--hue-orange:#d9722b;
+    --ft-add:#1097a8;--ft-mod:#6b5bd6;--ft-del:#5c6672;
+    --diff-gutter:#f6f6f3;
+    --diff-add-tint:color-mix(in oklab,var(--status-good) 10%,var(--code-bg));
+    --diff-add-stripe:#0a8a0a;
+    --syn-keyword:#1c5cab;--syn-type:#0d7b8a;--syn-string:#a35a12;
+    --syn-number:#5d4bb8;--syn-comment:#8b8a84;--syn-punct:#52514e;
+    /* NEW — BetBot identity + provenance */
+    --bot:#6b5bd6;                 /* violet: assistant identity            */
+    --prov-code:#1097a8;           /* grounded in the diff                  */
+    --prov-doc:#6b5bd6;            /* grounded in PR description / work item*/
+    --prov-infer:#5c6672;          /* inference — not stated anywhere       */
+    background:var(--bg-page);color:var(--ink-primary)}
+  [data-theme="dark"] .app{
+    --bg-page:#0d0d0d;--bg-surface:#1a1a19;--bg-surface-2:#212120;--code-bg:#161615;
+    --border-hairline:rgba(255,255,255,.11);--border-strong:rgba(255,255,255,.18);
+    --ink-primary:#fff;--ink-secondary:#c3c2b7;--ink-muted:#8b8a84;
+    --accent:#3987e5;--accent-hover:#5aa2ee;--accent-tint:rgba(57,135,229,.16);
+    --status-good:#1abd1a;--status-bad:#e66767;--status-warn:#fab219;
+    --hover-wash:rgba(255,255,255,.06);--shadow-pop:0 12px 32px rgba(0,0,0,.5);
+    --hatch:rgba(255,255,255,.045);
+    --hue-violet:#9085e9;--hue-aqua:#35b3c4;--hue-slate:#8b95a3;--hue-orange:#e08a4a;
+    --ft-add:#35b3c4;--ft-mod:#9085e9;--ft-del:#8b95a3;
+    --diff-gutter:#1c1c1b;
+    --diff-add-tint:color-mix(in oklab,var(--status-good) 13%,var(--code-bg));
+    --diff-add-stripe:#2b9e2b;
+    --syn-keyword:#6da7ec;--syn-type:#35b3c4;--syn-string:#e0a86a;
+    --syn-number:#b3a6f0;--syn-comment:#8b8a84;--syn-punct:#c3c2b7;
+    --bot:#9085e9;--prov-code:#35b3c4;--prov-doc:#9085e9;--prov-infer:#8b95a3}
+
+  /* ================= shell ================= */
+  .app{position:fixed;inset:37px 0 0 0;display:flex;flex-direction:column;overflow:hidden}
+  .topnav{display:flex;align-items:center;justify-content:space-between;padding:0 18px;height:52px;flex-shrink:0;
+    background:var(--bg-surface);border-bottom:1px solid var(--border-hairline)}
+  .brand{font-weight:700;font-size:14px}.brand .a{color:var(--accent)}
+  .tabs{display:flex;gap:2px;margin-left:14px}
+  .tabs a{font-size:13px;color:var(--ink-secondary);padding:16px 10px;border-bottom:2px solid transparent;font-weight:500;cursor:pointer}
+  .tabs a.on{color:var(--ink-primary);border-bottom-color:var(--ink-primary);font-weight:600}
+  .ctxbar{display:flex;align-items:center;gap:8px;height:42px;padding:0 16px;flex-shrink:0;
+    background:var(--bg-surface);border-bottom:1px solid var(--border-hairline)}
+  .picker{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px;border-radius:7px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface-2);font-size:12px;cursor:pointer}
+  .picker .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-muted)}
+  .picker .v{font-weight:600}
+  .prbar{display:flex;align-items:center;gap:11px;min-height:44px;padding:7px 16px;flex-shrink:0;
+    background:var(--bg-surface);border-bottom:1px solid var(--border-hairline)}
+  .prid{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink-muted);flex-shrink:0}
+  .prtitle{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prref{font-size:11px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace;flex-shrink:0}
+  .votes{display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0}
+  .btn{height:28px;padding:0 11px;border-radius:7px;border:1px solid transparent;cursor:pointer;
+    font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+  .btn.primary{background:var(--status-good);color:#fff}
+  .btn.outline{background:transparent;color:var(--ink-secondary);border-color:var(--border-hairline)}
+  .btn.outline:hover{background:var(--hover-wash);color:var(--ink-primary)}
+  .btn.danger:hover{background:color-mix(in oklab,var(--status-bad) 12%,transparent);color:var(--status-bad)}
+  .btn.acc{background:var(--accent);color:#fff}
+  .btn.acc:hover{background:var(--accent-hover)}
+  .btn svg{width:11px;height:11px}
+  .vr{width:1px;height:18px;background:var(--border-hairline);margin:0 3px}
+
+  /* ================= three panes ================= */
+  .review{flex:1;display:grid;min-height:0;grid-template-columns:250px minmax(0,1fr) 380px}
+  .pane{display:flex;flex-direction:column;min-width:0;overflow:hidden;background:var(--bg-surface)}
+  .pane.l{border-right:1px solid var(--border-hairline)}
+  .pane.r{border-left:1px solid var(--border-hairline)}
+
+  /* left */
+  .lh{padding:9px 11px;border-bottom:1px solid var(--border-hairline);flex-shrink:0}
+  .search{width:100%;height:28px;padding:0 9px;border-radius:7px;border:1px solid var(--border-hairline);
+    font-size:12px;background:var(--bg-surface-2);color:var(--ink-primary)}
+  .prrow{padding:8px 11px;border-bottom:1px solid var(--border-hairline);cursor:pointer;border-left:2px solid transparent}
+  .prrow.on{background:var(--accent-tint);border-left-color:var(--accent)}
+  .prrow .t{font-size:12px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden}
+  .prrow .m{font-size:10px;color:var(--ink-muted);margin-top:4px;font-family:ui-monospace,Menlo,monospace}
+
+  /* centre / diff */
+  .pane.c{background:var(--code-bg)}
+  .dtool{display:flex;align-items:center;gap:9px;padding:0 10px;height:38px;flex-shrink:0;
+    background:var(--bg-surface);border-bottom:1px solid var(--border-hairline)}
+  .fname{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:700}
+  .fpath{font-size:10.5px;color:var(--ink-muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;direction:rtl;text-align:left}
+  .cts{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;display:flex;gap:6px;flex-shrink:0}
+  .cts .p{color:var(--diff-add-stripe)}
+  .dscroll{flex:1;overflow:auto;position:relative}
+  table.diff{border-collapse:collapse;width:100%;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.6}
+  table.diff td{padding:0;vertical-align:top}
+  .gut{width:1%;white-space:nowrap;text-align:right;padding:0 6px 0 7px;user-select:none;position:relative;
+    background:var(--diff-gutter);color:var(--ink-muted);font-variant-numeric:tabular-nums;font-size:10.5px;
+    border-right:1px solid var(--border-hairline)}
+  .sign{width:1%;padding:0 4px;text-align:center;border-right:none;background:var(--diff-gutter)}
+  tr.add .sign{color:var(--diff-add-stripe);font-weight:700}
+  .code{padding:0 9px;white-space:pre}
+  tr.add .code{background:var(--diff-add-tint);box-shadow:inset 2px 0 0 var(--diff-add-stripe)}
+  tr:hover .gut{background:var(--hover-wash)}
+  tr.cited .code{background:color-mix(in oklab,var(--bot) 14%,var(--code-bg));
+    box-shadow:inset 2px 0 0 var(--bot)}
+  .k{color:var(--syn-keyword)}.t{color:var(--syn-type)}.s{color:var(--syn-string)}
+  .n{color:var(--syn-number)}.c{color:var(--syn-comment)}
+
+  /* gutter hover actions — comment + ask. Two 16px targets don't fit in the
+     number column alone, so the group floats over the number and the +/- sign
+     on its own opaque plate rather than colliding with them. */
+  .gactions{position:absolute;left:1px;top:0;bottom:0;display:none;gap:2px;align-items:center;
+    padding:0 2px;background:var(--diff-gutter);z-index:3}
+  tr:hover .gactions{display:flex}
+  tr:hover .gactions{box-shadow:6px 0 6px -4px var(--diff-gutter)}
+  .ga{width:16px;height:16px;border-radius:4px;border:none;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;padding:0;color:#fff}
+  .ga:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .ga.cm{background:var(--accent)}
+  .ga.bb{background:var(--bot)}
+  .ga svg{width:9px;height:9px}
+
+  /* ================= right rail ================= */
+  .rtabs{display:flex;padding:0 6px;border-bottom:1px solid var(--border-hairline);flex-shrink:0;
+    background:var(--bg-surface)}
+  .rtab{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:600;
+    padding:11px 0 9px;cursor:pointer;color:var(--ink-secondary);border-bottom:2px solid transparent}
+  .rtab.on{color:var(--ink-primary);border-bottom-color:var(--ink-primary)}
+  .rtab .cnt{font-size:10px;font-weight:600;padding:1px 6px;border-radius:100px;
+    background:var(--hover-wash);color:var(--ink-muted);font-variant-numeric:tabular-nums}
+  .rtab.on .cnt{color:var(--ink-secondary)}
+  .rtab .bmark{width:13px;height:13px;flex-shrink:0}
+  .rtab.bot.on{border-bottom-color:var(--bot);color:var(--bot)}
+  .rtab.bot.on .cnt{background:color-mix(in oklab,var(--bot) 15%,transparent);color:var(--bot)}
+  /* with no connector there is no identity to colour for, so the tab stays neutral */
+  [data-state="unconfigured"] .rtab.bot.on{color:var(--ink-primary);border-bottom-color:var(--ink-primary)}
+  [data-state="unconfigured"] .rtab.bot .bmark{opacity:.45}
+
+  .rbody{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .tabpane{display:none;flex:1;flex-direction:column;min-height:0;overflow:hidden}
+  .tabpane.on{display:flex}
+
+  /* files pane */
+  .fscroll{flex:1;overflow-y:auto;padding-bottom:10px}
+  .fgrouphead{font-size:10px;color:var(--ink-muted);padding:9px 10px 4px;font-family:ui-monospace,Menlo,monospace;
+    line-height:1.35;word-break:break-word}
+  .frow{display:flex;align-items:center;gap:7px;padding:5px 10px 5px 18px;cursor:pointer;border-left:2px solid transparent}
+  .frow.on{background:var(--accent-tint);border-left-color:var(--accent)}
+  .fbadge{width:16px;height:16px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    font-size:9px;font-weight:700;background:color-mix(in oklab,var(--ft-add) 16%,transparent);color:var(--ft-add)}
+  .fn{flex:1;min-width:0;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:ui-monospace,Menlo,monospace}
+
+  /* ================= BETBOT PANE ================= */
+  .bhead{display:flex;align-items:center;gap:9px;padding:11px 12px 10px;flex-shrink:0;
+    border-bottom:1px solid var(--border-hairline)}
+  .bavatar{width:26px;height:26px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:color-mix(in oklab,var(--bot) 16%,transparent);color:var(--bot)}
+  .bavatar svg{width:15px;height:15px}
+  .bname{font-size:13px;font-weight:600;line-height:1.2;display:flex;align-items:center;gap:6px}
+  /* the provider tag is muted on purpose — violet (--bot) marks "the connector
+     answering right now" regardless of vendor; a second hue here would compete
+     with it and imply the provider matters to the reviewer. It doesn't. */
+  .ptag{font-size:9.5px;font-weight:700;letter-spacing:.03em;color:var(--ink-muted);
+    background:var(--hover-wash);padding:1px 6px;border-radius:100px}
+  .bmeta{font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace}
+  .iconbtn{width:26px;height:26px;border-radius:6px;border:none;background:transparent;color:var(--ink-muted);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+  .iconbtn:hover{background:var(--hover-wash);color:var(--ink-primary)}
+  .iconbtn svg{width:14px;height:14px}
+
+  .bscroll{flex:1;overflow-y:auto;padding:0 0 6px}
+
+  /* banner rail — sticky, because the panel auto-scrolls to the newest answer and
+     a notice that the thread is stale must not scroll away with the history */
+  .brail{position:sticky;top:0;z-index:5;background:var(--bg-surface);padding:0 12px;
+    display:none;flex-direction:column;gap:7px}
+  [data-state="stale"] .brail,[data-state="down"] .brail{display:flex;padding:10px 12px 3px}
+  [data-state="stale"] .brail{box-shadow:0 1px 0 var(--border-hairline)}
+
+  /* stale banner */
+  .stale{display:none;align-items:flex-start;gap:7px;padding:8px 10px;border-radius:8px;font-size:11.5px;
+    line-height:1.5;background:color-mix(in oklab,var(--status-warn) 12%,var(--bg-surface));
+    border-left:2px solid var(--status-warn);color:var(--ink-secondary)}
+  [data-state="stale"] .stale{display:flex}
+  .stale b{color:var(--ink-primary)}
+  .stale .relink{color:var(--accent);cursor:pointer;font-weight:600}
+
+  /* section labels */
+  .slabel{display:flex;align-items:center;gap:7px;padding:13px 12px 7px;font-size:10px;font-weight:700;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+  .slabel .rule{flex:1;height:1px;background:var(--border-hairline)}
+
+  /* automated findings */
+  .finding{margin:0 12px 7px;border:1px solid var(--border-hairline);border-radius:9px;overflow:hidden;
+    background:var(--bg-surface-2);cursor:pointer}
+  .finding:hover{border-color:var(--border-strong)}
+  .fhead{display:flex;align-items:flex-start;gap:8px;padding:9px 10px}
+  .sev{width:15px;height:15px;flex-shrink:0;margin-top:1px}
+  .sev.warn{color:var(--status-warn)}.sev.info{color:var(--ink-muted)}
+  .ftitle{flex:1;font-size:12.5px;font-weight:600;line-height:1.4}
+  .floc{display:block;margin-top:3px;font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace}
+  .fbody{padding:0 10px 10px 33px;font-size:11.5px;color:var(--ink-secondary);line-height:1.55}
+
+  /* suggested questions */
+  .chips{display:flex;flex-wrap:wrap;gap:6px;padding:2px 12px 4px}
+  .chip{font-size:11.5px;padding:6px 10px;border-radius:100px;border:1px solid var(--border-hairline);
+    background:var(--bg-surface);color:var(--ink-secondary);cursor:pointer;line-height:1.2}
+  .chip:hover{border-color:var(--bot);color:var(--bot);background:color-mix(in oklab,var(--bot) 7%,transparent)}
+
+  /* thread */
+  .turn{padding:11px 12px 0}
+  .you{display:flex;justify-content:flex-end}
+  .you .bubble{max-width:88%;background:var(--hover-wash);border-radius:10px 10px 3px 10px;padding:8px 11px;
+    font-size:12.5px;line-height:1.5}
+  .ans{border-left:2px solid var(--bot);padding-left:11px;margin-left:2px}
+  .ans-h{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+  .ans-h .who{font-size:11px;font-weight:700;color:var(--bot);letter-spacing:.02em}
+  .prov{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;letter-spacing:.04em;
+    padding:2px 7px;border-radius:100px;cursor:help}
+  .prov svg{width:9px;height:9px}
+  .prov.code{background:color-mix(in oklab,var(--prov-code) 15%,transparent);color:var(--prov-code)}
+  .prov.doc{background:color-mix(in oklab,var(--prov-doc) 15%,transparent);color:var(--prov-doc)}
+  .prov.infer{background:color-mix(in oklab,var(--prov-infer) 16%,transparent);color:var(--prov-infer)}
+  /* While an answer is still streaming there is nothing to attest to yet, so the
+     badge is explicitly pending rather than claiming a source in advance. */
+  .prov.pending{background:var(--hover-wash);color:var(--ink-muted)}
+  /* connector can't return structured output at all: no provenance was asserted,
+     so we say so rather than guessing one. Citations are hidden entirely. */
+  .prov.unver{background:var(--hover-wash);color:var(--ink-muted);
+    border:1px dashed color-mix(in oklab,var(--ink-muted) 45%,transparent)}
+  .prov.pending svg{animation:spin 1.8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){.prov.pending svg{animation:none}}
+  .ans p{margin:0 0 8px;font-size:12.5px;line-height:1.6;color:var(--ink-primary)}
+  .ans p:last-of-type{margin-bottom:7px}
+  .ans code{background:var(--hover-wash);padding:1px 4px;border-radius:4px;font-size:11.5px}
+  .ans ul{margin:0 0 8px;padding-left:16px;font-size:12.5px;line-height:1.6}
+  .ans li{margin-bottom:3px}
+  .inferbox{margin:0 0 8px;padding:8px 10px;border-radius:8px;font-size:11.5px;line-height:1.55;
+    background:color-mix(in oklab,var(--prov-infer) 8%,transparent);
+    border:1px dashed color-mix(in oklab,var(--prov-infer) 40%,transparent);color:var(--ink-secondary)}
+  .inferbox b{color:var(--ink-primary)}
+
+  .cites{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+  .cite{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;
+    padding:3px 8px;border-radius:6px;border:1px solid var(--border-hairline);background:var(--bg-surface-2);
+    color:var(--ink-secondary);cursor:pointer}
+  .cite:hover{border-color:var(--bot);color:var(--bot)}
+  .cite .dot{width:4px;height:4px;border-radius:1px;background:var(--prov-code);flex-shrink:0}
+
+  .ans-f{display:flex;align-items:center;gap:5px;padding-bottom:4px}
+  .mini{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:6px;
+    border:1px solid var(--border-hairline);background:transparent;color:var(--ink-secondary);
+    font-size:11px;font-weight:600;cursor:pointer}
+  .mini:hover{background:var(--hover-wash);color:var(--ink-primary)}
+  .mini svg{width:11px;height:11px}
+  .mini.icon-only{padding:0;width:24px;justify-content:center}
+  .mini:disabled{opacity:.5;cursor:not-allowed}
+  .mini:disabled:hover{background:transparent;color:var(--ink-secondary)}
+  .ans-f .sp{margin-left:auto}
+
+  /* streaming */
+  .streaming .cursor{display:inline-block;width:7px;height:13px;background:var(--bot);vertical-align:-2px;
+    animation:blink 1s steps(2) infinite;margin-left:1px}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .thinking{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-muted);padding-bottom:8px}
+  .thinking .d{width:5px;height:5px;border-radius:50%;background:var(--bot);animation:pulse 1.2s ease-in-out infinite}
+  .thinking .d:nth-child(2){animation-delay:.2s}.thinking .d:nth-child(3){animation-delay:.4s}
+  @media(prefers-reduced-motion:reduce){.cursor,.thinking .d{animation:none}}
+
+  /* composer */
+  .comp{flex-shrink:0;border-top:1px solid var(--border-hairline);padding:9px 12px 10px;background:var(--bg-surface)}
+  .comp textarea{width:100%;min-height:56px;resize:vertical;border-radius:8px;font-size:12.5px;padding:8px 10px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface-2);color:var(--ink-primary);line-height:1.5}
+  .comp textarea:focus{outline:2px solid var(--bot);outline-offset:-1px}
+  .comp-f{display:flex;align-items:center;gap:7px;margin-top:7px}
+  .privacy{font-size:10.5px;color:var(--ink-muted);display:flex;align-items:center;gap:4px}
+  .privacy svg{width:11px;height:11px}
+  .send{height:28px;padding:0 12px;border-radius:7px;border:none;background:var(--bot);color:#fff;
+    font-size:12px;font-weight:600;cursor:pointer;margin-left:auto}
+  .send:hover{filter:brightness(1.08)}
+  .send:disabled{background:var(--hover-wash);color:var(--ink-muted);cursor:not-allowed;filter:none}
+  .comp textarea:disabled{background:var(--hover-wash);color:var(--ink-muted);cursor:not-allowed}
+
+  /* no connector configured — the one state where a takeover IS right, because
+     there is no cached content to preserve and exactly one useful action */
+  .noconn{display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    padding:34px 26px;text-align:center;font-size:12px;line-height:1.6;color:var(--ink-secondary)}
+  [data-state="unconfigured"] .noconn{display:flex}
+  [data-state="unconfigured"] #bscroll,[data-state="unconfigured"] .comp,
+  [data-state="unconfigured"] .bhead{display:none}
+  .noconn .ni{width:28px;height:28px;color:var(--ink-muted);opacity:.55}
+  .noconn b{font-size:13.5px;color:var(--ink-primary)}
+  .noconn p{margin:0;max-width:280px}
+  .noconn .cta{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 13px;border-radius:8px;
+    border:none;background:var(--accent);color:#fff;font-size:12.5px;font-weight:600;cursor:pointer;margin-top:3px}
+  .noconn .cta:hover{background:var(--accent-hover)}
+  .noconn .cta svg{width:13px;height:13px}
+  .noconn .fine{font-size:11px;color:var(--ink-muted);max-width:280px}
+
+  /* unavailable — a banner, not a takeover: the cached review below it is
+     still the most useful thing on the panel, so it stays on screen. */
+  .down{display:none;align-items:flex-start;gap:8px;padding:9px 10px;border-radius:8px;
+    font-size:11.5px;line-height:1.55;color:var(--ink-secondary);
+    background:color-mix(in oklab,var(--prov-infer) 9%,var(--bg-surface));
+    border-left:2px solid var(--prov-infer)}
+  [data-state="down"] .down{display:flex}
+  .down .di{width:14px;height:14px;flex-shrink:0;margin-top:2px;opacity:.75}
+  .down b{color:var(--ink-primary)}
+  .down code{font-size:10.5px;background:var(--hover-wash);padding:1px 5px;border-radius:4px}
+  .down .retry{margin-top:6px}
+  /* the cached review is explicitly labelled as cached while BetBot is unreachable */
+  .cachetag{display:none;font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:100px;
+    background:color-mix(in oklab,var(--prov-infer) 16%,transparent);color:var(--prov-infer)}
+  [data-state="down"] .cachetag{display:inline-flex}
+  [data-state="down"] #fcount{display:none}
+
+  /* post-as-comment sheet */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.28);display:none;z-index:60}
+  .scrim.on{display:block}
+  .sheet{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:520px;max-width:calc(100% - 40px);
+    background:var(--bg-surface);border:1px solid var(--border-strong);border-radius:12px;
+    box-shadow:var(--shadow-pop);z-index:61;display:none;overflow:hidden}
+  .sheet.on{display:block}
+  .sh-h{padding:13px 15px 11px;border-bottom:1px solid var(--border-hairline)}
+  .sh-h b{font-size:14px}
+  .sh-h p{margin:4px 0 0;font-size:11.5px;color:var(--ink-secondary);line-height:1.5}
+  .sh-b{padding:13px 15px}
+  .sh-b textarea{width:100%;min-height:130px;resize:vertical;border-radius:8px;font-size:12.5px;padding:9px 11px;
+    border:1px solid var(--border-hairline);background:var(--bg-surface-2);color:var(--ink-primary);line-height:1.55}
+  .attrib{margin-top:9px;padding:8px 10px;border-radius:8px;font-size:11.5px;line-height:1.5;
+    background:color-mix(in oklab,var(--bot) 9%,transparent);border-left:2px solid var(--bot);color:var(--ink-secondary)}
+  .attrib b{color:var(--ink-primary)}
+  .sh-f{display:flex;align-items:center;gap:7px;padding:11px 15px;border-top:1px solid var(--border-hairline);
+    background:var(--bg-surface-2)}
+  .sh-f .sp{margin-left:auto}
+</style>
+</head>
+<body data-theme="light">
+
+<div class="hb">
+  <div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap">
+    <span class="l">Panel state</span>
+    <div class="tg">
+      <button id="s-unconf" onclick="setState('unconfigured')">Not connected</button>
+      <button id="s-degr" onclick="setState('degraded')">No structured output</button>
+      <button id="s-land" onclick="setState('landing')">Landing</button>
+      <button id="s-thread" class="on" onclick="setState('thread')">Thread</button>
+      <button id="s-stream" onclick="setState('streaming')">Streaming</button>
+      <button id="s-stale" onclick="setState('stale')">Stale commit</button>
+      <button id="s-down" onclick="setState('down')">Service down</button>
+    </div>
+    <span class="l">Theme</span>
+    <div class="tg">
+      <button id="t-l" class="on" onclick="theme('light')">☀</button>
+      <button id="t-d" onclick="theme('dark')">☾</button>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap">
+    <span class="l">Connector — same panel either way</span>
+    <div class="tg">
+      <button id="p-bot" class="on" onclick="setProvider('betbot')">BetBot · Custom</button>
+      <button id="p-anth" onclick="setProvider('anthropic')">Claude · Anthropic</button>
+      <button id="p-cop" onclick="setProvider('copilot')">Copilot · GitHub</button>
+    </div>
+    <button class="hbtn" onclick="document.getElementById('p').classList.toggle('open')">Design notes</button>
+  </div>
+</div>
+
+<div class="panel" id="p">
+  <strong>The agent panel on the Review page — the design in short</strong>
+  <ul>
+    <li><strong>Try the Connector switch, top right of the harness.</strong> It re-points this exact panel at BetBot,
+      Claude via Anthropic, or GitHub Copilot with no other change — same layout, same badges, same citation
+      behaviour. That uniformity is the point: "no seams" means the reviewer never has to know or care which
+      provider is answering. See <code>DESIGN_SPEC_CONNECTORS.md</code> for how Settings configures it and
+      how the server-side adapter per provider makes it possible.</li>
+    <li><strong>It's a tab on the existing right rail</strong>, not a fourth column or a floating widget. <code>Files</code> / <span class="cname-j">BetBot</span>. You never need the file tree and an answer at the same time, and the diff stays visible in the centre — which matters, because answers cite lines in it.</li>
+    <li><strong>The landing state is its existing automated review</strong>, not an empty box. Findings first, chat below. The panel is useful before you type anything.</li>
+    <li><strong>Every answer is labelled by where it came from.</strong> <code>FROM DIFF</code> (aqua) · <code>FROM PR DESC</code> (violet) · <code>INFERRED</code> (slate). This is the most important element on the panel — see the note in my message.</li>
+    <li><strong>Inferences are boxed and hedged</strong> in the answer body, not just badged. BetBot cannot know why a human chose <code>NOLOCK</code>; the UI must not let it sound like it does.</li>
+    <li><strong>Citations are clickable</strong> <code>file:line</code> chips that scroll and highlight the diff in violet — visibly different from add/remove green and red, so a citation is never mistaken for a change.</li>
+    <li><strong>Read-only by default.</strong> Nothing reaches the PR unless you press <em>Post as comment…</em>, which opens an editable sheet, posts under <em>your</em> name, and appends a <code>— via BetBot</code> attribution line you can delete.</li>
+    <li><strong>Private to you</strong>, stated in the composer footer so nobody assumes teammates can see it.</li>
+    <li><strong>Staleness is surfaced.</strong> If the author pushes, an amber banner marks the thread as answered against an older commit, with a re-ask action.</li>
+    <li><strong>A second entry point in the diff gutter</strong> — hovering a line gives the blue comment <code>+</code> and a violet <em>ask</em>, which opens the panel pre-scoped to that line.</li>
+    <li><strong>Service-down is a real state</strong>, named, with the deployment to check. It's in a k8s cluster; it will be down sometimes.</li>
+    <li><strong>The agent is a connector, not a hard-coded feature.</strong> The tab, the panel header and the
+      outage copy all read from whichever connector holds the <em>PR questions</em> capability in
+      Settings › Connectors. <em>Not connected</em> is a designed state with exactly one action in it.</li>
+    <li><strong>An agent that can't attest gets no badge it didn't earn.</strong> If a connector can't return
+      structured output, the badge reads <code>UNVERIFIED SOURCE</code>, the citation strip disappears, and the
+      answer carries a note saying what's missing — see the <em>No structured output</em> state. The one thing the
+      UI must never do is infer a provenance value to fill the gap.</li>
+    <li><strong>Provenance is pending until the answer lands.</strong> While streaming, the badge reads
+      <code>CHECKING SOURCES</code> rather than asserting a source in advance — see the <em>Streaming</em> state.</li>
+    <li><strong>An outage doesn't blank the panel.</strong> <em>Service down</em> keeps the cached automated
+      review on screen, labels it <code>CACHED</code>, and disables the composer with the reason stated —
+      rather than replacing everything useful with an error.</li>
+    <li><strong>The stale-commit banner is sticky.</strong> The panel auto-scrolls to the newest answer, so a
+      notice that the thread is answering an old commit would otherwise scroll out of sight.</li>
+    <li><strong>Violet is BetBot's identity hue</strong> — reusing <code>--hue-violet</code>. Not blue (A1 reserves it for actions) and not green or red (A2 reserves those for status). No new tokens.</li>
+  </ul>
+</div>
+
+<div class="app" data-state="thread" data-rtab="bot">
+  <div class="topnav">
+    <div style="display:flex;align-items:center">
+      <span class="brand">Pipeline <span class="a">Launchpad</span></span>
+      <div class="tabs"><a>Views</a><a class="on">Review</a><a>Configurations</a></div>
+    </div>
+  </div>
+
+  <div class="ctxbar">
+    <span class="picker"><span class="k">Proj</span><span class="v">Account</span></span>
+    <span class="picker"><span class="k">Repo</span><span class="v">Account</span></span>
+  </div>
+
+  <div class="prbar">
+    <span class="prid">!80494</span>
+    <span class="prtitle">ACQ-4245: [BE] Include Verified and Unverified Email Addresses in Salesforce Endpoints</span>
+    <span class="prref">ACQ-4245 → main</span>
+    <div class="votes">
+      <button class="btn primary">✓ Approve</button>
+      <button class="btn outline">With suggestions</button>
+      <span class="vr"></span>
+      <button class="btn outline danger">✕ Reject</button>
+    </div>
+  </div>
+
+  <div class="review">
+    <!-- LEFT -->
+    <div class="pane l">
+      <div class="lh"><input class="search" placeholder="Filter pull requests…"></div>
+      <div style="overflow-y:auto">
+        <div class="prrow"><div class="t">feat(ACC-46): refresh-token storage and rotation</div>
+          <div class="m">ACC-46-refresh… → main</div></div>
+        <div class="prrow on"><div class="t">ACQ-4245: [BE] Include Verified and Unverified Email Addresses…</div>
+          <div class="m">ACQ-4245 → main</div></div>
+        <div class="prrow"><div class="t">Addressing issue with synonyms</div>
+          <div class="m">tps-ga-plus → master</div></div>
+      </div>
+    </div>
+
+    <!-- CENTRE -->
+    <div class="pane c">
+      <div class="dtool">
+        <span class="fname">054_SalesForce.SearchUsersByEmail_V2.sql</span>
+        <span class="fpath">SA.Phase1.Migrations/Scripts/tps-user</span>
+        <span class="cts"><span class="p">+45</span></span>
+      </div>
+      <div class="dscroll" id="dscroll"><table class="diff"><tbody id="difftb"></tbody></table></div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="pane r">
+      <div class="rtabs">
+        <div class="rtab" id="tab-files" onclick="rtab('files')">Files <span class="cnt">5</span></div>
+        <div class="rtab bot on" id="tab-bot" onclick="rtab('bot')">
+          <svg class="bmark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5M6 8.5v1M10 8.5v1" stroke-linecap="round"/>
+            <circle cx="8" cy="2" r="1" fill="currentColor" stroke="none"/></svg>
+          <span id="tabname">BetBot</span> <span class="cnt" id="tabcnt">3</span>
+        </div>
+      </div>
+
+      <div class="rbody">
+        <!-- FILES -->
+        <div class="tabpane" id="pane-files">
+          <div class="fscroll">
+            <div class="fgrouphead">SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user</div>
+            <div class="frow on"><span class="fbadge">A</span><span class="fn">054_SalesForce.SearchUsersByEmail_V2.sql</span></div>
+            <div class="frow"><span class="fbadge">A</span><span class="fn">055_SalesForce.SearchUsersByFullName_V2.sql</span></div>
+            <div class="frow"><span class="fbadge">A</span><span class="fn">056_SalesForce.SearchUsersByPhoneContact_V2.sql</span></div>
+            <div class="frow"><span class="fbadge">A</span><span class="fn">057_SalesForce.SearchUsersByUserId_V2.sql</span></div>
+            <div class="frow"><span class="fbadge">A</span><span class="fn">058_SalesForce.SearchUsersByUsername_V2.sql</span></div>
+          </div>
+        </div>
+
+        <!-- BETBOT -->
+        <div class="tabpane on" id="pane-bot">
+          <div class="bhead">
+            <span class="bavatar" id="bavatar">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                <rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5M6 8.5v1M10 8.5v1" stroke-linecap="round"/>
+                <circle cx="8" cy="2" r="1" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <div style="flex:1;min-width:0">
+              <div class="bname"><span class="cname-j">BetBot</span><span class="ptag" id="ptag">CUSTOM</span></div>
+              <div class="bmeta" id="bmeta">reviewed 2h ago · a3f9c21</div>
+            </div>
+            <button class="iconbtn" title="Re-run review">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/><path d="M13.6 1.8v2.6h-2.6"/></svg>
+            </button>
+            <button class="iconbtn" title="Panel options">⋯</button>
+          </div>
+
+          <!-- NO CONNECTOR -->
+          <div class="noconn">
+            <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.9 14.1l-2.7 2.7a3.8 3.8 0 1 0 5.4 5.4l2.7-2.7" transform="translate(0 -2.4)"/>
+              <path d="M14.1 9.9l2.7-2.7a3.8 3.8 0 1 0-5.4-5.4L8.7 4.5" transform="translate(0 2.4)"/>
+              <path d="M9.2 14.8l5.6-5.6"/></svg>
+            <b>No agent connected</b>
+            <p>Connect an agent and this panel will explain the pull request, answer questions about it, and
+              show the automated review.</p>
+            <button class="cta">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+              Connect an agent</button>
+            <span class="fine">Settings › Connectors. Takes a URL and a token.</span>
+          </div>
+
+          <div class="bscroll" id="bscroll">
+           <div class="brail">
+            <!-- SERVICE DOWN -->
+            <div class="down" id="botdown">
+              <svg class="di" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="7" width="18" height="12" rx="3"/><path d="M12 7V3.5M8.5 12.5v1.5M15.5 12.5v1.5" stroke-linecap="round"/>
+                <path d="M3.5 3.5l17 17" stroke-linecap="round"/></svg>
+              <div><b><span class="cname-j">BetBot</span> isn't reachable.</b> New questions will fail until
+                it's back — the cached review from <code>a3f9c21</code> is below.
+                <span id="downwhere">Check <code class="csvc-j">SB.Internal.BetBot</code> in the cluster.</span>
+                <div class="retry"><button class="mini">Retry</button></div></div>
+            </div>
+
+            <div class="stale">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;flex-shrink:0;margin-top:1px">
+                <circle cx="8" cy="8" r="6"/><path d="M8 5v3.2l2.2 1.3" stroke-linecap="round"/></svg>
+              <div><b>Answered against an older commit.</b> The author pushed <code>e71b0d4</code> 12m ago;
+                this thread is about <code>a3f9c21</code>. <span class="relink">Re-ask on the new commit →</span></div>
+            </div>
+           </div>
+
+            <!-- automated review = landing content -->
+            <div class="slabel">Automated review <span class="rule"></span>
+              <span class="cachetag">CACHED</span>
+              <span id="fcount" style="font-weight:600;letter-spacing:0">3 findings</span></div>
+
+            <div class="finding" onclick="jump(34)">
+              <div class="fhead">
+                <svg class="sev warn" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M8 2.6l5.6 10.4H2.4z" stroke-linejoin="round"/><path d="M8 6.4v3M8 11v.1" stroke-linecap="round"/></svg>
+                <span class="ftitle">LEFT JOIN can produce a NULL email
+                  <span class="floc">054_…Email_V2.sql:34</span></span>
+              </div>
+              <div class="fbody">The <code>COALESCE(u.Email, uev.Email)</code> on line 22 handles it, but the
+                <code>WHERE</code> on line 39 compares <code>uev.Email</code> directly — rows where both are NULL are silently dropped.</div>
+            </div>
+
+            <div class="finding" onclick="jump(27)">
+              <div class="fhead">
+                <svg class="sev info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4M8 5.2v.1" stroke-linecap="round"/></svg>
+                <span class="ftitle">Five near-identical procedures
+                  <span class="floc">054–058, all files</span></span>
+              </div>
+              <div class="fbody">The five <code>SearchUsersBy*_V2</code> procedures differ only in the
+                <code>WHERE</code> predicate. Consider one procedure with a search-type parameter.</div>
+            </div>
+
+            <div class="finding" onclick="jump(27)">
+              <div class="fhead">
+                <svg class="sev info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4M8 5.2v.1" stroke-linecap="round"/></svg>
+                <span class="ftitle">No index covers the new predicate
+                  <span class="floc">054_…Email_V2.sql:39</span></span>
+              </div>
+              <div class="fbody">Filtering on <code>uev.Email</code> has no supporting index on
+                <code>Users.UserEmailVerification</code>. <code>TOP 20</code> limits the damage but the scan is still full.</div>
+            </div>
+
+            <!-- suggested -->
+            <div class="slabel" id="sugglabel">Ask about this PR <span class="rule"></span></div>
+            <div class="chips" id="suggchips">
+              <span class="chip" onclick="ask(this)">What does this PR change?</span>
+              <span class="chip" onclick="ask(this)">Why NOLOCK on every join?</span>
+              <span class="chip" onclick="ask(this)">What breaks if I approve this?</span>
+              <span class="chip" onclick="ask(this)">Is the V1 procedure still used?</span>
+            </div>
+
+            <!-- thread -->
+            <div id="thread"></div>
+          </div>
+
+          <div class="comp">
+            <textarea id="composer" placeholder="Ask BetBot about this pull request…"></textarea>
+            <div class="comp-f">
+              <span class="privacy" id="privline">
+                <svg id="privlock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                  <rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>
+                <span id="privtext">Private to you</span>
+              </span>
+              <button class="send" id="sendbtn">Ask</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- post-as-comment sheet -->
+  <div class="scrim" id="scrim" onclick="closeSheet()"></div>
+  <div class="sheet" id="sheet">
+    <div class="sh-h">
+      <b>Post as a comment on !80494</b>
+      <p>This posts under <b>your</b> name, on <code>054_SalesForce.SearchUsersByEmail_V2.sql:34</code>. Edit it first — <span class="cname-j">BetBot</span>'s wording is a draft, not a review.</p>
+    </div>
+    <div class="sh-b">
+      <textarea id="sheettext"></textarea>
+      <div class="attrib">
+        <b>— via <span class="cname-j">BetBot</span></b> is appended so the trail is honest about where the text came from. Delete the line if you'd rather it read as entirely yours.
+      </div>
+    </div>
+    <div class="sh-f">
+      <span class="privacy" style="font-size:11px">Posts immediately · no further confirmation</span>
+      <span class="sp"></span>
+      <button class="btn outline" onclick="closeSheet()">Cancel</button>
+      <button class="btn acc" onclick="closeSheet()">Post comment</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =============== diff =============== */
+const SQL = [
+ [1,'SET ANSI_NULLS ON'],[2,'GO'],[3,''],[4,'SET QUOTED_IDENTIFIER ON'],[5,'GO'],[6,''],
+ [7,'-- =============================================================='],
+ [8,'-- Author:      Shailendra Kumar Saini'],
+ [9,'-- Create date: 06-08-2026'],
+ [10,'-- Description: Salesforce - Search Users By Email'],
+ [11,'-- =============================================================='],
+ [12,'CREATE OR ALTER PROCEDURE [SalesForce].[SearchUsersByEmail_V2]'],
+ [13,'    @SearchTerm nvarchar(255),'],[14,'    @BrandId int'],[15,'AS'],[16,'BEGIN'],
+ [17,'    SET NOCOUNT ON;'],[18,''],[19,'    SELECT TOP 20'],[20,'      u.Id,'],[21,'      u.Username,'],
+ [22,'      COALESCE(u.Email, uev.Email) AS Email,'],[23,'      udpc.ContactNumber,'],
+ [24,"      CONCAT(ud.Name, ' ', ud.Surname) AS FullName,"],[25,'      u.RegistrationDate,'],
+ [26,'      lk_us.Code AS StatusCode'],
+ [27,'    FROM [Users].[User] u WITH (NOLOCK)'],
+ [28,'    INNER JOIN [Users].[UserDetail] ud WITH (NOLOCK)'],[29,'        ON u.Id = ud.UserId'],
+ [30,'    INNER JOIN [Users].[UserDetailPhoneContact] udpc WITH (NOLOCK)'],[31,'        ON ud.Id = udpc.UserDetailId'],
+ [32,'    INNER JOIN [Users].[LK_UserStatus] lk_us WITH (NOLOCK)'],[33,'        ON u.StatusId = lk_us.Id'],
+ [34,'    LEFT JOIN [Users].[UserEmailVerification] uev WITH (NOLOCK)'],[35,'        ON u.Id = uev.UserId'],
+ [36,'    WHERE u.BrandId = @BrandId'],[37,'      AND ('],[38,'            u.Email = @SearchTerm'],
+ [39,'            OR (u.Email IS NULL AND uev.Email = @SearchTerm)'],[40,'          );'],
+ [41,'END'],[42,'GO'],
+];
+const KW=['SET','ON','OFF','GO','CREATE','OR','ALTER','PROCEDURE','AS','BEGIN','END','SELECT','TOP','FROM',
+ 'INNER','LEFT','JOIN','WITH','NOLOCK','WHERE','AND','IS','NULL','COALESCE','CONCAT','nvarchar','int',
+ 'ANSI_NULLS','QUOTED_IDENTIFIER','NOCOUNT'];
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function hl(code){
+  const re=new RegExp('(--[^\\n]*)|(\'(?:[^\'\\\\]|\\\\.)*\')|(\\[[A-Za-z0-9_]+\\])|(\\b\\d+(?:\\.\\d+)?\\b)|\\b('+KW.join('|')+')\\b','g');
+  let out='',last=0,m;
+  while((m=re.exec(code))){
+    out+=esc(code.slice(last,m.index));
+    if(m[1])out+='<span class="c">'+esc(m[1])+'</span>';
+    else if(m[2])out+='<span class="s">'+esc(m[2])+'</span>';
+    else if(m[3])out+='<span class="t">'+esc(m[3])+'</span>';
+    else if(m[4])out+='<span class="n">'+esc(m[4])+'</span>';
+    else out+='<span class="k">'+esc(m[5])+'</span>';
+    last=m.index+m[0].length;
+  }
+  return out+esc(code.slice(last));
+}
+document.getElementById('difftb').innerHTML = SQL.map(([n,code])=>`
+  <tr class="add" id="L${n}">
+    <td class="gut">${n}
+      <span class="gactions">
+        <button class="ga cm" title="Add a comment"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2.5v7M2.5 6h7"/></svg></button>
+        <button class="ga bb" title="Ask BetBot about this line" onclick="askLine(${n})"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5" stroke-linecap="round"/></svg></button>
+      </span>
+    </td>
+    <td class="gut sign">+</td>
+    <td class="code">${hl(code)||'&nbsp;'}</td></tr>`).join('');
+
+function jump(line){
+  document.querySelectorAll('tr.cited').forEach(t=>t.classList.remove('cited'));
+  const tr=document.getElementById('L'+line);
+  if(!tr) return;
+  tr.classList.add('cited');
+  tr.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+/* =============== thread content =============== */
+const PROV = {
+  code:['FROM DIFF','Grounded in code visible in this pull request.'],
+  doc :['FROM PR DESC','Grounded in the PR description or the linked work item.'],
+  infer:['INFERRED','Not stated anywhere. BetBot is reasoning from convention — treat as a hypothesis.'],
+};
+const provChip = k => `<span class="prov ${k}" title="${PROV[k][1]}">
+  ${k==='infer'
+    ? '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 1.8v1.4M3.6 3.6l1 1M1.8 8h1.4M6 13h4M6.5 11h3a3.8 3.8 0 1 0-3 0z" stroke-linecap="round"/></svg>'
+    : '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 8.4l3 3 6-7" stroke-linecap="round" stroke-linejoin="round"/></svg>'}
+  ${PROV[k][0]}</span>`;
+
+function answer({prov, body, cites=[], infer}){
+  return `<div class="ans">
+    <div class="ans-h"><span class="who">BETBOT</span>${provChip(prov)}</div>
+    ${body}
+    ${infer?`<div class="inferbox"><b>This part is a guess.</b> ${infer}</div>`:''}
+    ${cites.length?`<div class="cites">${cites.map(c=>
+      `<span class="cite" onclick="jump(${c[1]})"><span class="dot"></span>${c[0]}:${c[1]}</span>`).join('')}</div>`:''}
+    <div class="ans-f">
+      <button class="mini" title="Copy answer">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4a1.5 1.5 0 0 0-1.5 1.5v5A1.5 1.5 0 0 0 4 11h1"/></svg>
+        Copy</button>
+      <button class="mini" onclick="openSheet(this)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5A1.5 1.5 0 0 1 12 10.5H6l-3.5 3z"/></svg>
+        Post as comment…</button>
+      <span class="sp"></span>
+      <button class="mini icon-only" title="Unhelpful — reports this answer to BetBot">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+          <path d="M5 9.4V3h6.2a1.3 1.3 0 0 1 1.3 1.3v3.8a1.3 1.3 0 0 1-1.3 1.3H9l-1.1 3a1.2 1.2 0 0 1-2.3-.5z"/>
+          <path d="M3 3v6.4" stroke-linecap="round"/></svg></button>
+    </div>
+  </div>`;
+}
+const you = t => `<div class="turn you"><div class="bubble">${t}</div></div>`;
+
+const T_WHAT = you('What does this PR change?') + `<div class="turn">` + answer({
+  prov:'code',
+  body:`<p>It adds five new stored procedures, <code>SearchUsersBy*_V2</code>, under
+    <code>Scripts/tps-user</code>. Nothing is modified or deleted — all 45 lines are additions across 5 files.</p>
+    <p>Each <code>_V2</code> differs from its V1 in one way: the <code>SELECT</code> now returns
+    <code>COALESCE(u.Email, uev.Email)</code> instead of <code>u.Email</code>, and the <code>WHERE</code>
+    gains an <code>OR</code> arm matching against <code>UserEmailVerification</code>. In effect the
+    Salesforce search endpoints now match users whose email is only recorded as unverified.</p>`,
+  cites:[['054_…Email_V2.sql',22],['054_…Email_V2.sql',39]],
+}) + `</div>`;
+
+const T_NOLOCK = you('Why NOLOCK on every join?') + `<div class="turn">` + answer({
+  prov:'infer',
+  body:`<p>Every join in all five procedures carries <code>WITH (NOLOCK)</code>, including the new
+    <code>LEFT JOIN</code> on <code>UserEmailVerification</code>. The V1 procedures these replace do the same,
+    so the pattern is inherited rather than introduced here.</p>
+    <p>Neither the PR description nor the linked work item ACQ-4245 mentions locking or isolation.</p>`,
+  infer:`The usual reason for this pattern is avoiding reader-writer blocking on hot user tables, at the cost of
+    dirty reads. Whether that trade was made deliberately for these procedures — or simply copied forward — is
+    not recorded anywhere I can see. <b>Ask the author.</b>`,
+  cites:[['054_…Email_V2.sql',27],['054_…Email_V2.sql',34]],
+}) + `</div>`;
+
+const T_BREAK = you('What breaks if I approve this?') + `<div class="turn">` + answer({
+  prov:'code',
+  body:`<p>Two things worth checking before you approve:</p>
+    <ul>
+      <li><b>Result-set change, not just additive.</b> Callers of the V2 endpoints will start receiving users
+        who previously didn't match. If Salesforce treats a match as "user exists", this widens that set.</li>
+      <li><b>Unindexed predicate.</b> <code>uev.Email = @SearchTerm</code> has no supporting index on
+        <code>Users.UserEmailVerification</code>. <code>TOP 20</code> caps rows returned, not rows scanned.</li>
+    </ul>
+    <p>The migration itself is safe to run — <code>CREATE OR ALTER</code>, no data change, no drops.</p>`,
+  cites:[['054_…Email_V2.sql',39],['056_…PhoneContact_V2.sql',41]],
+}) + `</div>`;
+
+const STREAM = you('Is the V1 procedure still used?') + `<div class="turn"><div class="ans streaming">
+  <div class="ans-h"><span class="who">BETBOT</span>
+    <span class="prov pending" title="BetBot labels every answer with where it came from once it has finished reading.">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/></svg>CHECKING SOURCES</span></div>
+  <div class="thinking"><span class="d"></span><span class="d"></span><span class="d"></span> reading 5 files and the PR description…</div>
+  <p>This pull request doesn't drop or alter the V1 procedures, so they still exist in the database. Whether
+  anything still <em>calls</em> them isn't visible from this diff<span class="cursor"></span></p>
+  <div class="ans-f"><button class="mini">Stop</button></div>
+</div></div>`;
+
+/* Mode 3 of the capability ladder — the connector rejected json_schema, so the
+   answer is prose with no asserted provenance. The badge says so and the
+   citation strip is absent; nothing is inferred client-side to fill the gap. */
+const T_DEGRADED = you('What does this PR change?') + `<div class="turn"><div class="ans">
+  <div class="ans-h"><span class="who">BETBOT</span>
+    <span class="prov unver" title="This connector can't return structured answers, so BetBot did not state where this came from. Treat it as unverified.">UNVERIFIED SOURCE</span></div>
+  <p>It adds five new stored procedures, <code>SearchUsersBy*_V2</code>, under <code>Scripts/tps-user</code>.
+  Each one returns <code>COALESCE(u.Email, uev.Email)</code> and gains an <code>OR</code> arm matching against
+  <code>UserEmailVerification</code>.</p>
+  <div class="inferbox">This connector doesn't support structured answers, so BetBot hasn't said which parts come
+  from the diff and which are inference. <b>Check anything you'd act on against the code.</b></div>
+  <div class="ans-f">
+    <button class="mini" title="Copy answer">Copy</button>
+    <span class="sp"></span>
+    <button class="mini icon-only" title="Unhelpful — reports this answer to BetBot">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+        <path d="M5 9.4V3h6.2a1.3 1.3 0 0 1 1.3 1.3v3.8a1.3 1.3 0 0 1-1.3 1.3H9l-1.1 3a1.2 1.2 0 0 1-2.3-.5z"/>
+        <path d="M3 3v6.4" stroke-linecap="round"/></svg></button>
+  </div>
+</div></div>`;
+
+/* =============== state =============== */
+/* The panel is named by whichever connector holds the PR-question capability.
+   Nothing below hard-codes "BetBot" — swap the connector, swap the name. The
+   harness's Connector row (top right) proves it: three different providers,
+   same panel, same badges, same citation behaviour. Nothing here branches on
+   which one is active except this one object and the glyph it points at. */
+const PROVIDERS = {
+  betbot:    { name:'BetBot',  service:'SB.Internal.BetBot', tag:'CUSTOM',
+    downWhere:'Check <code class="csvc-j">SB.Internal.BetBot</code> in the cluster.',
+    glyph:`<rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5M6 8.5v1M10 8.5v1" stroke-linecap="round"/><circle cx="8" cy="2" r="1" fill="currentColor" stroke="none"/>` },
+  anthropic: { name:'Claude',  service:'the Anthropic API',   tag:'ANTHROPIC',
+    downWhere:'This usually clears on its own — check <a href="#">status.anthropic.com</a> if it doesn’t.',
+    glyph:`<path d="M8 2.2v2.3M8 11.5v2.3M2.2 8h2.3M11.5 8h2.3M4.3 4.3l1.6 1.6M10.1 10.1l1.6 1.6M11.7 4.3l-1.6 1.6M5.9 10.1l-1.6 1.6" stroke-linecap="round"/>` },
+  copilot:   { name:'Copilot', service:'GitHub Copilot',      tag:'GITHUB',
+    downWhere:'If this persists, check that your Copilot seat and GitHub OAuth grant in <span class="csvc-j">Settings › Connectors</span> are still valid.',
+    glyph:`<path d="M8 2.3c-2.9 0-4.6 1.9-4.6 4.7 0 .9.1 1.7.4 2.4-.5.4-.8 1-.8 1.7 0 1.2 1 2.1 2.2 2.1.6 0 1.1-.2 1.5-.6.7.2 1.5.3 2.3.3s1.6-.1 2.3-.3c.4.4.9.6 1.5.6 1.2 0 2.2-.9 2.2-2.1 0-.7-.3-1.3-.8-1.7.3-.7.4-1.5.4-2.4 0-2.8-1.7-4.7-4.6-4.7z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="5.9" cy="8.2" r=".9" fill="currentColor" stroke="none"/><circle cx="10.1" cy="8.2" r=".9" fill="currentColor" stroke="none"/>` },
+};
+const CONNECTOR = { name:'BetBot', service:'SB.Internal.BetBot' };
+let CURRENT_PROVIDER = 'betbot';
+
+// The thread templates (T_WHAT, T_NOLOCK, STREAM, T_DEGRADED…) are Launchpad's
+// own static copy, built once at load — not diff or PR content — so a literal
+// find/replace on the rendered HTML is a safe, low-effort way to relabel every
+// "BETBOT" mention (the .who row, tooltips, inferbox prose) without threading
+// CONNECTOR through each template string individually.
+function relabelThread(){
+  const t = document.getElementById('thread');
+  if(!t || !t.innerHTML) return;
+  t.innerHTML = t.innerHTML
+    .split('BETBOT').join(CONNECTOR.name.toUpperCase())
+    .split('BetBot').join(CONNECTOR.name);
+}
+
+function setProvider(key){
+  CURRENT_PROVIDER = key;
+  const p = PROVIDERS[key];
+  CONNECTOR.name = p.name; CONNECTOR.service = p.service;
+  document.getElementById('downwhere').innerHTML = p.downWhere;
+  document.querySelectorAll('.cname-j').forEach(e=>e.textContent=CONNECTOR.name);
+  document.querySelectorAll('.csvc-j').forEach(e=>e.textContent=CONNECTOR.service);
+  document.getElementById('ptag').textContent = p.tag;
+  document.getElementById('bavatar').innerHTML =
+    `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${p.glyph}</svg>`;
+  const unconf = document.querySelector('.app').getAttribute('data-state')==='unconfigured';
+  document.getElementById('tabname').textContent = unconf ? 'Agent' : CONNECTOR.name;
+  ['p-bot','p-anth','p-cop'].forEach(id=>document.getElementById(id).classList.toggle('on', id==={betbot:'p-bot',anthropic:'p-anth',copilot:'p-cop'}[key]));
+  relabelThread();
+  const down = document.querySelector('.app').getAttribute('data-state')==='down';
+  const composer = document.getElementById('composer');
+  if(composer) composer.placeholder = down
+    ? `${CONNECTOR.name} is unreachable — questions are unavailable`
+    : `Ask ${CONNECTOR.name} about this pull request…`;
+  const privtext = document.getElementById('privtext');
+  if(privtext) privtext.textContent = down ? `Unavailable while ${CONNECTOR.name} is unreachable` : 'Private to you';
+}
+
+const STATES = {
+  unconfigured:{thread:'', meta:'', chips:false},
+  landing:{thread:'', meta:'reviewed 2h ago · a3f9c21', chips:true},
+  thread:{thread:T_WHAT+T_NOLOCK+T_BREAK, meta:'reviewed 2h ago · a3f9c21', chips:false},
+  streaming:{thread:T_WHAT+STREAM, meta:'reviewed 2h ago · a3f9c21', chips:false},
+  stale:{thread:T_WHAT+T_NOLOCK, meta:'reviewed 2h ago · a3f9c21', chips:false},
+  degraded:{thread:T_DEGRADED, meta:'reviewed 2h ago · a3f9c21', chips:false},
+  down:{thread:'', meta:'last reachable 2h ago', chips:false},
+};
+function setState(s){
+  const app=document.querySelector('.app');
+  app.setAttribute('data-state',s);
+  const cfg=STATES[s];
+  const unconf = s==='unconfigured';
+  document.getElementById('tabname').textContent = unconf ? 'Agent' : CONNECTOR.name;
+  document.getElementById('tabcnt').style.display = (unconf || s==='down') ? 'none' : '';
+  if(unconf){
+    ['s-land','s-thread','s-stream','s-stale','s-down','s-unconf','s-degr'].forEach(id=>{
+      const b=document.getElementById(id); if(b) b.classList.toggle('on', id==='s-unconf');
+    });
+    return;
+  }
+  const su=document.getElementById('s-unconf'); if(su) su.classList.remove('on');
+  document.getElementById('thread').innerHTML=cfg.thread;
+  relabelThread();
+  document.getElementById('bmeta').textContent=cfg.meta;
+  const showChips = cfg.chips;
+  document.getElementById('suggchips').style.display = showChips?'flex':'none';
+  document.getElementById('sugglabel').style.display = showChips?'flex':'none';
+  // Service-down keeps the cached review on screen and disables input instead of
+  // blanking the panel — the findings are the panel's most useful content and
+  // they survive the outage.
+  const down = s==='down';
+  document.getElementById('composer').disabled = down;
+  document.getElementById('composer').placeholder = down
+    ? `${CONNECTOR.name} is unreachable — questions are unavailable`
+    : `Ask ${CONNECTOR.name} about this pull request…`;
+  document.getElementById('sendbtn').disabled = down;
+  document.getElementById('privtext').textContent = down
+    ? `Unavailable while ${CONNECTOR.name} is unreachable`
+    : 'Private to you';
+  document.getElementById('privlock').style.display = down ? 'none' : '';
+  ['landing','thread','streaming','stale','degraded','down'].forEach(k=>{
+    const b=document.getElementById('s-'+({landing:'land',thread:'thread',streaming:'stream',stale:'stale',degraded:'degr',down:'down'})[k]);
+    if(b) b.classList.toggle('on',k===s);
+  });
+  if(!down) document.getElementById('bscroll').scrollTop = 1e6;
+}
+function rtab(t){
+  document.querySelector('.app').setAttribute('data-rtab',t);
+  document.getElementById('tab-files').classList.toggle('on',t==='files');
+  document.getElementById('tab-bot').classList.toggle('on',t==='bot');
+  document.getElementById('pane-files').classList.toggle('on',t==='files');
+  document.getElementById('pane-bot').classList.toggle('on',t==='bot');
+}
+function ask(el){
+  document.getElementById('composer').value = el.textContent.trim();
+  document.getElementById('composer').focus();
+}
+function askLine(n){
+  rtab('bot');
+  document.getElementById('composer').value = `About line ${n}: `;
+  document.getElementById('composer').focus();
+  jump(n);
+}
+function openSheet(btn){
+  const ans = btn.closest('.ans');
+  const text = [...ans.querySelectorAll('p,li')].map(p=>p.innerText.trim()).join('\n\n');
+  document.getElementById('sheettext').value = text + `\n\n— via ${CONNECTOR.name}`;
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('sheet').classList.add('on');
+}
+function closeSheet(){
+  document.getElementById('scrim').classList.remove('on');
+  document.getElementById('sheet').classList.remove('on');
+}
+function theme(t){ document.body.setAttribute('data-theme',t);
+  document.getElementById('t-l').classList.toggle('on',t==='light');
+  document.getElementById('t-d').classList.toggle('on',t==='dark'); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
+
+document.querySelectorAll('.cname-j').forEach(e=>e.textContent=CONNECTOR.name);
+document.querySelectorAll('.csvc-j').forEach(e=>e.textContent=CONNECTOR.service);
+setState('thread');
+</script>
+</body>
+</html>
