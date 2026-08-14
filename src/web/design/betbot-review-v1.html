@@ -49,6 +49,7 @@
     --prov-code:#1097a8;           /* grounded in the diff                  */
     --prov-doc:#6b5bd6;            /* grounded in PR description / work item*/
     --prov-infer:#5c6672;          /* inference — not stated anywhere       */
+    --h-dock:340px;
     background:var(--bg-page);color:var(--ink-primary)}
   [data-theme="dark"] .app{
     --bg-page:#0d0d0d;--bg-surface:#1a1a19;--bg-surface-2:#212120;--code-bg:#161615;
@@ -98,11 +99,22 @@
   .btn svg{width:11px;height:11px}
   .vr{width:1px;height:18px;background:var(--border-hairline);margin:0 3px}
 
-  /* ================= three panes ================= */
-  .review{flex:1;display:grid;min-height:0;grid-template-columns:250px minmax(0,1fr) 380px}
+  /* ================= grid: PR list | diff/files | dock ================= */
+  /* The dock sits under the diff and file tree only — never under the PR list,
+     which is a separate navigational axis and keeps its full height regardless
+     of the dock's state. See DESIGN_SPEC_REVIEW.md §5, "The agent dock". */
+  .review{flex:1;display:grid;min-height:0;
+    grid-template-columns:250px minmax(0,1fr) 276px;
+    grid-template-rows:1fr var(--h-dock);
+    grid-template-areas:"prlist diff files" "prlist dock dock";
+    transition:grid-template-rows .16s ease}
+  .review[data-dock="off"]{--h-dock:46px}
   .pane{display:flex;flex-direction:column;min-width:0;overflow:hidden;background:var(--bg-surface)}
-  .pane.l{border-right:1px solid var(--border-hairline)}
-  .pane.r{border-left:1px solid var(--border-hairline)}
+  .pane.l{grid-area:prlist;border-right:1px solid var(--border-hairline)}
+  .pane.c{grid-area:diff}
+  .pane.r{grid-area:files;border-left:1px solid var(--border-hairline)}
+  .pane.dock{grid-area:dock;border-top:1px solid var(--border-hairline);border-left:1px solid var(--border-hairline);
+    position:relative}
 
   /* left */
   .lh{padding:9px 11px;border-bottom:1px solid var(--border-hairline);flex-shrink:0}
@@ -153,27 +165,24 @@
   .ga.bb{background:var(--bot)}
   .ga svg{width:9px;height:9px}
 
-  /* ================= right rail ================= */
-  .rtabs{display:flex;padding:0 6px;border-bottom:1px solid var(--border-hairline);flex-shrink:0;
-    background:var(--bg-surface)}
-  .rtab{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:600;
-    padding:11px 0 9px;cursor:pointer;color:var(--ink-secondary);border-bottom:2px solid transparent}
-  .rtab.on{color:var(--ink-primary);border-bottom-color:var(--ink-primary)}
-  .rtab .cnt{font-size:10px;font-weight:600;padding:1px 6px;border-radius:100px;
+  /* persistent inline-annotation marker — distinct from the hover-only
+     .gactions above: this one never hides, because it is the one thing that
+     says "the agent already said something specific about this exact line."
+     Sits at the outer edge of the gutter so it never collides with the
+     hover actions, which float over the number itself. */
+  .gutmark{position:absolute;right:1px;top:50%;transform:translateY(-50%);width:6px;height:6px;
+    border-radius:1px;background:var(--bot);cursor:pointer;z-index:4}
+  .gutmark.resolved{background:var(--ink-muted);opacity:.55}
+  .gutmark:hover{transform:translateY(-50%) scale(1.35)}
+
+  /* ================= right rail — file tree only ================= */
+  /* No tab, no "Files / Agent" split. The rail exists so it never has to be
+     hidden to see the agent — that's now the dock's whole job (see below). */
+  .rhead{display:flex;align-items:center;gap:6px;padding:11px 12px 9px;font-size:12px;font-weight:600;
+    border-bottom:1px solid var(--border-hairline);flex-shrink:0}
+  .rhead .cnt{font-size:10px;font-weight:600;padding:1px 6px;border-radius:100px;
     background:var(--hover-wash);color:var(--ink-muted);font-variant-numeric:tabular-nums}
-  .rtab.on .cnt{color:var(--ink-secondary)}
-  .rtab .bmark{width:13px;height:13px;flex-shrink:0}
-  .rtab.bot.on{border-bottom-color:var(--bot);color:var(--bot)}
-  .rtab.bot.on .cnt{background:color-mix(in oklab,var(--bot) 15%,transparent);color:var(--bot)}
-  /* with no connector there is no identity to colour for, so the tab stays neutral */
-  [data-state="unconfigured"] .rtab.bot.on{color:var(--ink-primary);border-bottom-color:var(--ink-primary)}
-  [data-state="unconfigured"] .rtab.bot .bmark{opacity:.45}
 
-  .rbody{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
-  .tabpane{display:none;flex:1;flex-direction:column;min-height:0;overflow:hidden}
-  .tabpane.on{display:flex}
-
-  /* files pane */
   .fscroll{flex:1;overflow-y:auto;padding-bottom:10px}
   .fgrouphead{font-size:10px;color:var(--ink-muted);padding:9px 10px 4px;font-family:ui-monospace,Menlo,monospace;
     line-height:1.35;word-break:break-word}
@@ -184,23 +193,52 @@
   .fn{flex:1;min-width:0;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     font-family:ui-monospace,Menlo,monospace}
 
-  /* ================= BETBOT PANE ================= */
-  .bhead{display:flex;align-items:center;gap:9px;padding:11px 12px 10px;flex-shrink:0;
+  /* ================= AGENT DOCK ================= */
+  /* Collapsed = .dhead alone (~46px), a persistent identity strip, never
+     nothing — an outage banner or a CACHED tag has to stay legible without
+     expanding. Expanded = .dhead + .dbody, height driven by --h-dock and
+     resizable via the handle at the dock's top edge. */
+  .dresize{position:absolute;top:-4px;left:0;right:0;height:7px;cursor:row-resize;z-index:8}
+  .dresize:hover,.dresize.active{background:color-mix(in oklab,var(--bot) 30%,transparent)}
+  .dhead{display:flex;align-items:center;gap:9px;padding:10px 12px;flex-shrink:0;cursor:default;
     border-bottom:1px solid var(--border-hairline)}
+  .review[data-dock="off"] .dhead{cursor:pointer;border-bottom:none}
+  .review[data-dock="off"] .dbody{display:none}
   .bavatar{width:26px;height:26px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
-    background:color-mix(in oklab,var(--bot) 16%,transparent);color:var(--bot)}
+    background:var(--hover-wash);color:var(--ink-secondary)}
   .bavatar svg{width:15px;height:15px}
   .bname{font-size:13px;font-weight:600;line-height:1.2;display:flex;align-items:center;gap:6px}
+  .statusdot{width:6px;height:6px;border-radius:50%;background:var(--status-good);flex-shrink:0}
+  [data-state="down"] .statusdot{background:var(--status-bad)}
+  [data-state="unconfigured"] .statusdot{background:var(--ink-muted)}
   /* the provider tag is muted on purpose — violet (--bot) marks "the connector
      answering right now" regardless of vendor; a second hue here would compete
      with it and imply the provider matters to the reviewer. It doesn't. */
   .ptag{font-size:9.5px;font-weight:700;letter-spacing:.03em;color:var(--ink-muted);
     background:var(--hover-wash);padding:1px 6px;border-radius:100px}
-  .bmeta{font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace}
+  .bmeta{font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace;
+    display:flex;align-items:center;gap:6px}
   .iconbtn{width:26px;height:26px;border-radius:6px;border:none;background:transparent;color:var(--ink-muted);
     display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
   .iconbtn:hover{background:var(--hover-wash);color:var(--ink-primary)}
   .iconbtn svg{width:14px;height:14px}
+  .dockchev{transition:transform .15s ease}
+  .review[data-dock="off"] .dockchev{transform:rotate(180deg)}
+
+  .dbody{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+
+  /* annotation cycling strip — lives just under the header, in the dock,
+     since that's the one place visible regardless of which file is open */
+  .dsub{display:flex;align-items:center;gap:9px;padding:6px 12px;flex-shrink:0;font-size:11px;
+    color:var(--ink-muted);border-bottom:1px solid var(--border-hairline);background:var(--bg-surface-2)}
+  .dsub .lbl{font-weight:600;color:var(--ink-secondary)}
+  .cyc{display:inline-flex;align-items:center;gap:2px}
+  .cyc button{width:18px;height:18px;border-radius:4px;border:none;background:transparent;color:var(--ink-secondary);
+    cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px}
+  .cyc button:hover{background:var(--hover-wash)}
+  .cyc button:disabled{opacity:.4;cursor:not-allowed}
+  .cyc button:disabled:hover{background:transparent}
+  .dsub .showres{margin-left:auto;display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 
   .bscroll{flex:1;overflow-y:auto;padding:0 0 6px}
 
@@ -246,17 +284,26 @@
   .you{display:flex;justify-content:flex-end}
   .you .bubble{max-width:88%;background:var(--hover-wash);border-radius:10px 10px 3px 10px;padding:8px 11px;
     font-size:12.5px;line-height:1.5}
-  .ans{border-left:2px solid var(--bot);padding-left:11px;margin-left:2px}
+  .ans{margin-left:2px}
   .ans-h{display:flex;align-items:center;gap:7px;margin-bottom:6px}
   .ans-h .who{font-size:11px;font-weight:700;color:var(--bot);letter-spacing:.02em}
+
+  /* a segment is one claim: its own badge, its own text, its own citations —
+     bundled together at the source rather than pooled at the end of the turn.
+     See DESIGN_SPEC_CONNECTORS.md §5.2. */
+  .seg{border-left:2px solid var(--bot);padding-left:11px;margin-bottom:10px}
+  .seg:last-of-type{margin-bottom:0}
+  .seg-h{margin-bottom:5px}
   .prov{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;letter-spacing:.04em;
     padding:2px 7px;border-radius:100px;cursor:help}
   .prov svg{width:9px;height:9px}
   .prov.code{background:color-mix(in oklab,var(--prov-code) 15%,transparent);color:var(--prov-code)}
   .prov.doc{background:color-mix(in oklab,var(--prov-doc) 15%,transparent);color:var(--prov-doc)}
   .prov.infer{background:color-mix(in oklab,var(--prov-infer) 16%,transparent);color:var(--prov-infer)}
-  /* While an answer is still streaming there is nothing to attest to yet, so the
-     badge is explicitly pending rather than claiming a source in advance. */
+  /* While a segment is still streaming there is nothing to attest to yet, so
+     the badge is explicitly pending rather than claiming a source in advance.
+     This shows only on the segment currently arriving — closed segments keep
+     their real badge, which is the whole point of segment-at-a-time render. */
   .prov.pending{background:var(--hover-wash);color:var(--ink-muted)}
   /* connector can't return structured output at all: no provenance was asserted,
      so we say so rather than guessing one. Citations are hidden entirely. */
@@ -265,32 +312,34 @@
   .prov.pending svg{animation:spin 1.8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media(prefers-reduced-motion:reduce){.prov.pending svg{animation:none}}
-  .ans p{margin:0 0 8px;font-size:12.5px;line-height:1.6;color:var(--ink-primary)}
-  .ans p:last-of-type{margin-bottom:7px}
-  .ans code{background:var(--hover-wash);padding:1px 4px;border-radius:4px;font-size:11.5px}
-  .ans ul{margin:0 0 8px;padding-left:16px;font-size:12.5px;line-height:1.6}
-  .ans li{margin-bottom:3px}
+  .seg p{margin:0 0 8px;font-size:12.5px;line-height:1.6;color:var(--ink-primary)}
+  .seg p:last-of-type{margin-bottom:7px}
+  .seg code{background:var(--hover-wash);padding:1px 4px;border-radius:4px;font-size:11.5px}
+  .seg ul{margin:0 0 8px;padding-left:16px;font-size:12.5px;line-height:1.6}
+  .seg li{margin-bottom:3px}
   .inferbox{margin:0 0 8px;padding:8px 10px;border-radius:8px;font-size:11.5px;line-height:1.55;
     background:color-mix(in oklab,var(--prov-infer) 8%,transparent);
     border:1px dashed color-mix(in oklab,var(--prov-infer) 40%,transparent);color:var(--ink-secondary)}
   .inferbox b{color:var(--ink-primary)}
 
-  .cites{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+  .cites{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
   .cite{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;
     padding:3px 8px;border-radius:6px;border:1px solid var(--border-hairline);background:var(--bg-surface-2);
     color:var(--ink-secondary);cursor:pointer}
   .cite:hover{border-color:var(--bot);color:var(--bot)}
   .cite .dot{width:4px;height:4px;border-radius:1px;background:var(--prov-code);flex-shrink:0}
 
-  .ans-f{display:flex;align-items:center;gap:5px;padding-bottom:4px}
-  .mini{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:6px;
+  .seg-f{display:flex;align-items:center;gap:5px;padding-bottom:2px}
+  .mini{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:6px;
     border:1px solid var(--border-hairline);background:transparent;color:var(--ink-secondary);
-    font-size:11px;font-weight:600;cursor:pointer}
+    font-size:10.5px;font-weight:600;cursor:pointer}
   .mini:hover{background:var(--hover-wash);color:var(--ink-primary)}
   .mini svg{width:11px;height:11px}
-  .mini.icon-only{padding:0;width:24px;justify-content:center}
+  .mini.icon-only{padding:0;width:22px;justify-content:center}
   .mini:disabled{opacity:.5;cursor:not-allowed}
   .mini:disabled:hover{background:transparent;color:var(--ink-secondary)}
+  .ans-f{display:flex;align-items:center;gap:5px;padding:2px 0 8px}
+  .ans-f .mini{height:24px;font-size:11px}
   .ans-f .sp{margin-left:auto}
 
   /* streaming */
@@ -322,8 +371,7 @@
   .noconn{display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:10px;
     padding:34px 26px;text-align:center;font-size:12px;line-height:1.6;color:var(--ink-secondary)}
   [data-state="unconfigured"] .noconn{display:flex}
-  [data-state="unconfigured"] #bscroll,[data-state="unconfigured"] .comp,
-  [data-state="unconfigured"] .bhead{display:none}
+  [data-state="unconfigured"] .dsub,[data-state="unconfigured"] #bscroll,[data-state="unconfigured"] .comp{display:none}
   .noconn .ni{width:28px;height:28px;color:var(--ink-muted);opacity:.55}
   .noconn b{font-size:13.5px;color:var(--ink-primary)}
   .noconn p{margin:0;max-width:280px}
@@ -369,6 +417,33 @@
   .sh-f{display:flex;align-items:center;gap:7px;padding:11px 15px;border-top:1px solid var(--border-hairline);
     background:var(--bg-surface-2)}
   .sh-f .sp{margin-left:auto}
+
+  /* ================= inline annotation card ================= */
+  /* Reuses the same elevated-card-plus-scrim-plus-pointer treatment as the
+     real PR comment composer (DESIGN_SPEC_REVIEW.md §6), with one deliberate
+     visual difference — a dashed border and a NOT POSTED tag — so it is never
+     mistaken for something already live on the pull request. */
+  .ascrim{position:fixed;inset:0;background:rgba(0,0,0,.16);display:none;z-index:70}
+  .ascrim.on{display:block}
+  .acard{position:fixed;width:302px;background:var(--bg-surface);border:1.5px dashed var(--bot);
+    border-radius:10px;box-shadow:var(--shadow-pop);z-index:71;display:none;overflow:hidden}
+  .acard.on{display:block}
+  .ac-ptr{position:absolute;left:-7px;top:18px;width:12px;height:12px;background:var(--bg-surface);
+    border-left:1.5px dashed var(--bot);border-bottom:1.5px dashed var(--bot);transform:rotate(45deg)}
+  .ac-head{display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border-hairline)}
+  .ac-tag{font-size:9px;font-weight:700;letter-spacing:.04em;color:var(--bot);flex-shrink:0;
+    background:color-mix(in oklab,var(--bot) 14%,transparent);padding:2px 6px;border-radius:100px}
+  .ac-loc{font-size:10.5px;color:var(--ink-muted);font-family:ui-monospace,Menlo,monospace;flex:1;min-width:0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acard .seg{padding:9px 10px 0;border-left:none;margin:0}
+  .acard .seg-f{padding-bottom:8px}
+  .ac-empty{padding:12px 10px 4px;font-size:11.5px;color:var(--ink-secondary);line-height:1.5}
+  .ac-f{display:flex;gap:6px;padding:2px 10px 9px}
+  .ac-reply{padding:0 10px 10px}
+  .ac-reply textarea{width:100%;min-height:44px;border-radius:7px;border:1px solid var(--border-hairline);
+    font-size:11.5px;padding:6px 8px;background:var(--bg-surface-2);color:var(--ink-primary);
+    resize:vertical;line-height:1.45}
+  .ac-reply textarea:focus{outline:2px solid var(--bot);outline-offset:-1px}
 </style>
 </head>
 <body data-theme="light">
@@ -384,6 +459,11 @@
       <button id="s-stream" onclick="setState('streaming')">Streaming</button>
       <button id="s-stale" onclick="setState('stale')">Stale commit</button>
       <button id="s-down" onclick="setState('down')">Service down</button>
+    </div>
+    <span class="l">Dock</span>
+    <div class="tg">
+      <button id="d-open" class="on" onclick="setDock(true)">Expanded</button>
+      <button id="d-collapsed" onclick="setDock(false)">Collapsed</button>
     </div>
     <span class="l">Theme</span>
     <div class="tg">
@@ -410,25 +490,42 @@
       behaviour. That uniformity is the point: "no seams" means the reviewer never has to know or care which
       provider is answering. See <code>DESIGN_SPEC_CONNECTORS.md</code> for how Settings configures it and
       how the server-side adapter per provider makes it possible.</li>
-    <li><strong>It's a tab on the existing right rail</strong>, not a fourth column or a floating widget. <code>Files</code> / <span class="cname-j">BetBot</span>. You never need the file tree and an answer at the same time, and the diff stays visible in the centre — which matters, because answers cite lines in it.</li>
+    <li><strong>The panel is a bottom dock, not a rail tab.</strong> The first version put chat on a second tab
+      of the file-tree rail, so browsing files hid the conversation and vice versa. The file tree is needed
+      constantly alongside the agent; the PR list on the far left isn't, so the dock sits under the diff and
+      file tree only, and the tree stays visible and clickable the whole time the dock is open. Try the
+      <strong>Dock</strong> switch, top left of the harness — collapsing it leaves a slim identity strip, never
+      nothing, since an outage banner has to stay legible without expanding.</li>
     <li><strong>The landing state is its existing automated review</strong>, not an empty box. Findings first, chat below. The panel is useful before you type anything.</li>
-    <li><strong>Every answer is labelled by where it came from.</strong> <code>FROM DIFF</code> (aqua) · <code>FROM PR DESC</code> (violet) · <code>INFERRED</code> (slate). This is the most important element on the panel — see the note in my message.</li>
-    <li><strong>Inferences are boxed and hedged</strong> in the answer body, not just badged. BetBot cannot know why a human chose <code>NOLOCK</code>; the UI must not let it sound like it does.</li>
-    <li><strong>Citations are clickable</strong> <code>file:line</code> chips that scroll and highlight the diff in violet — visibly different from add/remove green and red, so a citation is never mistaken for a change.</li>
-    <li><strong>Read-only by default.</strong> Nothing reaches the PR unless you press <em>Post as comment…</em>, which opens an editable sheet, posts under <em>your</em> name, and appends a <code>— via BetBot</code> attribution line you can delete.</li>
-    <li><strong>Private to you</strong>, stated in the composer footer so nobody assumes teammates can see it.</li>
+    <li><strong>An answer is a list of segments, not one block with citations piled at the end.</strong> Each
+      claim carries its own <code>FROM DIFF</code> / <code>FROM PR DESC</code> / <code>INFERRED</code> badge and
+      its own citation chips, bundled directly under that claim's text — so which citation backs which sentence
+      is never ambiguous. This is the most important element on the panel; see the note in my message.</li>
+    <li><strong>Segments stream and badge one at a time</strong>, not the whole answer as a single growing string
+      — see the <em>Streaming</em> state: the first claim is already badged while the second is still
+      <code>CHECKING SOURCES</code>.</li>
+    <li><strong>Inferences are boxed and hedged</strong> on their own segment, not the whole answer. BetBot cannot
+      know why a human chose <code>NOLOCK</code>; the UI must not let it sound like it does, and it must not let
+      one hedge read as if it applies to claims that were actually grounded in the diff.</li>
+    <li><strong>A citation is a candidate inline comment.</strong> Every cited line gets a small persistent violet
+      dot in the gutter — not just a hover highlight. Click it to open a threaded annotation right there in the
+      diff, in-app only, never posted to Azure DevOps on its own. Cycle through open ones with the
+      <code>‹ n of m ›</code> control under the dock header, and resolve them once addressed.</li>
+    <li><strong>Read-only by default.</strong> Nothing reaches the PR unless you press <em>Post as comment…</em>
+      — now available on each individual segment or annotation, not just the whole turn — which opens an editable
+      sheet, posts under <em>your</em> name, and appends a <code>— via BetBot</code> attribution line you can delete.</li>
+    <li><strong>Private to you</strong>, stated in the composer footer so nobody assumes teammates can see it. The
+      same is true of inline annotations — they are not shared with other reviewers on this PR.</li>
     <li><strong>Staleness is surfaced.</strong> If the author pushes, an amber banner marks the thread as answered against an older commit, with a re-ask action.</li>
-    <li><strong>A second entry point in the diff gutter</strong> — hovering a line gives the blue comment <code>+</code> and a violet <em>ask</em>, which opens the panel pre-scoped to that line.</li>
+    <li><strong>A second entry point in the diff gutter</strong> — hovering a line gives the blue comment <code>+</code> and a violet <em>ask</em>, which opens or creates an annotation pre-scoped to that line.</li>
     <li><strong>Service-down is a real state</strong>, named, with the deployment to check. It's in a k8s cluster; it will be down sometimes.</li>
-    <li><strong>The agent is a connector, not a hard-coded feature.</strong> The tab, the panel header and the
-      outage copy all read from whichever connector holds the <em>PR questions</em> capability in
+    <li><strong>The agent is a connector, not a hard-coded feature.</strong> The dock header, the outage copy, and
+      every citation all read from whichever connector holds the <em>PR questions</em> capability in
       Settings › Connectors. <em>Not connected</em> is a designed state with exactly one action in it.</li>
     <li><strong>An agent that can't attest gets no badge it didn't earn.</strong> If a connector can't return
-      structured output, the badge reads <code>UNVERIFIED SOURCE</code>, the citation strip disappears, and the
-      answer carries a note saying what's missing — see the <em>No structured output</em> state. The one thing the
-      UI must never do is infer a provenance value to fill the gap.</li>
-    <li><strong>Provenance is pending until the answer lands.</strong> While streaming, the badge reads
-      <code>CHECKING SOURCES</code> rather than asserting a source in advance — see the <em>Streaming</em> state.</li>
+      structured output, the whole answer collapses to a single segment badged <code>UNVERIFIED SOURCE</code>
+      with no citation strip — see the <em>No structured output</em> state. The one thing the UI must never do
+      is infer a provenance value to fill the gap.</li>
     <li><strong>An outage doesn't blank the panel.</strong> <em>Service down</em> keeps the cached automated
       review on screen, labels it <code>CACHED</code>, and disables the composer with the reason stated —
       rather than replacing everything useful with an error.</li>
@@ -438,7 +535,7 @@
   </ul>
 </div>
 
-<div class="app" data-state="thread" data-rtab="bot">
+<div class="app" data-state="thread" data-dock="on">
   <div class="topnav">
     <div style="display:flex;align-items:center">
       <span class="brand">Pipeline <span class="a">Launchpad</span></span>
@@ -463,8 +560,8 @@
     </div>
   </div>
 
-  <div class="review">
-    <!-- LEFT -->
+  <div class="review" id="reviewgrid">
+    <!-- PR LIST -->
     <div class="pane l">
       <div class="lh"><input class="search" placeholder="Filter pull requests…"></div>
       <div style="overflow-y:auto">
@@ -477,7 +574,7 @@
       </div>
     </div>
 
-    <!-- CENTRE -->
+    <!-- DIFF -->
     <div class="pane c">
       <div class="dtool">
         <span class="fname">054_SalesForce.SearchUsersByEmail_V2.sql</span>
@@ -487,148 +584,151 @@
       <div class="dscroll" id="dscroll"><table class="diff"><tbody id="difftb"></tbody></table></div>
     </div>
 
-    <!-- RIGHT -->
+    <!-- FILE TREE (files only — no agent tab, see DESIGN_SPEC_REVIEW.md §7) -->
     <div class="pane r">
-      <div class="rtabs">
-        <div class="rtab" id="tab-files" onclick="rtab('files')">Files <span class="cnt">5</span></div>
-        <div class="rtab bot on" id="tab-bot" onclick="rtab('bot')">
-          <svg class="bmark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+      <div class="rhead">Files <span class="cnt">5</span></div>
+      <div class="fscroll">
+        <div class="fgrouphead">SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user</div>
+        <div class="frow on"><span class="fbadge">A</span><span class="fn">054_SalesForce.SearchUsersByEmail_V2.sql</span></div>
+        <div class="frow"><span class="fbadge">A</span><span class="fn">055_SalesForce.SearchUsersByFullName_V2.sql</span></div>
+        <div class="frow"><span class="fbadge">A</span><span class="fn">056_SalesForce.SearchUsersByPhoneContact_V2.sql</span></div>
+        <div class="frow"><span class="fbadge">A</span><span class="fn">057_SalesForce.SearchUsersByUserId_V2.sql</span></div>
+        <div class="frow"><span class="fbadge">A</span><span class="fn">058_SalesForce.SearchUsersByUsername_V2.sql</span></div>
+      </div>
+    </div>
+
+    <!-- AGENT DOCK -->
+    <div class="pane dock">
+      <div class="dresize" id="dresize"></div>
+      <div class="dhead" id="dhead" onclick="dockHeadClick(event)">
+        <span class="bavatar" id="bavatar">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
             <rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5M6 8.5v1M10 8.5v1" stroke-linecap="round"/>
             <circle cx="8" cy="2" r="1" fill="currentColor" stroke="none"/></svg>
-          <span id="tabname">BetBot</span> <span class="cnt" id="tabcnt">3</span>
+        </span>
+        <div style="flex:1;min-width:0">
+          <div class="bname"><span class="cname-j" id="dockname">BetBot</span><span class="ptag" id="ptag">CUSTOM</span></div>
+          <div class="bmeta"><span class="statusdot"></span><span id="bmeta">reviewed 2h ago · a3f9c21</span></div>
         </div>
+        <button class="iconbtn" title="Re-run review" onclick="event.stopPropagation()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/><path d="M13.6 1.8v2.6h-2.6"/></svg>
+        </button>
+        <button class="iconbtn" id="dockchevbtn" title="Collapse panel" onclick="event.stopPropagation();setDock(document.getElementById('reviewgrid').getAttribute('data-dock')!=='on')">
+          <svg class="dockchev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <path d="M4 6l4 4 4-4"/></svg>
+        </button>
       </div>
 
-      <div class="rbody">
-        <!-- FILES -->
-        <div class="tabpane" id="pane-files">
-          <div class="fscroll">
-            <div class="fgrouphead">SA.Phase1.Migrations/SA.Phase1.Migrations/Scripts/tps-user</div>
-            <div class="frow on"><span class="fbadge">A</span><span class="fn">054_SalesForce.SearchUsersByEmail_V2.sql</span></div>
-            <div class="frow"><span class="fbadge">A</span><span class="fn">055_SalesForce.SearchUsersByFullName_V2.sql</span></div>
-            <div class="frow"><span class="fbadge">A</span><span class="fn">056_SalesForce.SearchUsersByPhoneContact_V2.sql</span></div>
-            <div class="frow"><span class="fbadge">A</span><span class="fn">057_SalesForce.SearchUsersByUserId_V2.sql</span></div>
-            <div class="frow"><span class="fbadge">A</span><span class="fn">058_SalesForce.SearchUsersByUsername_V2.sql</span></div>
-          </div>
+      <div class="dbody" id="dbody">
+        <!-- NO CONNECTOR -->
+        <div class="noconn">
+          <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.9 14.1l-2.7 2.7a3.8 3.8 0 1 0 5.4 5.4l2.7-2.7" transform="translate(0 -2.4)"/>
+            <path d="M14.1 9.9l2.7-2.7a3.8 3.8 0 1 0-5.4-5.4L8.7 4.5" transform="translate(0 2.4)"/>
+            <path d="M9.2 14.8l5.6-5.6"/></svg>
+          <b>No agent connected</b>
+          <p>Connect an agent and this panel will explain the pull request, answer questions about it, and
+            show the automated review.</p>
+          <button class="cta">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            Connect an agent</button>
+          <span class="fine">Settings › Connectors. Takes a URL and a token.</span>
         </div>
 
-        <!-- BETBOT -->
-        <div class="tabpane on" id="pane-bot">
-          <div class="bhead">
-            <span class="bavatar" id="bavatar">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
-                <rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5M6 8.5v1M10 8.5v1" stroke-linecap="round"/>
-                <circle cx="8" cy="2" r="1" fill="currentColor" stroke="none"/></svg>
+        <!-- annotation cycling strip -->
+        <div class="dsub" id="dsub">
+          <span class="lbl">Inline threads</span>
+          <span class="cyc">
+            <button id="cycprev" onclick="cycleAnnotation(-1)" title="Previous">‹</button>
+            <span id="cyclabel">1 of 2</span>
+            <button id="cycnext" onclick="cycleAnnotation(1)" title="Next">›</button>
+          </span>
+          <label class="showres"><input type="checkbox" id="showres" onchange="toggleShowResolved()"> Show resolved</label>
+        </div>
+
+        <div class="bscroll" id="bscroll">
+         <div class="brail">
+          <!-- SERVICE DOWN -->
+          <div class="down" id="botdown">
+            <svg class="di" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="7" width="18" height="12" rx="3"/><path d="M12 7V3.5M8.5 12.5v1.5M15.5 12.5v1.5" stroke-linecap="round"/>
+              <path d="M3.5 3.5l17 17" stroke-linecap="round"/></svg>
+            <div><b><span class="cname-j">BetBot</span> isn't reachable.</b> New questions will fail until
+              it's back — the cached review from <code>a3f9c21</code> is below.
+              <span id="downwhere">Check <code class="csvc-j">SB.Internal.BetBot</code> in the cluster.</span>
+              <div class="retry"><button class="mini">Retry</button></div></div>
+          </div>
+
+          <div class="stale">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;flex-shrink:0;margin-top:1px">
+              <circle cx="8" cy="8" r="6"/><path d="M8 5v3.2l2.2 1.3" stroke-linecap="round"/></svg>
+            <div><b>Answered against an older commit.</b> The author pushed <code>e71b0d4</code> 12m ago;
+              this thread is about <code>a3f9c21</code>. <span class="relink">Re-ask on the new commit →</span></div>
+          </div>
+         </div>
+
+          <!-- automated review = landing content -->
+          <div class="slabel">Automated review <span class="rule"></span>
+            <span class="cachetag">CACHED</span>
+            <span id="fcount" style="font-weight:600;letter-spacing:0">3 findings</span></div>
+
+          <div class="finding" onclick="jump(34)">
+            <div class="fhead">
+              <svg class="sev warn" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M8 2.6l5.6 10.4H2.4z" stroke-linejoin="round"/><path d="M8 6.4v3M8 11v.1" stroke-linecap="round"/></svg>
+              <span class="ftitle">LEFT JOIN can produce a NULL email
+                <span class="floc">054_…Email_V2.sql:34</span></span>
+            </div>
+            <div class="fbody">The <code>COALESCE(u.Email, uev.Email)</code> on line 22 handles it, but the
+              <code>WHERE</code> on line 39 compares <code>uev.Email</code> directly — rows where both are NULL are silently dropped.</div>
+          </div>
+
+          <div class="finding" onclick="jump(27)">
+            <div class="fhead">
+              <svg class="sev info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4M8 5.2v.1" stroke-linecap="round"/></svg>
+              <span class="ftitle">Five near-identical procedures
+                <span class="floc">054–058, all files</span></span>
+            </div>
+            <div class="fbody">The five <code>SearchUsersBy*_V2</code> procedures differ only in the
+              <code>WHERE</code> predicate. Consider one procedure with a search-type parameter.</div>
+          </div>
+
+          <div class="finding" onclick="jump(27)">
+            <div class="fhead">
+              <svg class="sev info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4M8 5.2v.1" stroke-linecap="round"/></svg>
+              <span class="ftitle">No index covers the new predicate
+                <span class="floc">054_…Email_V2.sql:39</span></span>
+            </div>
+            <div class="fbody">Filtering on <code>uev.Email</code> has no supporting index on
+              <code>Users.UserEmailVerification</code>. <code>TOP 20</code> limits the damage but the scan is still full.</div>
+          </div>
+
+          <!-- suggested -->
+          <div class="slabel" id="sugglabel">Ask about this PR <span class="rule"></span></div>
+          <div class="chips" id="suggchips">
+            <span class="chip" onclick="ask(this)">What does this PR change?</span>
+            <span class="chip" onclick="ask(this)">Why NOLOCK on every join?</span>
+            <span class="chip" onclick="ask(this)">What breaks if I approve this?</span>
+            <span class="chip" onclick="ask(this)">Is the V1 procedure still used?</span>
+          </div>
+
+          <!-- thread -->
+          <div id="thread"></div>
+        </div>
+
+        <div class="comp">
+          <textarea id="composer" placeholder="Ask BetBot about this pull request…"></textarea>
+          <div class="comp-f">
+            <span class="privacy" id="privline">
+              <svg id="privlock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                <rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>
+              <span id="privtext">Private to you</span>
             </span>
-            <div style="flex:1;min-width:0">
-              <div class="bname"><span class="cname-j">BetBot</span><span class="ptag" id="ptag">CUSTOM</span></div>
-              <div class="bmeta" id="bmeta">reviewed 2h ago · a3f9c21</div>
-            </div>
-            <button class="iconbtn" title="Re-run review">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                <path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/><path d="M13.6 1.8v2.6h-2.6"/></svg>
-            </button>
-            <button class="iconbtn" title="Panel options">⋯</button>
-          </div>
-
-          <!-- NO CONNECTOR -->
-          <div class="noconn">
-            <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
-                 stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9.9 14.1l-2.7 2.7a3.8 3.8 0 1 0 5.4 5.4l2.7-2.7" transform="translate(0 -2.4)"/>
-              <path d="M14.1 9.9l2.7-2.7a3.8 3.8 0 1 0-5.4-5.4L8.7 4.5" transform="translate(0 2.4)"/>
-              <path d="M9.2 14.8l5.6-5.6"/></svg>
-            <b>No agent connected</b>
-            <p>Connect an agent and this panel will explain the pull request, answer questions about it, and
-              show the automated review.</p>
-            <button class="cta">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
-              Connect an agent</button>
-            <span class="fine">Settings › Connectors. Takes a URL and a token.</span>
-          </div>
-
-          <div class="bscroll" id="bscroll">
-           <div class="brail">
-            <!-- SERVICE DOWN -->
-            <div class="down" id="botdown">
-              <svg class="di" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="7" width="18" height="12" rx="3"/><path d="M12 7V3.5M8.5 12.5v1.5M15.5 12.5v1.5" stroke-linecap="round"/>
-                <path d="M3.5 3.5l17 17" stroke-linecap="round"/></svg>
-              <div><b><span class="cname-j">BetBot</span> isn't reachable.</b> New questions will fail until
-                it's back — the cached review from <code>a3f9c21</code> is below.
-                <span id="downwhere">Check <code class="csvc-j">SB.Internal.BetBot</code> in the cluster.</span>
-                <div class="retry"><button class="mini">Retry</button></div></div>
-            </div>
-
-            <div class="stale">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;flex-shrink:0;margin-top:1px">
-                <circle cx="8" cy="8" r="6"/><path d="M8 5v3.2l2.2 1.3" stroke-linecap="round"/></svg>
-              <div><b>Answered against an older commit.</b> The author pushed <code>e71b0d4</code> 12m ago;
-                this thread is about <code>a3f9c21</code>. <span class="relink">Re-ask on the new commit →</span></div>
-            </div>
-           </div>
-
-            <!-- automated review = landing content -->
-            <div class="slabel">Automated review <span class="rule"></span>
-              <span class="cachetag">CACHED</span>
-              <span id="fcount" style="font-weight:600;letter-spacing:0">3 findings</span></div>
-
-            <div class="finding" onclick="jump(34)">
-              <div class="fhead">
-                <svg class="sev warn" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M8 2.6l5.6 10.4H2.4z" stroke-linejoin="round"/><path d="M8 6.4v3M8 11v.1" stroke-linecap="round"/></svg>
-                <span class="ftitle">LEFT JOIN can produce a NULL email
-                  <span class="floc">054_…Email_V2.sql:34</span></span>
-              </div>
-              <div class="fbody">The <code>COALESCE(u.Email, uev.Email)</code> on line 22 handles it, but the
-                <code>WHERE</code> on line 39 compares <code>uev.Email</code> directly — rows where both are NULL are silently dropped.</div>
-            </div>
-
-            <div class="finding" onclick="jump(27)">
-              <div class="fhead">
-                <svg class="sev info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4M8 5.2v.1" stroke-linecap="round"/></svg>
-                <span class="ftitle">Five near-identical procedures
-                  <span class="floc">054–058, all files</span></span>
-              </div>
-              <div class="fbody">The five <code>SearchUsersBy*_V2</code> procedures differ only in the
-                <code>WHERE</code> predicate. Consider one procedure with a search-type parameter.</div>
-            </div>
-
-            <div class="finding" onclick="jump(27)">
-              <div class="fhead">
-                <svg class="sev info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4M8 5.2v.1" stroke-linecap="round"/></svg>
-                <span class="ftitle">No index covers the new predicate
-                  <span class="floc">054_…Email_V2.sql:39</span></span>
-              </div>
-              <div class="fbody">Filtering on <code>uev.Email</code> has no supporting index on
-                <code>Users.UserEmailVerification</code>. <code>TOP 20</code> limits the damage but the scan is still full.</div>
-            </div>
-
-            <!-- suggested -->
-            <div class="slabel" id="sugglabel">Ask about this PR <span class="rule"></span></div>
-            <div class="chips" id="suggchips">
-              <span class="chip" onclick="ask(this)">What does this PR change?</span>
-              <span class="chip" onclick="ask(this)">Why NOLOCK on every join?</span>
-              <span class="chip" onclick="ask(this)">What breaks if I approve this?</span>
-              <span class="chip" onclick="ask(this)">Is the V1 procedure still used?</span>
-            </div>
-
-            <!-- thread -->
-            <div id="thread"></div>
-          </div>
-
-          <div class="comp">
-            <textarea id="composer" placeholder="Ask BetBot about this pull request…"></textarea>
-            <div class="comp-f">
-              <span class="privacy" id="privline">
-                <svg id="privlock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
-                  <rect x="3.5" y="7" width="9" height="6" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>
-                <span id="privtext">Private to you</span>
-              </span>
-              <button class="send" id="sendbtn">Ask</button>
-            </div>
+            <button class="send" id="sendbtn">Ask</button>
           </div>
         </div>
       </div>
@@ -640,7 +740,7 @@
   <div class="sheet" id="sheet">
     <div class="sh-h">
       <b>Post as a comment on !80494</b>
-      <p>This posts under <b>your</b> name, on <code>054_SalesForce.SearchUsersByEmail_V2.sql:34</code>. Edit it first — <span class="cname-j">BetBot</span>'s wording is a draft, not a review.</p>
+      <p>This posts under <b>your</b> name, on <code id="sheetloc">054_SalesForce.SearchUsersByEmail_V2.sql:34</code>. Edit it first — <span class="cname-j">BetBot</span>'s wording is a draft, not a review.</p>
     </div>
     <div class="sh-b">
       <textarea id="sheettext"></textarea>
@@ -655,6 +755,10 @@
       <button class="btn acc" onclick="closeSheet()">Post comment</button>
     </div>
   </div>
+
+  <!-- inline annotation card -->
+  <div class="ascrim" id="ascrim" onclick="closeAnnotation()"></div>
+  <div class="acard" id="acard"></div>
 </div>
 
 <script>
@@ -706,6 +810,7 @@ document.getElementById('difftb').innerHTML = SQL.map(([n,code])=>`
         <button class="ga cm" title="Add a comment"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2.5v7M2.5 6h7"/></svg></button>
         <button class="ga bb" title="Ask BetBot about this line" onclick="askLine(${n})"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="5" width="11" height="8" rx="2.5"/><path d="M8 5V2.5" stroke-linecap="round"/></svg></button>
       </span>
+      <span class="gutmark-slot" id="gm${n}"></span>
     </td>
     <td class="gut sign">+</td>
     <td class="code">${hl(code)||'&nbsp;'}</td></tr>`).join('');
@@ -716,6 +821,162 @@ function jump(line){
   if(!tr) return;
   tr.classList.add('cited');
   tr.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+/* =============== inline annotations =============== */
+/* Any segment with a citation is, structurally, a candidate inline comment —
+   see DESIGN_SPEC_CONNECTORS.md §7.6. The demo pins a fixed set so the
+   cycling and card interactions are easy to see; in the real
+   implementation a marker appears the moment a segment with a citation
+   closes, with no extra request, since the data already exists. */
+const ANNOTATIONS = [
+  { id:'a1', line:22, path:'054_…Email_V2.sql', status:'open', prov:'code',
+    text:'This <code>COALESCE(u.Email, uev.Email)</code> is what makes an unverified email match at all — worth confirming Salesforce is fine treating that as equivalent to a verified one.',
+    cites:[['this file',22]] },
+  { id:'a2', line:39, path:'054_…Email_V2.sql', status:'open', prov:'code',
+    text:'No index covers <code>uev.Email</code> on <code>UserEmailVerification</code>. <code>TOP 20</code> limits rows returned, not rows scanned.',
+    cites:[['this file',39]] },
+  { id:'a3', line:27, path:'054_…Email_V2.sql', status:'resolved', prov:'infer',
+    text:'<code>WITH (NOLOCK)</code> here is inherited from V1, not new.',
+    infer:'Confirmed with the author after flagging this — resolving.',
+    cites:[['this file',27]] },
+];
+let CURRENT_ANNOTATION = null;
+
+function paintGutterMarks(){
+  document.querySelectorAll('.gutmark-slot').forEach(s=>s.innerHTML='');
+  ANNOTATIONS.forEach(a=>{
+    const slot = document.getElementById('gm'+a.line);
+    if(!slot) return;
+    slot.innerHTML = `<span class="gutmark${a.status==='resolved'?' resolved':''}"
+      title="${a.status==='resolved'?'Resolved thread':'Open thread'} on this line — click to open"
+      onclick="event.stopPropagation();openAnnotation('${a.id}')"></span>`;
+  });
+}
+
+function openAnnotations(){ return ANNOTATIONS.filter(a=>a.status==='open'); }
+
+function updateCycleLabel(){
+  const open = openAnnotations();
+  const idx = open.findIndex(a=>a.id===CURRENT_ANNOTATION);
+  document.getElementById('cyclabel').textContent = open.length
+    ? `${idx>=0?idx+1:1} of ${open.length}` : '0 of 0';
+  document.getElementById('cycprev').disabled = open.length===0;
+  document.getElementById('cycnext').disabled = open.length===0;
+}
+
+function cycleAnnotation(dir){
+  const open = openAnnotations();
+  if(!open.length) return;
+  let idx = open.findIndex(a=>a.id===CURRENT_ANNOTATION);
+  idx = idx<0 ? 0 : (idx+dir+open.length)%open.length;
+  openAnnotation(open[idx].id);
+}
+
+function toggleShowResolved(){
+  const show = document.getElementById('showres').checked;
+  document.querySelectorAll('.gutmark.resolved').forEach(g=>g.style.display = show?'block':'none');
+}
+
+function annotationCardHTML(a){
+  const cites = a.cites||[];
+  return `
+    <div class="ac-ptr"></div>
+    <div class="ac-head">
+      <span class="ac-tag">NOT POSTED</span>
+      <span class="ac-loc csvc-loc">${a.path}:${a.line}</span>
+      <button class="iconbtn" style="width:20px;height:20px" title="Close" onclick="closeAnnotation()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="seg">
+      <div class="seg-h">${provChip(a.prov)}</div>
+      <p>${a.text}</p>
+      ${a.infer?`<div class="inferbox"><b>This part is a guess.</b> ${a.infer}</div>`:''}
+      ${cites.length?`<div class="cites">${cites.map(c=>
+        `<span class="cite" onclick="jump(${c[1]})"><span class="dot"></span>${c[0]}:${c[1]}</span>`).join('')}</div>`:''}
+      <div class="seg-f">
+        ${a.status==='open'
+          ? `<button class="mini" onclick="resolveAnnotation('${a.id}')">Resolve</button>`
+          : `<button class="mini" onclick="reopenAnnotation('${a.id}')">Reopen</button>`}
+        <button class="mini" onclick="openSheetFromAnnotation('${a.id}')">Post as comment…</button>
+      </div>
+    </div>
+    <div class="ac-reply">
+      <textarea placeholder="Reply on this line…"></textarea>
+    </div>`;
+}
+
+function draftCardHTML(line){
+  return `
+    <div class="ac-ptr"></div>
+    <div class="ac-head">
+      <span class="ac-tag">NEW THREAD</span>
+      <span class="ac-loc">line ${line}</span>
+      <button class="iconbtn" style="width:20px;height:20px" title="Close" onclick="closeAnnotation()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="ac-empty">Ask a question about this line — it stays here as its own thread, separate from
+      the main conversation, and is never posted to the pull request on its own.</div>
+    <div class="ac-reply"><textarea placeholder="Ask about line ${line}…" autofocus></textarea></div>`;
+}
+
+function positionCard(line){
+  const tr = document.getElementById('L'+line);
+  const card = document.getElementById('acard');
+  if(!tr) return;
+  const rect = tr.getBoundingClientRect();
+  const top = Math.max(64, Math.min(window.innerHeight-260, rect.top-18));
+  const left = Math.min(window.innerWidth-320, rect.left+120);
+  card.style.top = top+'px';
+  card.style.left = left+'px';
+}
+
+function openAnnotation(id){
+  const a = ANNOTATIONS.find(x=>x.id===id);
+  if(!a) return;
+  if(document.getElementById('reviewgrid').getAttribute('data-dock')!=='on') setDock(true);
+  CURRENT_ANNOTATION = a.id;
+  jump(a.line);
+  document.getElementById('acard').innerHTML = annotationCardHTML(a);
+  positionCard(a.line);
+  document.getElementById('acard').classList.add('on');
+  document.getElementById('ascrim').classList.add('on');
+  updateCycleLabel();
+  document.querySelectorAll('.cname-j').forEach(e=>e.textContent=CONNECTOR.name);
+}
+
+function askLine(n){
+  const existing = ANNOTATIONS.find(a=>a.line===n);
+  if(existing){ openAnnotation(existing.id); return; }
+  jump(n);
+  document.getElementById('acard').innerHTML = draftCardHTML(n);
+  positionCard(n);
+  document.getElementById('acard').classList.add('on');
+  document.getElementById('ascrim').classList.add('on');
+}
+
+function resolveAnnotation(id){
+  const a = ANNOTATIONS.find(x=>x.id===id); if(!a) return;
+  a.status='resolved'; paintGutterMarks(); closeAnnotation(); updateCycleLabel();
+}
+function reopenAnnotation(id){
+  const a = ANNOTATIONS.find(x=>x.id===id); if(!a) return;
+  a.status='open'; paintGutterMarks(); openAnnotation(id);
+}
+function openSheetFromAnnotation(id){
+  const a = ANNOTATIONS.find(x=>x.id===id); if(!a) return;
+  const text = a.text.replace(/<[^>]+>/g,'');
+  document.getElementById('sheettext').value = text + `\n\n— via ${CONNECTOR.name}`;
+  document.getElementById('sheetloc').textContent = `${a.path}:${a.line}`;
+  closeAnnotation();
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('sheet').classList.add('on');
+}
+function closeAnnotation(){
+  document.getElementById('acard').classList.remove('on');
+  document.getElementById('ascrim').classList.remove('on');
 }
 
 /* =============== thread content =============== */
@@ -730,20 +991,29 @@ const provChip = k => `<span class="prov ${k}" title="${PROV[k][1]}">
     : '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 8.4l3 3 6-7" stroke-linecap="round" stroke-linejoin="round"/></svg>'}
   ${PROV[k][0]}</span>`;
 
-function answer({prov, body, cites=[], infer}){
-  return `<div class="ans">
-    <div class="ans-h"><span class="who">BETBOT</span>${provChip(prov)}</div>
-    ${body}
+/* One segment = one claim: its own badge, its own text, its own citations,
+   bundled at the source instead of pooled at the end of the turn.
+   DESIGN_SPEC_CONNECTORS.md §5.2. */
+function segCard({prov, text, cites=[], infer}){
+  return `<div class="seg">
+    <div class="seg-h">${provChip(prov)}</div>
+    <p>${text}</p>
     ${infer?`<div class="inferbox"><b>This part is a guess.</b> ${infer}</div>`:''}
     ${cites.length?`<div class="cites">${cites.map(c=>
       `<span class="cite" onclick="jump(${c[1]})"><span class="dot"></span>${c[0]}:${c[1]}</span>`).join('')}</div>`:''}
+    <div class="seg-f">
+      ${cites.length?`<button class="mini" onclick="openSheetSeg(this)">Post as comment…</button>`:''}
+    </div>
+  </div>`;
+}
+function answer({segments}){
+  return `<div class="ans">
+    <div class="ans-h"><span class="who">BETBOT</span></div>
+    ${segments.map(segCard).join('')}
     <div class="ans-f">
-      <button class="mini" title="Copy answer">
+      <button class="mini" title="Copy the whole answer">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4a1.5 1.5 0 0 0-1.5 1.5v5A1.5 1.5 0 0 0 4 11h1"/></svg>
-        Copy</button>
-      <button class="mini" onclick="openSheet(this)">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5A1.5 1.5 0 0 1 12 10.5H6l-3.5 3z"/></svg>
-        Post as comment…</button>
+        Copy all</button>
       <span class="sp"></span>
       <button class="mini icon-only" title="Unhelpful — reports this answer to BetBot">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
@@ -754,66 +1024,57 @@ function answer({prov, body, cites=[], infer}){
 }
 const you = t => `<div class="turn you"><div class="bubble">${t}</div></div>`;
 
-const T_WHAT = you('What does this PR change?') + `<div class="turn">` + answer({
-  prov:'code',
-  body:`<p>It adds five new stored procedures, <code>SearchUsersBy*_V2</code>, under
-    <code>Scripts/tps-user</code>. Nothing is modified or deleted — all 45 lines are additions across 5 files.</p>
-    <p>Each <code>_V2</code> differs from its V1 in one way: the <code>SELECT</code> now returns
-    <code>COALESCE(u.Email, uev.Email)</code> instead of <code>u.Email</code>, and the <code>WHERE</code>
-    gains an <code>OR</code> arm matching against <code>UserEmailVerification</code>. In effect the
-    Salesforce search endpoints now match users whose email is only recorded as unverified.</p>`,
-  cites:[['054_…Email_V2.sql',22],['054_…Email_V2.sql',39]],
-}) + `</div>`;
+const T_WHAT = you('What does this PR change?') + `<div class="turn">` + answer({segments:[
+  { prov:'code', text:'It adds five new stored procedures, <code>SearchUsersBy*_V2</code>, under <code>Scripts/tps-user</code>. Nothing is modified or deleted — all 45 lines are additions across 5 files.', cites:[] },
+  { prov:'code', text:'Each <code>_V2</code> differs from its V1 in one way: the <code>SELECT</code> now returns <code>COALESCE(u.Email, uev.Email)</code> instead of <code>u.Email</code>.', cites:[['054_…Email_V2.sql',22]] },
+  { prov:'code', text:'The <code>WHERE</code> gains an <code>OR</code> arm matching against <code>UserEmailVerification</code> — in effect, the Salesforce search endpoints now match users whose email is only recorded as unverified.', cites:[['054_…Email_V2.sql',39]] },
+]}) + `</div>`;
 
-const T_NOLOCK = you('Why NOLOCK on every join?') + `<div class="turn">` + answer({
-  prov:'infer',
-  body:`<p>Every join in all five procedures carries <code>WITH (NOLOCK)</code>, including the new
-    <code>LEFT JOIN</code> on <code>UserEmailVerification</code>. The V1 procedures these replace do the same,
-    so the pattern is inherited rather than introduced here.</p>
-    <p>Neither the PR description nor the linked work item ACQ-4245 mentions locking or isolation.</p>`,
-  infer:`The usual reason for this pattern is avoiding reader-writer blocking on hot user tables, at the cost of
-    dirty reads. Whether that trade was made deliberately for these procedures — or simply copied forward — is
-    not recorded anywhere I can see. <b>Ask the author.</b>`,
-  cites:[['054_…Email_V2.sql',27],['054_…Email_V2.sql',34]],
-}) + `</div>`;
+const T_NOLOCK = you('Why NOLOCK on every join?') + `<div class="turn">` + answer({segments:[
+  { prov:'code', text:'Every join in all five procedures carries <code>WITH (NOLOCK)</code>, including the new <code>LEFT JOIN</code> on <code>UserEmailVerification</code>.', cites:[['054_…Email_V2.sql',34]] },
+  { prov:'code', text:'The V1 procedures these replace do the same, so the pattern is inherited rather than introduced here.', cites:[['054_…Email_V2.sql',27]] },
+  { prov:'infer', text:'Neither the PR description nor the linked work item ACQ-4245 mentions locking or isolation.',
+    infer:'The usual reason for this pattern is avoiding reader-writer blocking on hot user tables, at the cost of dirty reads. Whether that trade was made deliberately for these procedures — or simply copied forward — is not recorded anywhere I can see. <b>Ask the author.</b>',
+    cites:[] },
+]}) + `</div>`;
 
-const T_BREAK = you('What breaks if I approve this?') + `<div class="turn">` + answer({
-  prov:'code',
-  body:`<p>Two things worth checking before you approve:</p>
-    <ul>
-      <li><b>Result-set change, not just additive.</b> Callers of the V2 endpoints will start receiving users
-        who previously didn't match. If Salesforce treats a match as "user exists", this widens that set.</li>
-      <li><b>Unindexed predicate.</b> <code>uev.Email = @SearchTerm</code> has no supporting index on
-        <code>Users.UserEmailVerification</code>. <code>TOP 20</code> caps rows returned, not rows scanned.</li>
-    </ul>
-    <p>The migration itself is safe to run — <code>CREATE OR ALTER</code>, no data change, no drops.</p>`,
-  cites:[['054_…Email_V2.sql',39],['056_…PhoneContact_V2.sql',41]],
-}) + `</div>`;
+const T_BREAK = you('What breaks if I approve this?') + `<div class="turn">` + answer({segments:[
+  { prov:'code', text:"<b>Result-set change, not just additive.</b> Callers of the V2 endpoints will start receiving users who previously didn't match. If Salesforce treats a match as \"user exists\", this widens that set.", cites:[] },
+  { prov:'code', text:'<b>Unindexed predicate.</b> <code>uev.Email = @SearchTerm</code> has no supporting index on <code>Users.UserEmailVerification</code>. <code>TOP 20</code> caps rows returned, not rows scanned.', cites:[['054_…Email_V2.sql',39]] },
+  { prov:'code', text:'The migration itself is safe to run — <code>CREATE OR ALTER</code>, no data change, no drops.', cites:[] },
+]}) + `</div>`;
 
 const STREAM = you('Is the V1 procedure still used?') + `<div class="turn"><div class="ans streaming">
-  <div class="ans-h"><span class="who">BETBOT</span>
-    <span class="prov pending" title="BetBot labels every answer with where it came from once it has finished reading.">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-        <path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/></svg>CHECKING SOURCES</span></div>
-  <div class="thinking"><span class="d"></span><span class="d"></span><span class="d"></span> reading 5 files and the PR description…</div>
-  <p>This pull request doesn't drop or alter the V1 procedures, so they still exist in the database. Whether
-  anything still <em>calls</em> them isn't visible from this diff<span class="cursor"></span></p>
+  <div class="ans-h"><span class="who">BETBOT</span></div>
+  <div class="seg">
+    <div class="seg-h">${provChip('code')}</div>
+    <p>This pull request doesn't drop or alter the V1 procedures, so they still exist in the database.</p>
+  </div>
+  <div class="seg">
+    <div class="seg-h"><span class="prov pending" title="This segment hasn't closed yet, so there's nothing to attest to.">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/></svg>CHECKING SOURCES</span></div>
+    <div class="thinking"><span class="d"></span><span class="d"></span><span class="d"></span> reading 5 files and the PR description…</div>
+    <p>Whether anything still <em>calls</em> them isn't visible from this diff<span class="cursor"></span></p>
+  </div>
   <div class="ans-f"><button class="mini">Stop</button></div>
 </div></div>`;
 
-/* Mode 3 of the capability ladder — the connector rejected json_schema, so the
-   answer is prose with no asserted provenance. The badge says so and the
-   citation strip is absent; nothing is inferred client-side to fill the gap. */
+/* Mode 3 of the capability ladder — the connector rejected structured output,
+   so the whole answer collapses to a single synthetic segment: prose, no
+   citations, no asserted provenance. Not a separate rendering path — the
+   segment-card renderer already knows how to render one segment. */
 const T_DEGRADED = you('What does this PR change?') + `<div class="turn"><div class="ans">
-  <div class="ans-h"><span class="who">BETBOT</span>
-    <span class="prov unver" title="This connector can't return structured answers, so BetBot did not state where this came from. Treat it as unverified.">UNVERIFIED SOURCE</span></div>
-  <p>It adds five new stored procedures, <code>SearchUsersBy*_V2</code>, under <code>Scripts/tps-user</code>.
-  Each one returns <code>COALESCE(u.Email, uev.Email)</code> and gains an <code>OR</code> arm matching against
-  <code>UserEmailVerification</code>.</p>
-  <div class="inferbox">This connector doesn't support structured answers, so BetBot hasn't said which parts come
-  from the diff and which are inference. <b>Check anything you'd act on against the code.</b></div>
+  <div class="ans-h"><span class="who">BETBOT</span></div>
+  <div class="seg">
+    <div class="seg-h"><span class="prov unver" title="This connector can't return structured answers, so BetBot did not state where this came from. Treat it as unverified.">UNVERIFIED SOURCE</span></div>
+    <p>It adds five new stored procedures, <code>SearchUsersBy*_V2</code>, under <code>Scripts/tps-user</code>.
+    Each one returns <code>COALESCE(u.Email, uev.Email)</code> and gains an <code>OR</code> arm matching against
+    <code>UserEmailVerification</code>.</p>
+    <div class="inferbox">This connector doesn't support structured answers, so BetBot hasn't said which parts come
+    from the diff and which are inference. <b>Check anything you'd act on against the code.</b></div>
+  </div>
   <div class="ans-f">
-    <button class="mini" title="Copy answer">Copy</button>
+    <button class="mini" title="Copy answer">Copy all</button>
     <span class="sp"></span>
     <button class="mini icon-only" title="Unhelpful — reports this answer to BetBot">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
@@ -866,9 +1127,10 @@ function setProvider(key){
   document.getElementById('bavatar').innerHTML =
     `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${p.glyph}</svg>`;
   const unconf = document.querySelector('.app').getAttribute('data-state')==='unconfigured';
-  document.getElementById('tabname').textContent = unconf ? 'Agent' : CONNECTOR.name;
+  document.getElementById('dockname').textContent = unconf ? 'Agent' : CONNECTOR.name;
   ['p-bot','p-anth','p-cop'].forEach(id=>document.getElementById(id).classList.toggle('on', id==={betbot:'p-bot',anthropic:'p-anth',copilot:'p-cop'}[key]));
   relabelThread();
+  closeAnnotation();
   const down = document.querySelector('.app').getAttribute('data-state')==='down';
   const composer = document.getElementById('composer');
   if(composer) composer.placeholder = down
@@ -892,8 +1154,8 @@ function setState(s){
   app.setAttribute('data-state',s);
   const cfg=STATES[s];
   const unconf = s==='unconfigured';
-  document.getElementById('tabname').textContent = unconf ? 'Agent' : CONNECTOR.name;
-  document.getElementById('tabcnt').style.display = (unconf || s==='down') ? 'none' : '';
+  document.getElementById('dockname').textContent = unconf ? 'Agent' : CONNECTOR.name;
+  closeAnnotation();
   if(unconf){
     ['s-land','s-thread','s-stream','s-stale','s-down','s-unconf','s-degr'].forEach(id=>{
       const b=document.getElementById(id); if(b) b.classList.toggle('on', id==='s-unconf');
@@ -925,28 +1187,30 @@ function setState(s){
     if(b) b.classList.toggle('on',k===s);
   });
   if(!down) document.getElementById('bscroll').scrollTop = 1e6;
+  paintGutterMarks();
+  updateCycleLabel();
 }
-function rtab(t){
-  document.querySelector('.app').setAttribute('data-rtab',t);
-  document.getElementById('tab-files').classList.toggle('on',t==='files');
-  document.getElementById('tab-bot').classList.toggle('on',t==='bot');
-  document.getElementById('pane-files').classList.toggle('on',t==='files');
-  document.getElementById('pane-bot').classList.toggle('on',t==='bot');
+function setDock(open){
+  document.getElementById('reviewgrid').setAttribute('data-dock', open?'on':'off');
+  document.getElementById('d-open').classList.toggle('on', open);
+  document.getElementById('d-collapsed').classList.toggle('on', !open);
+  document.getElementById('dockchevbtn').title = open ? 'Collapse panel' : 'Expand panel';
+  if(!open) closeAnnotation();
+}
+function dockHeadClick(event){
+  if(event.target.closest('button')) return;
+  if(document.getElementById('reviewgrid').getAttribute('data-dock')!=='on') setDock(true);
 }
 function ask(el){
   document.getElementById('composer').value = el.textContent.trim();
   document.getElementById('composer').focus();
 }
-function askLine(n){
-  rtab('bot');
-  document.getElementById('composer').value = `About line ${n}: `;
-  document.getElementById('composer').focus();
-  jump(n);
-}
-function openSheet(btn){
-  const ans = btn.closest('.ans');
-  const text = [...ans.querySelectorAll('p,li')].map(p=>p.innerText.trim()).join('\n\n');
+function openSheetSeg(btn){
+  const seg = btn.closest('.seg');
+  const text = [...seg.querySelectorAll('p,li')].map(p=>p.innerText.trim()).join('\n\n');
+  const cite = seg.querySelector('.cite');
   document.getElementById('sheettext').value = text + `\n\n— via ${CONNECTOR.name}`;
+  document.getElementById('sheetloc').textContent = cite ? cite.textContent.trim() : 'a general comment (no specific line)';
   document.getElementById('scrim').classList.add('on');
   document.getElementById('sheet').classList.add('on');
 }
@@ -957,7 +1221,29 @@ function closeSheet(){
 function theme(t){ document.body.setAttribute('data-theme',t);
   document.getElementById('t-l').classList.toggle('on',t==='light');
   document.getElementById('t-d').classList.toggle('on',t==='dark'); }
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeSheet(); closeAnnotation(); } });
+
+/* dock resize — drags --h-dock on the grid container; collapsing is a
+   separate, deliberate action (the chevron), not something a drag can do by
+   accident, so height is clamped well above the collapsed strip. */
+(function(){
+  const handle = document.getElementById('dresize');
+  const grid = document.getElementById('reviewgrid');
+  let dragging=false, startY=0, startH=340;
+  handle.addEventListener('mousedown', e=>{
+    if(grid.getAttribute('data-dock')!=='on') return;
+    dragging=true; startY=e.clientY; handle.classList.add('active');
+    startH = parseInt(getComputedStyle(document.querySelector('.app')).getPropertyValue('--h-dock')) || 340;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    const dy = startY - e.clientY;
+    const h = Math.max(160, Math.min(620, startH+dy));
+    document.querySelector('.app').style.setProperty('--h-dock', h+'px');
+  });
+  window.addEventListener('mouseup', ()=>{ dragging=false; handle.classList.remove('active'); });
+})();
 
 document.querySelectorAll('.cname-j').forEach(e=>e.textContent=CONNECTOR.name);
 document.querySelectorAll('.csvc-j').forEach(e=>e.textContent=CONNECTOR.service);

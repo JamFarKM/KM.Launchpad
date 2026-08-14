@@ -132,6 +132,37 @@ Both side panels collapse, driven by `data-left` / `data-right` on the grid cont
 
 Put both toggles **in the diff toolbar** — left-most and right-most — so they're always reachable regardless of which panel is hidden. They take the `.iconbtn.on` accent-tint state while their panel is visible. Collapsing both is the intended way to read a wide side-by-side diff; the mockup's collapsed state is the best demonstration of why this matters.
 
+### The agent dock — a bottom panel, not a rail tab
+
+`DESIGN_SPEC_CONNECTORS.md` describes *what* lives in the connector panel; this is *where* it lives, and it's worth stating precisely because the first version got it wrong. The original approach put the connector's chat inside a second tab on the right rail, sharing space with the file tree — so switching to the file tree hid the chat and vice versa. That was a real usability gap: the PR list (left) genuinely is never needed at the same time as the agent — you pick a PR, then you're done with that list — but the file tree (right) is needed *constantly* alongside it, since a citation or a follow-up question routinely points at a file other than the one currently open.
+
+The fix is a **bottom dock**, anchored under the diff and file tree only — not under the PR list, which keeps its full height regardless of the dock's state. This is a `grid-template-areas` change, not a new top-level layout:
+
+```css
+.review {
+  display: grid;
+  grid-template-columns: var(--w-left,264px) minmax(0,1fr) var(--w-right,276px);
+  grid-template-rows: 1fr var(--h-dock, 340px);
+  grid-template-areas:
+    "prlist diff  files"
+    "prlist dock  dock";
+  transition: grid-template-columns .16s ease, grid-template-rows .16s ease;
+}
+.review[data-left="off"]  { --w-left: 0px; }
+.review[data-right="off"] { --w-right: 0px; }
+.review[data-dock="off"]  { --h-dock: 44px; }   /* collapsed height — see below, this is deliberately not 0 */
+
+.pane.prlist { grid-area: prlist; }
+.pane.c      { grid-area: diff; }
+.pane.r      { grid-area: files; }
+.pane.dock   { grid-area: dock; }
+```
+
+- **The dock never collapses to zero.** The two side panels can fully disappear because they hold nothing that must stay visible. The dock is different: it's the only surface for the connector's identity, the outage banner, and the `CACHED` tag on a stale automated review. Collapsing it to `0px` would silently hide an outage. Collapsed state is a **44px strip** — avatar, connector name, status dot, and a chevron — not a vanished panel. Expanding is one click, from a control that's always visible.
+- **Resizable, not fixed.** A drag handle on the dock's top edge writes `--h-dock` directly; remember the last expanded height for the session so re-expanding doesn't reset to the 340px default every time. There's no minimum beyond what fits the composer and one visible turn — below that, treat a drag as a collapse.
+- **A third toolbar toggle**, grouped with the existing right-panel one since both affect the same region: `[left-panel] … diff toolbar … [right-panel] [dock]`. Same `.iconbtn.on` accent-tint convention as the other two.
+- Collapsing the dock is the move for reading a tall diff uninterrupted, the same way collapsing both side panels is the move for a wide side-by-side one — these are independent axes and can combine (e.g. both side panels open, dock collapsed to its strip, while typing a single follow-up doesn't need the file tree's width back).
+
 ### Context bar
 
 Merge the `STARRED` row into the project/repository picker row — it currently spends a full row on one chip. Order: `[Proj ▾] [Repo ▾] [★] │ STARRED  chip  chip`.
@@ -168,6 +199,10 @@ Confirmed decision: **the composer stays an overlay.** Inserting a row would ref
 
 ## 7. Right rail — file tree
 
+The right rail is file-tree only — it does not host a tab for the connector panel. That lives in the agent dock
+(§5, "The agent dock") specifically so the tree stays visible while the connector is in use; see
+`DESIGN_SPEC_CONNECTORS.md` §7 for what the dock itself contains.
+
 - **Group by folder.** Collapsible group per directory, path on the folder row in monospace, allowed to wrap to two lines, with a file count. This is what disambiguates the two `001_CreateDB.sql` files — they now sit under visibly different headers — and it means filenames rarely need truncating at all.
 - **Truncation by role:** folder paths truncate at the *start* (the tail is what distinguishes them), filenames at the *end*. That asymmetry is correct, not an inconsistency.
 - **Viewed checkboxes** per file, plus `n of m viewed` and a thin progress bar in the rail header. Viewed rows dim to 45%. This is the main mechanism for keeping your place in a seven-file review. Persist per (PR, file, source commit) so it resets when the author pushes.
@@ -196,6 +231,9 @@ All of these come off the existing Azure DevOps PR payload (`reviewers`, `isDraf
 6. **Chrome** (§5) — context bar merge, vote hierarchy.
 7. **Composer** (§6) and **empty state** (§9) — independent, can land any time.
 8. **PR list** (§8) — last, because it depends on confirming which API fields are already available.
+9. **Agent dock** (§5) — the `grid-template-areas` change and the collapse/resize mechanics belong here and can land
+   independently of any connector being wired up; what fills the dock is `DESIGN_SPEC_CONNECTORS.md`'s own
+   implementation order (§8 there), not this one.
 
 Word-level diff can follow step 2 as its own change; it's the only part needing a diff algorithm rather than styling.
 
@@ -217,6 +255,9 @@ Word-level diff can follow step 2 as its own change; it's the only part needing 
 - [ ] Composer: covered code is visibly dimmed, the pointer aims at the right line, Comment does not look disabled, Esc dismisses.
 - [ ] No PR selected: exactly one empty message on screen.
 - [ ] Greyscale the diff (devtools → Rendering → emulate achromatopsia): additions and deletions are still distinguishable — the `+`/`−` sign column is the fallback, so confirm it's present in both view modes.
+- [ ] Collapsing the agent dock leaves a 44px identity strip, never nothing — an outage banner or `CACHED` tag underneath must still be visible at a glance without expanding.
+- [ ] Resizing the dock and re-collapsing/re-expanding it within the same session returns to the last height, not the 340px default.
+- [ ] The file tree stays visible and interactive with the dock expanded, at both 1280px and 1680px — this is the specific gap the dock exists to close, so it's worth checking directly rather than assuming the grid math works.
 
 ---
 
@@ -225,4 +266,5 @@ Word-level diff can follow step 2 as its own change; it's the only part needing 
 - **Word-level diff algorithm.** The mockup fakes it with a marked substring. Real implementation needs a token-level LCS per line pair; check whether the existing diff already returns character ranges from the Azure DevOps API before writing one.
 - **Viewed-state persistence key.** Should include the source commit SHA so it clears on a new push. Confirm the API exposes it on the file entry.
 - **Syntax highlighting engine.** The mockup uses a throwaway regex highlighter for C# and SQL only. If the real page already uses a library, re-theme it against §2 rather than replacing it — the requirement is only that the theme contains no green and no red.
-- **Minimap.** Kept as-is but recoloured to `--diff-*-stripe` at 55% and now shows deletions too. Worth deciding whether it should also mark comment threads (the mockup has a `.cmt` class in accent blue, unused).
+- **Minimap.** Kept as-is but recoloured to `--diff-*-stripe` at 55% and now shows deletions too. Worth deciding whether it should also mark comment threads (the mockup has a `.cmt` class in accent blue, unused) — and, now that inline agent annotations exist (`DESIGN_SPEC_CONNECTORS.md` §7.6), whether it should mark those too.
+- **Dock height persistence.** Remembered "for the session" is the minimum bar. Worth deciding whether it should persist across sessions (a per-user preference, like the model `<select>` in Settings) or reset each time — leaning toward persisting, but confirm before building storage for it.
