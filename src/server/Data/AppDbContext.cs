@@ -13,6 +13,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<VaultRegistry> VaultRegistries => Set<VaultRegistry>();
     public DbSet<AzureCredential> AzureCredentials => Set<AzureCredential>();
     public DbSet<RepoFavourite> RepoFavourites => Set<RepoFavourite>();
+    public DbSet<Connector> Connectors => Set<Connector>();
+    public DbSet<ConnectorCapability> ConnectorCapabilities => Set<ConnectorCapability>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -45,5 +47,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         b.Entity<RepoFavourite>().HasKey(f => f.Id);
         b.Entity<RepoFavourite>().HasIndex(f => f.UserId);
+
+        b.Entity<Connector>().HasKey(c => c.Id);
+        b.Entity<Connector>().HasIndex(c => c.UserId);
+
+        // The composite key IS the exclusivity rule from §2 — one connector per capability per
+        // user, enforced by the schema rather than by whichever code path happens to assign it.
+        b.Entity<ConnectorCapability>().HasKey(c => new { c.UserId, c.Capability });
+        b.Entity<ConnectorCapability>().HasIndex(c => c.ConnectorId);
+
+        // The relationship has to be declared here as well as in the DDL. Without it EF has no
+        // idea the capability row depends on the connector row, so it picks its own INSERT order
+        // and half the time writes the child first — which the database then rejects. A foreign
+        // key that exists only in raw SQL fails at runtime rather than at build.
+        b.Entity<ConnectorCapability>()
+            .HasOne<Connector>()
+            .WithMany()
+            .HasForeignKey(c => c.ConnectorId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

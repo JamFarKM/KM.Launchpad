@@ -27,6 +27,7 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")))
     .SetApplicationName("PipelineLaunchpad");
 builder.Services.AddSingleton<PatProtector>();
+builder.Services.AddSingleton<ConnectorProtector>();
 
 // --- Azure DevOps access ---
 builder.Services.AddHttpClient("ado", c => c.Timeout = TimeSpan.FromSeconds(60));
@@ -102,6 +103,53 @@ using (var scope = app.Services.CreateScope())
             "CreatedAt" TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS "IX_RepoFavourites_UserId" ON "RepoFavourites" ("UserId");
+
+        -- Connectors (DESIGN_SPEC_CONNECTORS.md §2). Ciphertext columns are TEXT, not BLOB:
+        -- Data Protection's Protect() returns a base64url string and every other secret in this
+        -- app is stored the same way, so a BLOB here would be a second convention for no gain.
+        CREATE TABLE IF NOT EXISTS "Connectors" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_Connectors" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Provider" TEXT NOT NULL,
+            "Name" TEXT NOT NULL,
+            "BaseUrl" TEXT NULL,
+            "Model" TEXT NULL,
+            "AuthType" TEXT NOT NULL,
+            "TokenCiphertext" TEXT NULL,
+            "TokenLast4" TEXT NULL,
+            "TokenSetAt" TEXT NULL,
+            "OauthLogin" TEXT NULL,
+            "OauthAccessCiphertext" TEXT NULL,
+            "OauthRefreshCiphertext" TEXT NULL,
+            "OauthScope" TEXT NULL,
+            "OauthExpiresAt" TEXT NULL,
+            "LastOkAt" TEXT NULL,
+            "LastErrorCode" TEXT NULL,
+            "LastErrorAt" TEXT NULL,
+            "CreatedAt" TEXT NOT NULL,
+            -- §2: "a row with both, or neither, is invalid — enforce with a check constraint, not
+            -- just application code". A half-written credential is the kind of state that becomes
+            -- a support ticket about an agent that authenticates only sometimes.
+            CONSTRAINT "CK_Connectors_OneCredentialShape" CHECK (
+                ("AuthType" = 'api_key' AND "OauthAccessCiphertext" IS NULL AND "OauthRefreshCiphertext" IS NULL)
+             OR ("AuthType" = 'oauth'   AND "TokenCiphertext" IS NULL)
+            )
+        );
+        CREATE INDEX IF NOT EXISTS "IX_Connectors_UserId" ON "Connectors" ("UserId");
+
+        -- One row per user per capability, so "two connectors answer PR questions" is
+        -- unrepresentable: assigning is an upsert and §2's transfer is atomic for free.
+        CREATE TABLE IF NOT EXISTS "ConnectorCapabilities" (
+            "UserId" TEXT NOT NULL,
+            "Capability" TEXT NOT NULL,
+            "ConnectorId" TEXT NOT NULL,
+            "AssignedAt" TEXT NOT NULL,
+            CONSTRAINT "PK_ConnectorCapabilities" PRIMARY KEY ("UserId", "Capability"),
+            CONSTRAINT "FK_ConnectorCapabilities_Connectors" FOREIGN KEY ("ConnectorId")
+                REFERENCES "Connectors" ("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS "IX_ConnectorCapabilities_ConnectorId"
+            ON "ConnectorCapabilities" ("ConnectorId");
         """);
 
     // Any sequence run still "running" was orphaned by a previous process (restart/crash)
@@ -133,6 +181,7 @@ app.MapSequences();
 app.MapImportExport();
 app.MapConfigRegistries();
 app.MapVaultRegistries();
+app.MapConnectors();
 
 // Serve the built React SPA and fall back to index.html for client routes.
 app.UseDefaultFiles();

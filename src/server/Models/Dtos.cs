@@ -213,3 +213,63 @@ public record ViewItemDto(string? Kind, string Project, int PipelineId, string? 
 public record GridPosDto(int X, int Y, int W, int H);
 public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, Dictionary<string, string> ShelfColors, Dictionary<string, GridPosDto> ShelfLayout, List<ViewItemDto> Items);
 public record UpsertViewRequest(string Name, int SortOrder, List<string> Shelves, Dictionary<string, string>? ShelfColors, Dictionary<string, GridPosDto>? ShelfLayout, List<ViewItemDto> Items);
+
+// ----- connectors (DESIGN_SPEC_CONNECTORS.md §2.1) -----
+
+/// <summary>
+/// A connector as the browser is allowed to see it.
+///
+/// There is no credential field, of any shape, deliberately: §2.1 requires that GET never returns
+/// key or OAuth material "in any field, under any flag, including for the owner". Enforcing that
+/// by omission from the type — rather than by remembering to null something out per endpoint —
+/// makes the rule structural, so a future endpoint cannot leak it by forgetting.
+/// </summary>
+/// <param name="Status">connected | unreachable | not_tested | connecting — see §3.1.</param>
+/// <param name="Capabilities">Capability keys this connector currently answers.</param>
+public record ConnectorDto(
+    string Id,
+    string Provider,
+    string Name,
+    string? BaseUrl,
+    string? Model,
+    string AuthType,
+    string? TokenLast4,
+    DateTime? TokenSetAt,
+    string? OauthLogin,
+    string? OauthScope,
+    string Status,
+    DateTime? LastOkAt,
+    string? LastErrorCode,
+    DateTime? LastErrorAt,
+    List<string> Capabilities);
+
+/// <summary>What the picker grid needs to render, straight from §3.0's table.</summary>
+public record ProviderDto(
+    string Key,
+    string DisplayName,
+    string Auth,
+    string? FixedBaseUrl,
+    string CredentialLabel,
+    bool UrlEditable);
+
+/// <param name="Token">
+/// Write-only. Present on create and on a deliberate replace; never echoed back by any response.
+/// </param>
+public record CreateConnectorRequest(
+    string Provider,
+    string? Name,
+    string? BaseUrl,
+    string? Model,
+    string? Token,
+    List<string>? Capabilities);
+
+/// <summary>
+/// Every field optional: absent means "leave alone", which is what lets the editor save a renamed
+/// connector without resubmitting a credential it was never given in the first place.
+/// </summary>
+public record PatchConnectorRequest(
+    string? Name,
+    string? BaseUrl,
+    string? Model,
+    string? Token,
+    List<string>? Capabilities);

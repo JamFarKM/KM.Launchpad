@@ -38,8 +38,10 @@ because each would otherwise be rediscovered.
    `text[]` have no direct equivalents. `capabilities text[]` in particular becomes its own table — which is
    better anyway, because the exclusivity rule in §2 ("assigning a capability removes it from whichever connector
    held it, in one transaction") is expressible as a constraint on a join table and is not expressible on an array
-   column. `bytea` → `BLOB`, `timestamptz` → ISO-8601 `TEXT`. There is no migrations framework: tables are raw
-   `CREATE TABLE IF NOT EXISTS` in `Program.cs`, so §2's check constraint is hand-written.
+   column. `timestamptz` → ISO-8601 `TEXT`. `bytea` → `TEXT`, not `BLOB`: Data Protection's `Protect()` returns a
+   base64url string and every other secret in this app is stored that way, so a BLOB here would be a second
+   convention for no gain. There is no migrations framework — tables are raw `CREATE TABLE IF NOT EXISTS` in
+   `Program.cs` — so §2's check constraint is hand-written.
 2. **§6's `X-Accel-Buffering: no` is inert in this deployment.** The spec already notes the header is an nginx
    convention; this app has no proxy at all — Kestrel serves `wwwroot` directly. The header costs nothing and is
    kept for the day one is introduced, but what actually prevents buffering here is explicit flushing on the SSE
