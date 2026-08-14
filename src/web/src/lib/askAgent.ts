@@ -14,6 +14,8 @@ export interface AskHandlers {
   /** Assembled context, before the agent is called — carries the truncation warning (§5.1). */
   onContext?: (info: { truncated: boolean; omitted: string[]; diffBytes: number }) => void;
   /** More prose. Fragments concatenate. */
+  /** The agent asked for a file, a listing or a search. Surfaced live so a pause has a reason. */
+  onReading?: (info: { tool: string; detail: string }) => void;
   onDelta: (text: string) => void;
   /** The finished, validated turn as the server recorded it. Terminal. */
   onComplete: (turn: AgentTurn) => void;
@@ -75,6 +77,7 @@ export async function askAgent(
 
       switch (event) {
         case "context": handlers.onContext?.(payload as never); break;
+        case "reading": handlers.onReading?.(payload as never); break;
         case "delta": handlers.onDelta((payload as { text: string }).text); break;
         case "complete": handlers.onComplete(payload as AgentTurn); break;
         case "error": handlers.onError(payload as never); break;

@@ -36,6 +36,9 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
     private const int MaxCompletionTokens = 2048;
 
+    /// <summary>The function the model calls to record its answer when tools are in play.</summary>
+    private const string AnswerToolName = "record_pr_answer";
+
     private static string BaseOf(AgentTarget target) => (target.BaseUrl ?? "").TrimEnd('/');
 
     private HttpRequestMessage Request(HttpMethod method, AgentTarget target, string path, object? body = null)
@@ -176,7 +179,36 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             ["content"] = first ? $"{request.Context}\n\n{request.Question}" : request.Question,
         });
 
-        return new JsonObject
+        // Tool exchanges already serviced in this question, in OpenAI's shape: an assistant message
+        // carrying tool_calls, then one role:tool message per result. Materially different from
+        // §5.B's assistant/user pair, which is exactly the sort of difference the adapter exists to
+        // absorb.
+        foreach (var exchange in request.ToolExchanges ?? [])
+        {
+            messages.Add(new JsonObject
+            {
+                ["role"] = "assistant",
+                ["content"] = null,
+                ["tool_calls"] = new JsonArray(new JsonObject
+                {
+                    ["id"] = exchange.Call.Id,
+                    ["type"] = "function",
+                    ["function"] = new JsonObject
+                    {
+                        ["name"] = exchange.Call.Name,
+                        ["arguments"] = exchange.Call.ArgumentsJson,
+                    },
+                }),
+            });
+            messages.Add(new JsonObject
+            {
+                ["role"] = "tool",
+                ["tool_call_id"] = exchange.Result.Id,
+                ["content"] = exchange.Result.Content,
+            });
+        }
+
+        var body = new JsonObject
         {
             ["model"] = request.Model,
             ["stream"] = request.Stream,
@@ -184,7 +216,13 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             // and rejected outright by some endpoints (§5.A).
             ["max_completion_tokens"] = MaxCompletionTokens,
             ["messages"] = messages,
-            ["response_format"] = new JsonObject
+        };
+
+        var repoTools = request.Tools ?? [];
+        if (repoTools.Count == 0)
+        {
+            // No repository access: structure comes from response_format, exactly as before.
+            body["response_format"] = new JsonObject
             {
                 ["type"] = "json_schema",
                 ["json_schema"] = new JsonObject
@@ -193,13 +231,54 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                     ["strict"] = true,
                     ["schema"] = CanonicalSchema.Build(),
                 },
+            };
+            return body;
+        }
+
+        /* With tools offered, response_format cannot be used: an endpoint asked for both a forced
+           JSON shape and a free choice of tool calls has no legal way to satisfy the first while
+           doing the second, and several reject the combination outright. So structure moves to a
+           function the model calls to record its answer — the same trick §5.B uses — and the
+           canonical schema travels as that function's parameters. `tool_choice: required`
+           guarantees a call without dictating which. */
+        var tools = new JsonArray(new JsonObject
+        {
+            ["type"] = "function",
+            ["function"] = new JsonObject
+            {
+                ["name"] = AnswerToolName,
+                ["description"] = "Record the answer to the reviewer's question, with where it came "
+                                + "from. Call this once you have everything you need.",
+                ["parameters"] = CanonicalSchema.Build(),
             },
-        };
+        });
+
+        foreach (var tool in repoTools)
+            tools.Add(new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = tool.Name,
+                    ["description"] = tool.Description,
+                    ["parameters"] = tool.InputSchema.DeepClone(),
+                },
+            });
+
+        body["tools"] = tools;
+        // Guarantees a call without dictating which — the model can read first or answer now.
+        body["tool_choice"] = "required";
+        return body;
     }
 
     /// <summary>
     /// Reads an OpenAI-shaped SSE stream: <c>data: {chunk}</c> per delta, terminated by
-    /// <c>data: [DONE]</c>. Only <c>choices[0].delta.content</c> is read; everything else is ignored.
+    /// <c>data: [DONE]</c>.
+    ///
+    /// Two shapes now arrive here. Without tools the answer is <c>choices[0].delta.content</c>, as
+    /// before. With tools it is the <c>record_pr_answer</c> function's streamed arguments, alongside
+    /// any repository calls — so tool calls accumulate by index and the answer function's fragments
+    /// are routed to the tolerant parser exactly as content would be.
     /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
         HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)
@@ -209,6 +288,10 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
         AgentError? failure = null;
         int? promptTokens = null;
         int? completionTokens = null;
+
+        // Tool calls by their index in the stream. OpenAI sends the id and name once, then argument
+        // fragments, so the accumulator has to persist across chunks.
+        var calls = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
 
         var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream, Encoding.UTF8);
@@ -243,7 +326,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             if (payload.Length == 0) continue;
             if (payload == "[DONE]") break;
 
-            string? fragment = null;
+            string? answerFragment = null;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
@@ -262,17 +345,56 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                     && choices.GetArrayLength() > 0)
                 {
                     var choice = choices[0];
-                    fragment = choice.TryGetProperty("delta", out var delta)
-                            && delta.TryGetProperty("content", out var content)
-                            && content.ValueKind == JsonValueKind.String
-                        ? content.GetString()
-                        // Non-streaming responses, and some endpoints' final frame, put the whole
-                        // thing in message.content instead.
-                        : choice.TryGetProperty("message", out var msg)
-                            && msg.TryGetProperty("content", out var mc)
-                            && mc.ValueKind == JsonValueKind.String
-                            ? mc.GetString()
-                            : null;
+
+                    if (choice.TryGetProperty("delta", out var delta))
+                    {
+                        if (delta.TryGetProperty("content", out var content)
+                            && content.ValueKind == JsonValueKind.String)
+                        {
+                            answerFragment = content.GetString();
+                        }
+
+                        if (delta.TryGetProperty("tool_calls", out var toolCalls)
+                            && toolCalls.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var tc in toolCalls.EnumerateArray())
+                            {
+                                var index = tc.TryGetProperty("index", out var ix) && ix.TryGetInt32(out var i) ? i : 0;
+                                if (!calls.TryGetValue(index, out var entry))
+                                    entry = calls[index] = ("", "", new StringBuilder());
+
+                                var id = tc.TryGetProperty("id", out var idv) && idv.ValueKind == JsonValueKind.String
+                                    ? idv.GetString() : null;
+                                var name = tc.TryGetProperty("function", out var fn)
+                                    && fn.TryGetProperty("name", out var nv) && nv.ValueKind == JsonValueKind.String
+                                    ? nv.GetString() : null;
+                                var args = tc.TryGetProperty("function", out var fn2)
+                                    && fn2.TryGetProperty("arguments", out var av) && av.ValueKind == JsonValueKind.String
+                                    ? av.GetString() : null;
+
+                                if (!string.IsNullOrEmpty(id) || !string.IsNullOrEmpty(name))
+                                    calls[index] = entry = (id ?? entry.Id, name ?? entry.Name, entry.Args);
+
+                                if (!string.IsNullOrEmpty(args))
+                                {
+                                    entry.Args.Append(args);
+                                    // The answer function's arguments *are* the canonical response,
+                                    // so they render progressively just as content would.
+                                    if (entry.Name == AnswerToolName) answerFragment = args;
+                                }
+                            }
+                        }
+                    }
+
+                    // Non-streaming responses, and some endpoints' final frame, put the whole thing
+                    // in message.content instead.
+                    if (answerFragment is null
+                        && choice.TryGetProperty("message", out var msg)
+                        && msg.TryGetProperty("content", out var mc)
+                        && mc.ValueKind == JsonValueKind.String)
+                    {
+                        answerFragment = mc.GetString();
+                    }
                 }
 
                 promptTokens = ReadTokens(root, "prompt_tokens") ?? promptTokens;
@@ -283,9 +405,9 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(fragment))
+            if (!string.IsNullOrEmpty(answerFragment))
             {
-                var prose = parser.Feed(fragment);
+                var prose = parser.Feed(answerFragment);
                 deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
                 if (prose.Length > 0)
                 {
@@ -295,9 +417,22 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             }
         }
 
+        var usage = new AgentUsage(promptTokens, completionTokens);
+
         if (failure is not null)
         {
             yield return new AgentEvent.Failed(failure);
+            yield break;
+        }
+
+        var repoCalls = calls.Values
+            .Where(c => c.Name != AnswerToolName && c.Name.Length > 0)
+            .Select(c => new AgentToolCall(c.Id, c.Name, c.Args.ToString()))
+            .ToList();
+
+        if (repoCalls.Count > 0)
+        {
+            yield return new AgentEvent.ToolCalls(repoCalls, usage);
             yield break;
         }
 
@@ -305,7 +440,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
         if (!sawAnyDelta && answer.Answer.Length > 0)
             yield return new AgentEvent.Delta(answer.Answer);
 
-        yield return new AgentEvent.Complete(answer, new AgentUsage(promptTokens, completionTokens));
+        yield return new AgentEvent.Complete(answer, usage);
     }
 
     private static int? ReadTokens(JsonElement parent, string field) =>

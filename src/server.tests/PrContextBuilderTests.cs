@@ -16,7 +16,8 @@ public class PrContextBuilderTests
     private static PrContextInput Input(
         IEnumerable<FileDiff>? files = null,
         string? description = null,
-        IEnumerable<string>? withFindings = null) =>
+        IEnumerable<string>? withFindings = null,
+        IEnumerable<string>? nearby = null) =>
         new(
             Repo: "SA.Phase1.Migrations",
             PullRequestId: 80494,
@@ -27,7 +28,8 @@ public class PrContextBuilderTests
             Description: description,
             WorkItems: [("ACQ-4245", "Include verified and unverified email addresses")],
             Files: (files ?? [File("054_Email.sql", 100)]).ToList(),
-            PathsWithFindings: (withFindings ?? []).ToList());
+            PathsWithFindings: (withFindings ?? []).ToList(),
+            NearbyPaths: (nearby ?? []).ToList());
 
     [Fact]
     public void Produces_a_well_formed_document()

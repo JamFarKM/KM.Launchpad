@@ -55,6 +55,8 @@ builder.Services.AddScoped<AdoService>();
 builder.Services.AddScoped<ConfigService>();
 builder.Services.AddScoped<PipelineLaunchpad.Server.Services.Agents.PrContextService>();
 builder.Services.AddScoped<PipelineLaunchpad.Server.Services.Agents.ThreadStore>();
+builder.Services.AddScoped<PipelineLaunchpad.Server.Services.Agents.RepoTools>();
+builder.Services.AddScoped<PipelineLaunchpad.Server.Services.Agents.AgentConversation>();
 builder.Services.AddSingleton<ConfigStoreService>();
 builder.Services.AddSingleton<VaultStoreService>();
 builder.Services.AddSingleton<SequenceRunner>();

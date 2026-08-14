@@ -81,7 +81,8 @@ public static class AgentEndpoints
             string project, string repoId, int prId, AskRequest body,
             HttpContext http, AdoContext ctx, AppDbContext db,
             AgentRegistry registry, AdoService ado, PrContextService contexts,
-            ThreadStore threads, CancellationToken ct) =>
+            ThreadStore threads, AgentConversation conversation, RepoTools tools,
+            CancellationToken ct) =>
         {
             if (!ctx.IsAuthenticated) { http.Response.StatusCode = 401; return; }
 
@@ -165,7 +166,9 @@ public static class AgentEndpoints
                 History: history,
                 Question: body.Question,
                 Model: connector.Model ?? "",
-                Stream: true);
+                Stream: true,
+                // Repository access. Empty would disable it without touching an adapter.
+                Tools: RepoTools.Definitions);
 
             await Send(http, "turn", new { threadId = thread.Id, replayedTurns = history.Count }, ct);
 
@@ -174,22 +177,33 @@ public static class AgentEndpoints
             AgentError? failure = null;
             var stopped = false;
 
+            var budget = new AgentBudget();
+            var scope = new RepoScope(project, repoId, pr.SourceCommit ?? "");
+            var reads = new List<string>();
+
             try
             {
-                await foreach (var ev in adapter.CompleteAsync(target, request, ct))
+                await foreach (var ev in conversation.RunAsync(adapter, target, request, scope, budget, ct))
                 {
                     switch (ev)
                     {
-                        case AgentEvent.Delta d:
+                        case ConversationEvent.Delta d:
                             await Send(http, "delta", new { text = d.Text }, ct);
                             break;
 
-                        case AgentEvent.Complete c:
-                            answer = c.Answer;
-                            usage = c.Usage;
+                        // Surfaced live so the reviewer sees the agent working rather than a silent
+                        // pause, and so an answer's basis is visible afterwards.
+                        case ConversationEvent.Reading r:
+                            await Send(http, "reading", new { tool = r.Tool, detail = r.Detail }, ct);
                             break;
 
-                        case AgentEvent.Failed f:
+                        case ConversationEvent.Complete c:
+                            answer = c.Answer;
+                            usage = c.Usage;
+                            reads = c.Reads.ToList();
+                            break;
+
+                        case ConversationEvent.Failed f:
                             failure = f.Error;
                             break;
                     }

@@ -57,7 +57,52 @@ public class PrContextService(AdoService ado)
             Description: description,
             WorkItems: workItems,
             Files: files,
-            PathsWithFindings: pathsWithFindings), question);
+            PathsWithFindings: pathsWithFindings,
+            NearbyPaths: await NearbyPathsAsync(project, repoId, pr, changes, ct)), question);
+    }
+
+    /// <summary>
+    /// Unchanged files sitting beside the change, for orientation.
+    ///
+    /// Bounded deliberately: the directories the change touches, plus the repository root. A full
+    /// tree of a large repo is hundreds of KB of paths, which would spend the agent's whole reading
+    /// budget before it read a line of code. This is enough to see the V1 file beside the V2 one and
+    /// to ask for a real path instead of guessing at one; anything deeper is a list_files call.
+    /// </summary>
+    private async Task<List<string>> NearbyPathsAsync(
+        string project, string repoId, PullRequestDto pr, List<PrChangeDto> changes, CancellationToken ct)
+    {
+        if (pr.SourceCommit is null) return [];
+
+        var changed = changes.Select(c => c.Path.TrimStart('/'))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var directories = changed
+            .Select(p => p.Contains('/') ? p[..p.LastIndexOf('/')] : "")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6)   // a sprawling change should not turn orientation into a directory dump
+            .ToList();
+        if (!directories.Contains("")) directories.Add("");
+
+        var nearby = new List<string>();
+        foreach (var dir in directories)
+        {
+            try
+            {
+                var entries = await ado.ListRepoItemsAsync(project, repoId, dir, pr.SourceCommit, ct);
+                foreach (var (path, isFolder) in entries)
+                {
+                    // Folders are listed with a trailing slash so the agent can tell what it can
+                    // descend into from what it can read.
+                    var display = isFolder ? path + "/" : path;
+                    if (!isFolder && changed.Contains(path)) continue;   // already in the diff
+                    if (nearby.Count >= 120) return nearby;              // hard stop on orientation
+                    nearby.Add(display);
+                }
+            }
+            catch (AdoService.AdoException) { /* a directory we cannot list is not worth failing over */ }
+        }
+        return nearby;
     }
 
     /// <summary>

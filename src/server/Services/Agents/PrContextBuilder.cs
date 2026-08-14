@@ -15,7 +15,12 @@ public record PrContextInput(
     IReadOnlyList<(string Id, string Title)> WorkItems,
     IReadOnlyList<FileDiff> Files,
     /// <summary>Paths with existing review threads — second in the keep-order when truncating.</summary>
-    IReadOnlyCollection<string> PathsWithFindings);
+    IReadOnlyCollection<string> PathsWithFindings,
+    /// <summary>
+    /// Unchanged files sitting beside the change, for orientation only. Never their contents — the
+    /// agent asks for those.
+    /// </summary>
+    IReadOnlyList<string> NearbyPaths);
 
 /// <summary>The assembled block, plus what had to be left out of it.</summary>
 public record PrContext(string Xml, bool Truncated, IReadOnlyList<string> OmittedPaths, int DiffBytes);
@@ -83,6 +88,19 @@ public static class PrContextBuilder
         sb.Append("  <diff truncated=\"").Append(truncated ? "true" : "false")
           .Append("\" bytes=\"").Append(diffBytes).Append("\">")
           .Append(Esc(diff)).AppendLine("</diff>");
+
+        // Orientation, not content. A full repository tree can be hundreds of KB of paths on its
+        // own — enough to spend the whole reading budget before a line of code is read — so this is
+        // deliberately just the directories the change touches plus the root. Enough for the agent
+        // to see the V1 file sitting beside the V2 one, and to ask for the right path instead of
+        // guessing; anything deeper is a list_files call away.
+        if (input.NearbyPaths.Count > 0)
+        {
+            sb.AppendLine("  <nearby-files note=\"not changed by this pull request; readable on request\">");
+            foreach (var path in input.NearbyPaths)
+                sb.Append("    <file path=\"").Append(Esc(path)).AppendLine("\"/>");
+            sb.AppendLine("  </nearby-files>");
+        }
 
         if (omitted.Count > 0)
         {

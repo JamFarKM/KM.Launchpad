@@ -193,6 +193,52 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             ["content"] = first ? $"{request.Context}\n\n{request.Question}" : request.Question,
         });
 
+        // Tool calls already serviced in this question, replayed in Anthropic's shape: an assistant
+        // turn holding the tool_use, then a user turn holding the tool_result. Without this the
+        // model cannot see what it already fetched and asks for the same file again.
+        foreach (var exchange in request.ToolExchanges ?? [])
+        {
+            messages.Add(new JsonObject
+            {
+                ["role"] = "assistant",
+                ["content"] = new JsonArray(new JsonObject
+                {
+                    ["type"] = "tool_use",
+                    ["id"] = exchange.Call.Id,
+                    ["name"] = exchange.Call.Name,
+                    ["input"] = JsonNode.Parse(
+                        string.IsNullOrWhiteSpace(exchange.Call.ArgumentsJson) ? "{}" : exchange.Call.ArgumentsJson),
+                }),
+            });
+            messages.Add(new JsonObject
+            {
+                ["role"] = "user",
+                ["content"] = new JsonArray(new JsonObject
+                {
+                    ["type"] = "tool_result",
+                    ["tool_use_id"] = exchange.Result.Id,
+                    ["content"] = exchange.Result.Content,
+                    ["is_error"] = exchange.Result.IsError,
+                }),
+            });
+        }
+
+        var tools = new JsonArray(new JsonObject
+        {
+            ["name"] = ToolName,
+            ["description"] = "Record the answer to the reviewer's question, with where it came from. "
+                            + "Call this once you have everything you need.",
+            ["input_schema"] = CanonicalSchema.Build(),
+        });
+
+        foreach (var tool in request.Tools ?? [])
+            tools.Add(new JsonObject
+            {
+                ["name"] = tool.Name,
+                ["description"] = tool.Description,
+                ["input_schema"] = tool.InputSchema.DeepClone(),
+            });
+
         return new JsonObject
         {
             ["model"] = request.Model,
@@ -200,15 +246,14 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             // Top-level, not a message. The one placement difference from §5.A.
             ["system"] = request.SystemPrompt,
             ["messages"] = messages,
-            ["tools"] = new JsonArray(new JsonObject
-            {
-                ["name"] = ToolName,
-                ["description"] = "Record the answer to the reviewer's question, with where it came from.",
-                ["input_schema"] = CanonicalSchema.Build(),
-            }),
-            // Forcing the tool is how structure is obtained without response_format. The completed
-            // input object is the canonical response.
-            ["tool_choice"] = new JsonObject { ["type"] = "tool", ["name"] = ToolName },
+            ["tools"] = tools,
+            // With repository tools offered, the answer tool can no longer be *forced*: forcing it
+            // leaves the model no way to ask for a file first. "any" still guarantees a tool call —
+            // so structure survives — while letting it choose reading over answering. With no repo
+            // tools we go back to forcing, which keeps the single-shot path exactly as it was.
+            ["tool_choice"] = (request.Tools?.Count ?? 0) > 0
+                ? new JsonObject { ["type"] = "any" }
+                : new JsonObject { ["type"] = "tool", ["name"] = ToolName },
             ["stream"] = request.Stream,
         };
     }
@@ -220,17 +265,30 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     /// applies to the whole operation including the body and would therefore kill a legitimately
     /// long stream: 20 s to first token, 30 s idle between deltas, 120 s overall.
     /// </summary>
+    /// <summary>
+    /// Reads Anthropic's SSE stream and yields Launchpad's own events.
+    ///
+    /// With repository tools offered, a stream can now end two ways: the answer tool's completed
+    /// input, or a request for files. So content blocks are tracked by index and routed by tool name
+    /// — the answer tool's fragments feed the tolerant parser for progressive prose, and everything
+    /// else accumulates into a tool call for the orchestrator to service.
+    ///
+    /// The §5.5 budget is enforced here rather than on <see cref="HttpClient.Timeout"/>, which
+    /// applies to the whole operation including the body and would therefore kill a legitimately
+    /// long stream: 20 s to first token, 30 s idle between deltas, 120 s overall.
+    /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
         HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)
     {
         var parser = new CanonicalAnswerParser();
         var sawAnyDelta = false;
         AgentError? failure = null;
-
-        // Anthropic splits usage across two events: input_tokens on message_start, output_tokens on
-        // message_delta at the end. Both are collected as they pass.
         int? promptTokens = null;
         int? completionTokens = null;
+
+        // Blocks by stream index: Anthropic interleaves them by index rather than in order, so an
+        // index is the only reliable way to know which tool a fragment belongs to.
+        var blocks = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
 
         var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream, Encoding.UTF8);
@@ -244,11 +302,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             {
                 var readTask = reader.ReadLineAsync(whole.Token).AsTask();
                 var remaining = deadline - DateTime.UtcNow;
-                if (remaining <= TimeSpan.Zero)
-                {
-                    failure = new AgentError(AgentErrorCode.Timeout);
-                    break;
-                }
+                if (remaining <= TimeSpan.Zero) { failure = new AgentError(AgentErrorCode.Timeout); break; }
 
                 var finished = await Task.WhenAny(readTask, Task.Delay(remaining, ct));
                 if (finished != readTask)
@@ -269,17 +323,18 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             if (line is null) break;              // stream ended
             if (line.Length == 0) continue;       // SSE record separator
-            if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;  // event: / id: / retry:
+            if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
 
             var payload = line["data:".Length..].Trim();
             if (payload.Length == 0) continue;
 
-            string? fragment = null;
+            string? answerFragment = null;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
                 var root = doc.RootElement;
                 var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+                var index = root.TryGetProperty("index", out var ix) && ix.TryGetInt32(out var i) ? i : -1;
 
                 switch (type)
                 {
@@ -292,13 +347,44 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                         completionTokens = ReadTokens(root, "output_tokens") ?? completionTokens;
                         break;
 
+                    case "content_block_start":
+                        if (index >= 0
+                            && root.TryGetProperty("content_block", out var block)
+                            && block.TryGetProperty("type", out var bt)
+                            && bt.GetString() == "tool_use")
+                        {
+                            blocks[index] = (
+                                block.TryGetProperty("id", out var bid) ? bid.GetString() ?? "" : "",
+                                block.TryGetProperty("name", out var bn) ? bn.GetString() ?? "" : "",
+                                new StringBuilder());
+                        }
+                        break;
+
                     case "content_block_delta":
-                        // input_json_delta for a tool call; text_delta if the model answered in
-                        // prose despite tool_choice, which the tolerant parser handles as mode 3.
                         if (root.TryGetProperty("delta", out var delta))
-                            fragment = delta.TryGetProperty("partial_json", out var pj) ? pj.GetString()
-                                     : delta.TryGetProperty("text", out var tx) ? tx.GetString()
-                                     : null;
+                        {
+                            var fragment = delta.TryGetProperty("partial_json", out var pj) ? pj.GetString()
+                                         : delta.TryGetProperty("text", out var tx) ? tx.GetString()
+                                         : null;
+
+                            if (!string.IsNullOrEmpty(fragment))
+                            {
+                                if (index >= 0 && blocks.TryGetValue(index, out var b))
+                                {
+                                    b.Args.Append(fragment);
+                                    // Only the answer tool carries prose worth rendering as it
+                                    // arrives. A file path being spelled out character by character
+                                    // is not something to show the reviewer.
+                                    if (b.Name == ToolName) answerFragment = fragment;
+                                }
+                                else
+                                {
+                                    // Plain text despite tool_choice — the tolerant parser handles
+                                    // it as mode 3.
+                                    answerFragment = fragment;
+                                }
+                            }
+                        }
                         break;
 
                     case "error":
@@ -306,9 +392,9 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                             System.Net.HttpStatusCode.InternalServerError, payload);
                         break;
 
-                    // content_block_start / content_block_stop / message_stop / ping carry neither
-                    // prose nor usage. Ignored rather than enumerated, so a new event type
-                    // Anthropic adds cannot break the stream.
+                    // content_block_stop / message_stop / ping carry neither prose nor usage.
+                    // Ignored rather than enumerated, so a new event type Anthropic adds cannot
+                    // break the stream.
                 }
             }
             catch (JsonException)
@@ -318,9 +404,9 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             if (failure is not null) break;
 
-            if (!string.IsNullOrEmpty(fragment))
+            if (!string.IsNullOrEmpty(answerFragment))
             {
-                var prose = parser.Feed(fragment);
+                var prose = parser.Feed(answerFragment);
                 deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
                 if (prose.Length > 0)
                 {
@@ -330,10 +416,25 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             }
         }
 
+        var usage = new AgentUsage(promptTokens, completionTokens);
+
         if (failure is not null)
         {
             // Whatever prose arrived stays: the caller renders the partial answer *and* this error.
             yield return new AgentEvent.Failed(failure);
+            yield break;
+        }
+
+        // Files requested rather than an answer given. Terminal for this exchange only — the
+        // orchestrator services these and asks again.
+        var toolCalls = blocks.Values
+            .Where(b => b.Name != ToolName && b.Name.Length > 0)
+            .Select(b => new AgentToolCall(b.Id, b.Name, b.Args.ToString()))
+            .ToList();
+
+        if (toolCalls.Count > 0)
+        {
+            yield return new AgentEvent.ToolCalls(toolCalls, usage);
             yield break;
         }
 
@@ -344,7 +445,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         if (!sawAnyDelta && answer.Answer.Length > 0)
             yield return new AgentEvent.Delta(answer.Answer);
 
-        yield return new AgentEvent.Complete(answer, new AgentUsage(promptTokens, completionTokens));
+        yield return new AgentEvent.Complete(answer, usage);
     }
 
     /// <summary>Reads a token count out of an Anthropic `usage` object, if it is there.</summary>

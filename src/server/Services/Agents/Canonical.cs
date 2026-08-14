@@ -68,24 +68,58 @@ public enum StructuredMode
 public record AgentTurn(string Question, string Answer);
 
 /// <summary>
+/// A tool the <b>server</b> services on the agent's behalf.
+///
+/// The agent never receives a credential: it names a file and Launchpad reads it with the
+/// reviewer's own PAT. That is what lets repository access exist without breaking
+/// BETBOT_INTEGRATION_PLAN.md's rule that the chat route gets no repo credentials — the connector
+/// still has none.
+/// </summary>
+public record AgentToolDefinition(string Name, string Description, JsonObject InputSchema);
+
+/// <summary>The agent asking for something. <paramref name="Id"/> correlates the result back.</summary>
+public record AgentToolCall(string Id, string Name, string ArgumentsJson);
+
+/// <param name="IsError">
+/// A failure is returned <em>to the model</em> rather than thrown, so it can say "I couldn't read
+/// that" instead of the whole answer dying on a missing file.
+/// </param>
+public record AgentToolResult(string Id, string Content, bool IsError = false);
+
+/// <summary>One completed request/response pair, replayed so the model sees its own prior work.</summary>
+public record AgentToolExchange(AgentToolCall Call, AgentToolResult Result);
+
+/// <summary>
 /// Everything an adapter is given, in provider-agnostic form (§5.0).
 ///
 /// An adapter's whole job is turning this into one provider's native wire format and turning what
-/// comes back into a <see cref="CanonicalAnswer"/> or an <see cref="AgentErrorCode"/>. Nothing
-/// upstream of an adapter, and nothing in the Review page, may know which provider is configured.
+/// comes back into a <see cref="CanonicalAnswer"/>, a set of <see cref="AgentToolCall"/>s, or an
+/// <see cref="AgentErrorCode"/>. Nothing upstream of an adapter, and nothing in the Review page,
+/// may know which provider is configured.
 /// </summary>
 /// <param name="SystemPrompt">The task prompt from §5.3. Launchpad owns it, not the connector.</param>
 /// <param name="Context">The assembled &lt;pull-request-context&gt; block (§5.1). Untrusted input.</param>
 /// <param name="History">Prior turns, already capped and ordered oldest-first.</param>
 /// <param name="Question">The reviewer's current question.</param>
 /// <param name="Model">A value the provider's own model list reported.</param>
+/// <param name="Tools">
+/// Read-only tools offered for this exchange. Empty disables tool use entirely, which is what makes
+/// the feature switchable without touching an adapter.
+/// </param>
+/// <param name="ToolExchanges">
+/// Tool calls already serviced in <em>this</em> question, oldest first. The adapter replays them in
+/// its provider's native shape so the model can see what it already asked for and got — without
+/// which it asks for the same file repeatedly.
+/// </param>
 public record CanonicalRequest(
     string SystemPrompt,
     string Context,
     IReadOnlyList<AgentTurn> History,
     string Question,
     string Model,
-    bool Stream = true);
+    bool Stream = true,
+    IReadOnlyList<AgentToolDefinition>? Tools = null,
+    IReadOnlyList<AgentToolExchange>? ToolExchanges = null);
 
 /// <summary>
 /// The §4 taxonomy, as an enum so a failure cannot reach the UI as free text.
@@ -188,6 +222,46 @@ public abstract record AgentEvent
     /// looks complete.
     /// </summary>
     public sealed record Failed(AgentError Error) : AgentEvent;
+
+    /// <summary>
+    /// The model wants files before it can answer. Terminal <em>for this exchange</em>, not for the
+    /// question.
+    ///
+    /// The adapter stops here rather than looping internally. Servicing the calls and asking again
+    /// is the orchestrator's job, which is what keeps the iteration cap, the byte budget and the
+    /// path guardrails in one provider-agnostic place instead of duplicated per adapter — and it is
+    /// why adding a third provider does not mean rewriting any of that.
+    /// </summary>
+    public sealed record ToolCalls(IReadOnlyList<AgentToolCall> Calls, AgentUsage? Usage = null) : AgentEvent;
+}
+
+/// <summary>
+/// What one question is allowed to spend (see the caps in this feature's commit message).
+///
+/// Cumulative on purpose: §5.1's 200 KB was a per-request cap when a question was a single call, and
+/// carrying that reading forward would let a ten-step loop send ten times as much and call it the
+/// same limit.
+/// </summary>
+public sealed class AgentBudget(int maxBytes = AgentBudget.DefaultMaxBytes, int maxIterations = AgentBudget.DefaultMaxIterations)
+{
+    public const int DefaultMaxBytes = 200 * 1024;
+    public const int DefaultMaxIterations = 5;
+
+    /// <summary>Per single read. A generated migration should not consume the whole question.</summary>
+    public const int MaxLinesPerRead = 2000;
+
+    public int MaxIterations { get; } = maxIterations;
+    public int BytesSpent { get; private set; }
+    public int BytesRemaining => Math.Max(0, maxBytes - BytesSpent);
+    public bool Exhausted => BytesRemaining == 0;
+
+    /// <summary>Records a spend and reports whether it fit. A refused read is told to the model.</summary>
+    public bool TrySpend(int bytes)
+    {
+        if (bytes > BytesRemaining) return false;
+        BytesSpent += bytes;
+        return true;
+    }
 }
 
 /// <summary>

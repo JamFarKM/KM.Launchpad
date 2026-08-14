@@ -5730,3 +5730,11 @@ body.is-col-resizing * { cursor: col-resize !important; }
 /* The grid animates its columns, which is right for the collapse toggles and wrong for a drag —
    a 160ms transition on every pointermove lags behind the cursor. */
 /* The tracks no longer transition at all, so nothing needs suppressing during a drag. */
+
+/* Files the agent read beyond the diff, so an answer's basis is visible rather than implied. */
+.ag-reads {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  padding-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}

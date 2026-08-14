@@ -6,10 +6,15 @@ import type { AgentCitation, AgentTurn, Connector, ConnectorProvider, PullReques
 
 const PR_QUESTIONS = "pr.questions";
 
+/*
+ * These are answerable now. "Is anything here not covered by tests?" shipped in the previous step
+ * and was not: without repository access the agent could only guess at it, and a guess about test
+ * coverage is exactly the kind a reviewer would act on. It is back because the agent can look.
+ */
 const SUGGESTIONS = [
   "What does this PR change?",
   "What breaks if I approve this?",
-  "Is anything here not covered by tests?",
+  "Is this change covered by tests?",
 ];
 
 interface Props {
@@ -52,6 +57,10 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
   const [streamed, setStreamed] = useState("");
   const [failure, setFailure] = useState<{ code: string; detail?: string | null } | null>(null);
   const [truncation, setTruncation] = useState<{ omitted: string[] } | null>(null);
+  /* What the agent is reading right now, and what it read. Shown so an answer's basis is visible
+     rather than implied — a review that claims nothing is untested should show that it looked. */
+  const [reading, setReading] = useState<string | null>(null);
+  const [reads, setReads] = useState<string[]>([]);
   const [posting, setPosting] = useState<AgentTurn | null>(null);
 
   const abort = useRef<AbortController | null>(null);
@@ -90,6 +99,8 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
     setStreamed("");
     setFailure(null);
     setTruncation(null);
+    setReading(null);
+    setReads([]);
     setStreaming(true);
 
     const controller = new AbortController();
@@ -98,6 +109,10 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
     try {
       await askAgent(project, repoId, pr.id, q, {
         onContext: (info) => { if (info.truncated) setTruncation({ omitted: info.omitted }); },
+        onReading: (info) => {
+          setReading(info.detail || info.tool);
+          setReads((r) => (info.detail && !r.includes(info.detail) ? [...r, info.detail] : r));
+        },
         onDelta: (text) => setStreamed((s) => s + text),
         onComplete: (turn) => { setTurns((t) => [...t, turn]); setStreamed(""); },
         onError: (e) => setFailure(e),
@@ -199,9 +214,20 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
                   CHECKING SOURCES
                 </span>
               </div>
+              {/* Naming the file it is reading turns a long pause into visible progress, and is the
+                  difference between "this is slow" and "this is checking something". */}
+              {reading && !streamed && (
+                <div className="ag-thinking">reading <code>{reading}</code>…</div>
+              )}
               {streamed
                 ? <Markdown text={streamed} />
-                : <div className="ag-thinking">reading the diff and the description…</div>}
+                : !reading && <div className="ag-thinking">reading the diff and the description…</div>}
+
+              {reads.length > 0 && (
+                <div className="ag-reads">
+                  looked at {reads.length} file{reads.length === 1 ? "" : "s"} beyond the diff
+                </div>
+              )}
               <div className="ag-afoot">
                 <button className="ag-mini" onClick={() => abort.current?.abort()}>Stop</button>
               </div>

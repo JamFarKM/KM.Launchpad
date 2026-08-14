@@ -1014,4 +1014,83 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         }
         catch (AdoException) { return ids.Select(id => (id, "")).ToList(); }
     }
+
+    /// <summary>
+    /// One directory's entries at a commit. Used by the agent's list_files tool (§7 repo access).
+    ///
+    /// recursionLevel=OneLevel deliberately: a full recursive listing of a large repo is hundreds of
+    /// KB, which would spend an agent's whole reading budget on paths instead of code.
+    /// </summary>
+    public async Task<List<(string Path, bool IsFolder)>> ListRepoItemsAsync(
+        string project, string repoId, string path, string commitId, CancellationToken ct)
+    {
+        var scope = string.IsNullOrWhiteSpace(path) ? "/" : (path.StartsWith('/') ? path : "/" + path);
+        var url = $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}/items" +
+                  $"?scopePath={Uri.EscapeDataString(scope)}&recursionLevel=OneLevel" +
+                  $"&versionDescriptor.version={Uri.EscapeDataString(commitId)}" +
+                  $"&versionDescriptor.versionType=commit&api-version={ApiVersion}";
+
+        using var doc = await SendJsonAsync(HttpMethod.Get, url, null, null, null, ct);
+        if (!doc.RootElement.TryGetProperty("value", out var items) || items.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var results = new List<(string, bool)>();
+        foreach (var item in items.EnumerateArray())
+        {
+            var itemPath = Str(item, "path");
+            if (string.IsNullOrEmpty(itemPath)) continue;
+            // The scope directory itself comes back in the list; it is not one of its own children.
+            if (string.Equals(itemPath, scope, StringComparison.OrdinalIgnoreCase)) continue;
+            var isFolder = item.TryGetProperty("isFolder", out var f) && f.ValueKind == JsonValueKind.True;
+            results.Add((itemPath.TrimStart('/'), isFolder));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Code search, for the agent's search_code tool.
+    ///
+    /// A different host and a different product: Azure DevOps code search is an installable
+    /// extension, so this returns <c>null</c> — meaning "could not check" — rather than an empty
+    /// list when it is unavailable. Conflating the two would let an agent report "not called
+    /// anywhere" when it simply could not look, which is the most dangerous wrong answer available
+    /// to a reviewer deciding whether to delete something.
+    /// </summary>
+    public async Task<List<string>?> SearchCodeAsync(
+        string project, string repoId, string query, CancellationToken ct)
+    {
+        var url = $"https://almsearch.dev.azure.com/{RequireOrg()}/{Uri.EscapeDataString(project)}" +
+                  $"/_apis/search/codesearchresults?api-version={ApiVersion}";
+
+        // A JSON object rather than an anonymous type: the API's paging parameter is literally
+        // named "$top", which is not a legal C# identifier.
+        var body = new System.Text.Json.Nodes.JsonObject
+        {
+            ["searchText"] = query,
+            ["$top"] = 25,
+            ["filters"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["Repository"] = new System.Text.Json.Nodes.JsonArray(repoId),
+            },
+        };
+
+        try
+        {
+            using var doc = await SendJsonAsync(HttpMethod.Post, url, null, null, body, ct);
+            if (!doc.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+                return [];
+
+            return results.EnumerateArray()
+                .Select(r => Str(r, "path"))
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Select(p => p!.TrimStart('/'))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (AdoException)
+        {
+            // Not installed, not licensed, or not enabled for this project.
+            return null;
+        }
+    }
 }
