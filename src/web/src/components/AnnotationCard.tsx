@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { askAgent } from "../lib/askAgent";
-import { Markdown, PostSheet, Segment } from "./AgentPanel";
+import { failureCopy, Markdown, PostSheet, Segment } from "./AgentPanel";
 import type { AgentSegment, AgentTurn, Annotation } from "../types";
 
 /**
@@ -204,7 +204,10 @@ export function AnnotationCard({
             <div className="ann-turn" key={t.id}>
               <div className="ag-you"><div className="ag-bubble">{t.question}</div></div>
               {t.errorCode && (
-                <p className="ag-failed">That answer failed — <code>{t.errorCode}</code>.</p>
+                <p className="ag-failed">
+                  {failureCopy(t.errorCode, connectorName ?? "The agent")}
+                  {t.errorDetail && <> {t.errorDetail}</>}
+                </p>
               )}
               {t.segments.map((s, i) => (
                 <Segment

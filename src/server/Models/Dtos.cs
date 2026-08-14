@@ -339,6 +339,11 @@ public record AgentTurnDto(
     string? CommitSha,
     bool Stopped,
     string? ErrorCode,
+    /// <summary>
+    /// The sentence behind the code. `upstream` is the taxonomy's catch-all, so on its own it tells a
+    /// reviewer nothing and offers no next step — which is exactly what §4 says a failure must not do.
+    /// </summary>
+    string? ErrorDetail,
     bool Postable,
     DateTime CreatedAt);
 

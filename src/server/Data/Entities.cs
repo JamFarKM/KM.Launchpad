@@ -346,6 +346,21 @@ public class AgentThreadTurn
     /// <summary>Stopped by the reviewer. Kept in the thread, but not postable (§5.5).</summary>
     public bool Stopped { get; set; }
 
+    /// <summary>
+    /// What the §4 code doesn't say on its own.
+    ///
+    /// <c>upstream</c> is the taxonomy's catch-all — a 5xx, a mid-stream error envelope, an empty
+    /// answer — and every one of those arrives carrying a sentence explaining which. That sentence
+    /// used to exist only on the live SSE event, so the moment the panel refetched, "the agent
+    /// returned an empty answer" collapsed into the word "upstream" and the reviewer was left with a
+    /// code and no next step. §4 asks for copy *and* a next step per failure; the code alone is
+    /// neither.
+    ///
+    /// Only values §4 permits showing — a host, a status, a duration, our own wording. Never a raw
+    /// exception and never a credential.
+    /// </summary>
+    public string? ErrorDetail { get; set; }
+
     /// <summary>A §4 code when the answer failed or was cut short. Never a raw exception.</summary>
     public string? ErrorCode { get; set; }
 

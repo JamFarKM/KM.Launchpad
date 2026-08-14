@@ -156,6 +156,7 @@ public class ThreadStore(AppDbContext db)
         AgentUsage? usage,
         bool stopped,
         AgentErrorCode? errorCode,
+        string? errorDetail,
         CancellationToken ct)
     {
         var last = await db.AgentThreadTurns
@@ -184,6 +185,9 @@ public class ThreadStore(AppDbContext db)
             CompletionTokens = usage?.CompletionTokens,
             Stopped = stopped,
             ErrorCode = errorCode?.ToString().ToLowerInvariant(),
+            // Stored, not just streamed: the code is the category and this is the sentence. Without
+            // it a reload turns "the agent returned an empty answer" into the word "upstream".
+            ErrorDetail = errorDetail,
             CreatedAt = DateTime.UtcNow,
         };
 

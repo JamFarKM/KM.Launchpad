@@ -231,6 +231,7 @@ using (var scope = app.Services.CreateScope())
             "CompletionTokens" INTEGER NULL,
             "Stopped" INTEGER NOT NULL DEFAULT 0,
             "ErrorCode" TEXT NULL,
+            "ErrorDetail" TEXT NULL,
             "CreatedAt" TEXT NOT NULL,
             CONSTRAINT "FK_AgentThreadTurns_AgentThreads" FOREIGN KEY ("ThreadId")
                 REFERENCES "AgentThreads" ("Id") ON DELETE CASCADE
@@ -248,6 +249,7 @@ using (var scope = app.Services.CreateScope())
        synthesised segment (see ThreadStore.Segments), so an existing thread stays readable rather
        than being migrated or discarded. */
     AddColumnIfMissing("AgentThreadTurns", "SegmentsJson", "TEXT NULL");
+    AddColumnIfMissing("AgentThreadTurns", "ErrorDetail", "TEXT NULL");
 
     /* An inline annotation (§7.6) is a thread with an anchor, so these are columns on the existing
        table rather than a second one. Every existing row is a main-thread conversation, which is

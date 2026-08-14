@@ -358,7 +358,10 @@ function Turn({ turn, onCite, onPost }: {
         </div>
 
         {turn.errorCode && (
-          <p className="ag-failed">This answer failed before it finished — <code>{turn.errorCode}</code>.</p>
+          <p className="ag-failed">
+            {failureCopy(turn.errorCode, turn.connectorName ?? "The agent")}
+            {turn.errorDetail && <> {turn.errorDetail}</>}
+          </p>
         )}
 
         {turn.segments.map((s, i) => (
@@ -510,7 +513,7 @@ function ProvenanceBadge({ provenance }: { provenance?: string | null }) {
 }
 
 /** §4's codes, in the panel. Each says what to do next rather than merely what broke. */
-function FailureRow({ failure, name }: { failure: { code: string; detail?: string | null }; name: string }) {
+export function failureCopy(code: string | null | undefined, name: string): string {
   const copy: Record<string, string> = {
     auth: `${name}'s credential was rejected. Fix it in Settings › Connectors.`,
     expired: `${name}'s credential has expired. Replace it in Settings › Connectors.`,
@@ -521,13 +524,22 @@ function FailureRow({ failure, name }: { failure: { code: string; detail?: strin
     rate_limited: `${name} is rate-limiting us. Wait a moment and try again.`,
     not_found: `${name}'s endpoint returned 404 — check its base URL in Settings.`,
     unsupported: `${name} can't produce structured answers, so sources aren't stated.`,
+    /* Deliberately vague, because the code is: `upstream` is the taxonomy's catch-all and covers a
+       5xx, a mid-stream error envelope, and an answer that came back empty. The `detail` beside it
+       is what actually distinguishes those, which is why it is now stored on the turn rather than
+       only streamed — a reload used to reduce all three to this one sentence. */
     upstream: `${name} returned an error.`,
   };
 
+  return copy[code ?? ""] ?? `${name} returned an error.`;
+}
+
+/** §4's codes, live. Each says what to do next rather than merely what broke. */
+function FailureRow({ failure, name }: { failure: { code: string; detail?: string | null }; name: string }) {
   return (
     <div className="ag-banner ag-fail">
       <div>
-        <b>{copy[failure.code] ?? `${name} returned an error.`}</b>
+        <b>{failureCopy(failure.code, name)}</b>
         {failure.detail && <> {failure.detail}</>}
       </div>
     </div>

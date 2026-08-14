@@ -73,8 +73,8 @@ public class ThreadStoreTests : IDisposable
     public async Task Numbers_turns_in_order()
     {
         var thread = await Thread();
-        await _store.AppendAsync(thread, "one", Answer(), Agent(), "sha", null, false, null, default);
-        await _store.AppendAsync(thread, "two", Answer(), Agent(), "sha", null, false, null, default);
+        await _store.AppendAsync(thread, "one", Answer(), Agent(), "sha", null, false, null, null, default);
+        await _store.AppendAsync(thread, "two", Answer(), Agent(), "sha", null, false, null, null, default);
 
         var turns = await _store.TurnsAsync(thread.Id, default);
         Assert.Equal([1, 2], turns.Select(t => t.Ordinal));
@@ -87,7 +87,7 @@ public class ThreadStoreTests : IDisposable
         // The stale-commit banner compares this to the PR head, so it has to be per turn rather
         // than per thread — a thread outlives several pushes.
         var thread = await Thread();
-        await _store.AppendAsync(thread, "q", Answer(), Agent(), "a3f9c21", null, false, null, default);
+        await _store.AppendAsync(thread, "q", Answer(), Agent(), "a3f9c21", null, false, null, null, default);
 
         var turn = (await _store.TurnsAsync(thread.Id, default)).Single();
         Assert.Equal("a3f9c21", turn.CommitSha);
@@ -98,7 +98,7 @@ public class ThreadStoreTests : IDisposable
     {
         var thread = await Thread();
         await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha",
-            new AgentUsage(1200, 340), false, null, default);
+            new AgentUsage(1200, 340), false, null, null, default);
 
         var turn = (await _store.TurnsAsync(thread.Id, default)).Single();
         Assert.Equal(1200, turn.PromptTokens);
@@ -113,7 +113,7 @@ public class ThreadStoreTests : IDisposable
         _db.Connectors.Add(connector);
         await _db.SaveChangesAsync();
 
-        await _store.AppendAsync(thread, "q", Answer(), connector, "sha", null, false, null, default);
+        await _store.AppendAsync(thread, "q", Answer(), connector, "sha", null, false, null, null, default);
 
         // Remove the agent, exactly as §7.5 says a reviewer may.
         _db.Connectors.Remove(connector);
@@ -130,7 +130,7 @@ public class ThreadStoreTests : IDisposable
     public async Task Deleting_a_thread_takes_its_turns_with_it()
     {
         var thread = await Thread();
-        await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha", null, false, null, default);
+        await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha", null, false, null, null, default);
 
         _db.AgentThreads.Remove(thread);
         await _db.SaveChangesAsync();
@@ -143,7 +143,7 @@ public class ThreadStoreTests : IDisposable
     {
         var thread = await Thread();
         for (var i = 1; i <= 15; i++)
-            await _store.AppendAsync(thread, $"q{i}", Answer($"a{i}"), Agent(), "sha", null, false, null, default);
+            await _store.AppendAsync(thread, $"q{i}", Answer($"a{i}"), Agent(), "sha", null, false, null, null, default);
 
         var replay = await _store.ReplayAsync(thread.Id, default);
 
@@ -158,9 +158,9 @@ public class ThreadStoreTests : IDisposable
     public async Task Never_replays_a_failed_or_stopped_turn()
     {
         var thread = await Thread();
-        await _store.AppendAsync(thread, "good", Answer("real answer"), Agent(), "sha", null, false, null, default);
-        await _store.AppendAsync(thread, "failed", null, Agent(), "sha", null, false, AgentErrorCode.Upstream, default);
-        await _store.AppendAsync(thread, "stopped", Answer("half an ans"), Agent(), "sha", null, true, null, default);
+        await _store.AppendAsync(thread, "good", Answer("real answer"), Agent(), "sha", null, false, null, null, default);
+        await _store.AppendAsync(thread, "failed", null, Agent(), "sha", null, false, AgentErrorCode.Upstream, null, default);
+        await _store.AppendAsync(thread, "stopped", Answer("half an ans"), Agent(), "sha", null, true, null, null, default);
 
         var replay = await _store.ReplayAsync(thread.Id, default);
 
@@ -174,7 +174,7 @@ public class ThreadStoreTests : IDisposable
     public async Task Replays_the_prose_only_never_the_envelope()
     {
         var thread = await Thread();
-        await _store.AppendAsync(thread, "q", Answer("just the prose", note: null), Agent(), "sha", null, false, null, default);
+        await _store.AppendAsync(thread, "q", Answer("just the prose", note: null), Agent(), "sha", null, false, null, null, default);
 
         var replay = await _store.ReplayAsync(thread.Id, default);
 
@@ -191,7 +191,7 @@ public class ThreadStoreTests : IDisposable
             new AnswerSegment("Grounded.", Provenance.Code, [new Citation("a.sql", 22, 30)], null),
             new AnswerSegment("A guess.", Provenance.Inferred, [], "Nobody wrote it down."),
         ]);
-        await _store.AppendAsync(thread, "q", answer, Agent(), "sha", null, false, null, default);
+        await _store.AppendAsync(thread, "q", answer, Agent(), "sha", null, false, null, null, default);
 
         var turn = (await _store.TurnsAsync(thread.Id, default)).Single();
         var segments = ThreadStore.Segments(turn);
@@ -208,7 +208,7 @@ public class ThreadStoreTests : IDisposable
     public async Task Provenance_survives_the_round_trip_as_a_name_not_a_number()
     {
         var thread = await Thread();
-        await _store.AppendAsync(thread, "q", Answer(provenance: Provenance.Doc), Agent(), "sha", null, false, null, default);
+        await _store.AppendAsync(thread, "q", Answer(provenance: Provenance.Doc), Agent(), "sha", null, false, null, null, default);
 
         var turn = (await _store.TurnsAsync(thread.Id, default)).Single();
 
@@ -252,7 +252,7 @@ public class ThreadStoreTests : IDisposable
     public async Task A_structured_answer_is_postable()
     {
         var thread = await Thread();
-        var turn = await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha", null, false, null, default);
+        var turn = await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha", null, false, null, null, default);
         Assert.True(ThreadStore.IsPostable(turn));
     }
 
@@ -263,7 +263,7 @@ public class ThreadStoreTests : IDisposable
         // carrying its name. The reviewer can still copy it.
         var thread = await Thread();
         var turn = await _store.AppendAsync(thread, "q",
-            Answer(provenance: null, mode: StructuredMode.Unverified), Agent(), "sha", null, false, null, default);
+            Answer(provenance: null, mode: StructuredMode.Unverified), Agent(), "sha", null, false, null, null, default);
 
         Assert.False(ThreadStore.IsPostable(turn));
     }
@@ -272,7 +272,7 @@ public class ThreadStoreTests : IDisposable
     public async Task A_stopped_answer_is_not_postable()
     {
         var thread = await Thread();
-        var turn = await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha", null, true, null, default);
+        var turn = await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha", null, true, null, null, default);
         Assert.False(ThreadStore.IsPostable(turn));
     }
 
@@ -281,10 +281,16 @@ public class ThreadStoreTests : IDisposable
     {
         var thread = await Thread();
         var turn = await _store.AppendAsync(thread, "q", null, Agent(), "sha", null, false,
-            AgentErrorCode.Timeout, default);
+            AgentErrorCode.Timeout, "The provider did not answer in time.", default);
 
         Assert.False(ThreadStore.IsPostable(turn));
         Assert.Equal("timeout", turn.ErrorCode);
+
+        /* The sentence is stored beside the code, not only streamed. `upstream` is the taxonomy's
+           catch-all — a 5xx, a mid-stream error envelope, an answer that came back empty — so once a
+           panel refetched, the code alone told the reviewer nothing and offered no next step, which
+           is precisely what §4 says a failure must never do. */
+        Assert.Equal("The provider did not answer in time.", turn.ErrorDetail);
     }
 
     // ---------- inline annotations (§7.6) ----------
@@ -348,7 +354,7 @@ public class ThreadStoreTests : IDisposable
     public async Task Resolving_keeps_the_annotation_and_its_turns()
     {
         var annotation = await Annotation();
-        await _store.AppendAsync(annotation, "What about this line?", Answer(), Agent(), "sha1", null, false, null, default);
+        await _store.AppendAsync(annotation, "What about this line?", Answer(), Agent(), "sha1", null, false, null, null, default);
 
         await _store.SetStatusAsync(annotation, AgentThreadStatus.Resolved, default);
 
@@ -366,11 +372,11 @@ public class ThreadStoreTests : IDisposable
     {
         var main = await Thread();
         await _store.AppendAsync(main, "What does this PR change?", Answer("It adds five procedures."),
-            Agent(), "sha1", null, false, null, default);
+            Agent(), "sha1", null, false, null, null, default);
 
         var annotation = await Annotation();
         await _store.AppendAsync(annotation, "Why NOLOCK here?", Answer("Inherited, probably."),
-            Agent(), "sha1", null, false, null, default);
+            Agent(), "sha1", null, false, null, null, default);
 
         var replay = await _store.ReplayAsync(annotation.Id, default);
 

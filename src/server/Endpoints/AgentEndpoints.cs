@@ -359,7 +359,7 @@ public static class AgentEndpoints
 
             var turn = await threads.AppendAsync(
                 thread, question, answer, connector, pr.SourceCommit, usage,
-                stopped, failure?.Code,
+                stopped, failure?.Code, failure?.Detail,
                 // The request's own token is already cancelled when the reviewer stops, so the
                 // write needs one that isn't, or the record of the stop is itself lost.
                 stopped ? CancellationToken.None : ct);
@@ -414,6 +414,7 @@ public static class AgentEndpoints
         t.CommitSha,
         t.Stopped,
         t.ErrorCode,
+        t.ErrorDetail,
         ThreadStore.IsPostable(t),
         t.CreatedAt);
 

@@ -406,6 +406,8 @@ export interface AgentTurn {
   commitSha?: string | null;
   stopped: boolean;
   errorCode?: string | null;
+  /** The sentence behind the code — `upstream` alone says nothing and offers no next step. */
+  errorDetail?: string | null;
   /** Whether "Post as comment…" appears at all (§7.4). */
   postable: boolean;
   createdAt: string;
