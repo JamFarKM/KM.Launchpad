@@ -523,7 +523,7 @@
       every citation all read from whichever connector holds the <em>PR questions</em> capability in
       Settings › Connectors. <em>Not connected</em> is a designed state with exactly one action in it.</li>
     <li><strong>An agent that can't attest gets no badge it didn't earn.</strong> If a connector can't return
-      structured output, the whole answer collapses to a single segment badged <code>UNVERIFIED SOURCE</code>
+      structured output, the whole answer collapses to a single segment badged <code>SOURCE NOT STATED</code>
       with no citation strip — see the <em>No structured output</em> state. The one thing the UI must never do
       is infer a provenance value to fill the gap.</li>
     <li><strong>An outage doesn't blank the panel.</strong> <em>Service down</em> keeps the cached automated
@@ -1066,7 +1066,7 @@ const STREAM = you('Is the V1 procedure still used?') + `<div class="turn"><div 
 const T_DEGRADED = you('What does this PR change?') + `<div class="turn"><div class="ans">
   <div class="ans-h"><span class="who">BETBOT</span></div>
   <div class="seg">
-    <div class="seg-h"><span class="prov unver" title="This connector can't return structured answers, so BetBot did not state where this came from. Treat it as unverified.">UNVERIFIED SOURCE</span></div>
+    <div class="seg-h"><span class="prov unver" title="This connector can't return structured answers, so BetBot did not state where this came from. Treat it as unverified.">SOURCE NOT STATED</span></div>
     <p>It adds five new stored procedures, <code>SearchUsersBy*_V2</code>, under <code>Scripts/tps-user</code>.
     Each one returns <code>COALESCE(u.Email, uev.Email)</code> and gains an <code>OR</code> arm matching against
     <code>UserEmailVerification</code>.</p>

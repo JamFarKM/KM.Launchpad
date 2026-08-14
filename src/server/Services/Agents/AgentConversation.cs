@@ -81,6 +81,22 @@ public class AgentConversation(RepoTools tools)
 
                     case AgentEvent.Complete c:
                         usage = Merge(usage, c.Usage);
+
+                        /* An answer with nothing in it is a failure, not an answer.
+                           `{"segments":[]}` is schema-valid and a model does produce one — most often
+                           on a short conversational follow-up. Recorded as an answer it became a
+                           provenance badge floating over no text, which tells the reviewer nothing and
+                           looks like the agent said something unreadable. As a typed error it says
+                           what happened and offers Retry, which is what §6 asks for everywhere else. */
+                        if (c.Answer.Segments.Count == 0 || c.Answer.IsEmpty)
+                        {
+                            yield return new ConversationEvent.Failed(new AgentError(
+                                AgentErrorCode.Upstream,
+                                Detail: "The agent returned an empty answer. Asking again usually works."));
+                            finished = true;
+                            break;
+                        }
+
                         yield return new ConversationEvent.Complete(
                             c.Answer with { Segments = [..c.Answer.Segments.Select(s => Resolve(s, citablePaths))] },
                             usage, tools.Reads);

@@ -79,6 +79,17 @@ public sealed class SegmentStreamParser
         if (_segments.Count == 0)
         {
             var prose = (fallbackProse ?? _raw.ToString()).Trim();
+
+            /* Nothing usable at all: no segments, and no prose to fall back on. That is the agent
+               returning an empty answer — `{"segments":[]}` is schema-valid, and a conversational
+               follow-up ("this is fine though, right?") is exactly when a model produces one.
+
+               Returned as an answer with no segments rather than as one empty segment. The empty
+               segment was the bug: it stored and rendered as a provenance badge floating over nothing,
+               which reads as the agent having said something unverifiable rather than as it having
+               said nothing at all. The caller turns this into a typed failure. */
+            if (prose.Length == 0) return new CanonicalAnswer([], StructuredMode.Unverified);
+
             return Unverified(prose);
         }
 
@@ -96,9 +107,14 @@ public sealed class SegmentStreamParser
         }
 
         var answer = new CanonicalAnswer([.._segments]);
-        // Segments arrived but every one of them was empty. Not a structured answer — treat it as
-        // mode 3 rather than showing a badge over nothing.
-        return answer.IsEmpty ? Unverified((fallbackProse ?? "").Trim()) : answer;
+        if (!answer.IsEmpty) return answer;
+
+        // Segments arrived but every one of them was empty. Same reasoning as above: fall back to
+        // prose if there is any, and otherwise report nothing rather than a badge over nothing.
+        var salvage = (fallbackProse ?? "").Trim();
+        return salvage.Length == 0
+            ? new CanonicalAnswer([], StructuredMode.Unverified)
+            : Unverified(salvage);
     }
 
     private static CanonicalAnswer Unverified(string prose) =>

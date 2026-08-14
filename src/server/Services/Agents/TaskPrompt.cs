@@ -152,6 +152,12 @@ public static class TaskPrompt
         Emit segments in the order you want them read. At most six; if you have more to say than
         that, say the six that matter.
 
+        **Always return at least one segment.** An empty list is not an answer, and the reviewer sees
+        nothing at all. This matters most on the short exchanges where it is tempting: "is this fine?"
+        answered by "yes — the failure is deliberate, and here is where it is configured" is one
+        segment, not zero. If you genuinely cannot answer, that is also a segment: say what is
+        missing.
+
         # Label where each segment came from, honestly
 
         Every segment carries a provenance label, and it is your assertion — not a guess the tool

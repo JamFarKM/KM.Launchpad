@@ -584,7 +584,7 @@ segment-at-a-time render, once each array element's fragments are complete.
 
 **A structured-output failure (§5.4 mode 3) is not a separate rendering path.** It produces exactly one
 synthetic segment — the full prose response as `text`, `citations: []`, and a sentinel provenance the UI renders
-as `UNVERIFIED SOURCE` instead of a real badge. The segment-card renderer doesn't need a branch for "no
+as `SOURCE NOT STATED` instead of a real badge. The segment-card renderer doesn't need a branch for "no
 structure available"; it already knows how to render one segment, and mode 3 is just an answer that happens to
 have exactly one.
 
@@ -609,7 +609,7 @@ connectors is active.
 | `doc` | `FROM PR DESC` | `--prov-doc` (violet) | — |
 | `inferred` | `INFERRED` | `--prov-infer` (slate) | `inference_note` renders in a dashed box directly under this segment, above its own citations |
 | *this segment still streaming* | `CHECKING SOURCES` | `--ink-muted` | Rotating glyph, stilled under `prefers-reduced-motion` — shown only on the segment currently arriving, not on ones already closed |
-| *structured output unavailable (§5.4 mode 3)* | `UNVERIFIED SOURCE` | `--ink-muted` | Citation strip hidden entirely on this synthetic segment |
+| *structured output unavailable (§5.4 mode 3)* | `SOURCE NOT STATED` | `--ink-muted` | Citation strip hidden entirely on this synthetic segment |
 
 - The badge is always present, on every segment. There is no unbadged claim.
 - Hue is never the only signal — the label is a word, so the distinction survives both themes and colour
@@ -671,7 +671,7 @@ policy and does not vary by provider:
    when it arrives and validates; treat a missing or invalid block as mode 3 for that answer alone.
 3. Streaming per the connector's ability, no forced structure, and the answer rendered as the single synthetic
    segment described in §5.2 — plain prose, no citations, **`provenance` unset**. The badge reads
-   `UNVERIFIED SOURCE` and the citation strip is hidden.
+   `SOURCE NOT STATED` and the citation strip is hidden.
 
 Modes 2 and 3 are real degradations and must look like ones. Never infer a provenance value client-side; never show
 `FROM DIFF` for an answer whose source the agent did not assert. The probe result is recorded against the
@@ -794,7 +794,7 @@ It is written so implementation can start, not so it can be trusted the way §5.
   conflating those would turn a licensing problem into a support ticket that looks like an outage.
 - Until the spike lands, this design assumes the answer is **"no native structured output"** and treats that as
   the expected, supported outcome rather than a failure: the fallback ladder in §5.4 was written with this
-  adapter specifically in mind, and mode 3 — `UNVERIFIED SOURCE`, no citations, plain prose — is an acceptable
+  adapter specifically in mind, and mode 3 — `SOURCE NOT STATED`, no citations, plain prose — is an acceptable
   permanent state for Copilot in v1, not a placeholder for a fix that has to land before ship.
 - No `BETBOT_INTEGRATION_PLAN.md`-equivalent exists for this adapter. There is no external team to send an ask
   to — GitHub's API is what it is, discovered rather than negotiated. The spike's findings should be appended to
@@ -922,7 +922,7 @@ disabled-with-tooltip, because there is nothing the reviewer can do to make it p
 
 - part of a turn stopped by the reviewer,
 - part of a turn that failed or was truncated mid-stream,
-- the single synthetic segment produced by fallback mode 3 (`UNVERIFIED SOURCE`). A claim whose source the agent
+- the single synthetic segment produced by fallback mode 3 (`SOURCE NOT STATED`). A claim whose source the agent
   never asserted should not become a permanent PR comment carrying the agent's name. The reviewer can still copy
   it.
 
@@ -1060,7 +1060,7 @@ and §5.C once its spike has landed), not just once against whichever provider i
   structure, spacing, and every non-text pixel are unchanged — only `.ptag`, the avatar glyph, the header name,
   the outage copy, and the composer placeholder differ.
 - A connector that can't produce the canonical schema (§5.2) degrades through the §5.4 ladder: mode 1, then
-  mode 2, and mode 2 shows `UNVERIFIED SOURCE` with no citation strip. Verify this for §5.A by rejecting
+  mode 2, and mode 2 shows `SOURCE NOT STATED` with no citation strip. Verify this for §5.A by rejecting
   `json_schema` + `stream`, and for §5.B by rejecting the forced tool call.
 - Anthropic's `auth` failure path (`x-api-key` rejected) renders through the same §4 copy as an OpenAI-compatible
   `auth` failure, with no leftover Bearer-specific wording.

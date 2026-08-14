@@ -114,7 +114,7 @@ public enum StructuredMode
     FencedJson,
 
     /// <summary>
-    /// Prose only, no asserted provenance. Badge reads UNVERIFIED SOURCE, citation strip hidden,
+    /// Prose only, no asserted provenance. Badge reads SOURCE NOT STATED, citation strip hidden,
     /// and the answer cannot be posted to the pull request.
     /// </summary>
     Unverified,

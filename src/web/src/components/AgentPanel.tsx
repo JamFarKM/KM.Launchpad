@@ -258,10 +258,7 @@ export function AgentPanel({
                 <div className="ag-seg">
                   <Markdown text={streamed} />
                   <div className="ag-segfoot">
-                    <span className="ag-prov unver"
-                      title="This connector didn't state where the answer came from.">
-                      UNVERIFIED SOURCE
-                    </span>
+                    <ProvenanceBadge provenance={null} />
                   </div>
                 </div>
               )}
@@ -404,6 +401,11 @@ export function Segment({ segment, onCite, onPost }: {
     ? segment.severity
     : "info";
 
+  /* A badge is *about* text, so with no text there is nothing to badge. The server no longer produces
+     empty segments, but this is the second half of that fix: a badge floating over nothing told the
+     reviewer the agent had said something unreadable, when in fact it had said nothing. */
+  if (segment.text.trim().length === 0) return null;
+
   return (
     <div className={`ag-seg ${unverified ? "is-unver" : ""}`} data-sev={severity}>
       {/* Only the two that ask for something get a label. Marking every descriptive sentence
@@ -479,10 +481,21 @@ function SeverityFlag({ severity }: { severity: "warning" | "error" }) {
  */
 function ProvenanceBadge({ provenance }: { provenance?: string | null }) {
   if (!provenance) {
+    /* Not "INFERRED", though the two look interchangeable from outside.
+     *
+     * `inferred` is a claim the agent makes about its own grounding — "I'm reasoning from convention"
+     * — and it arrives with a hedge explaining what it would take to be sure. This badge is the
+     * opposite: the agent asserted *nothing*, because its connector couldn't produce structured
+     * output. Painting that as `inferred` would be the client inventing a provenance value, which is
+     * the one thing §5.2.1 says never to do — and it would be indistinguishable from a real hedge the
+     * agent had actually thought about.
+     *
+     * So it says what is true and no more: the source wasn't stated. */
     return (
       <span className="ag-prov unver"
-        title="The agent didn't state where this came from. Treat it as unverified.">
-        UNVERIFIED SOURCE
+        title={"The agent didn't say where this came from — its connector can't return sources. "
+             + "That's not the same as a hedge: nothing here was assessed."}>
+        SOURCE NOT STATED
       </span>
     );
   }

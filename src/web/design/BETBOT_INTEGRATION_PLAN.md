@@ -447,7 +447,7 @@ description contains one.
 2. **Can you accept `response_format: json_schema`?** If you're proxying to the Claude API, the equivalent is a
    tool-use or prefill arrangement — either is fine, we just need the object back. If not, our fallback ladder is:
    a fenced JSON block requested in the system prompt (mode 2), then prose with no provenance at all (mode 3,
-   badge reads `UNVERIFIED SOURCE`). Mode 3 works but loses the feature's main point, so it's worth some effort to
+   badge reads `SOURCE NOT STATED`). Mode 3 works but loses the feature's main point, so it's worth some effort to
    avoid.
 3. **Can you stream, and does your ingress buffer?** If streaming is a stretch, we'll ship non-streaming first;
    the panel already has a designed state for it.
@@ -464,7 +464,7 @@ Nothing here is blocked on us, and nothing on our side is blocked on all of it.
 | Phase | You | Us |
 |---|---|---|
 | 1 | Answer §8 | Build the connector plumbing against a local OpenAI-compatible endpoint |
-| 2 | `GET /models` + non-streaming `/chat/completions`, no structured output | Wire the panel, prose-only, badge reads `UNVERIFIED SOURCE`, citation strip hidden (our fallback mode 3) |
+| 2 | `GET /models` + non-streaming `/chat/completions`, no structured output | Wire the panel, prose-only, badge reads `SOURCE NOT STATED`, citation strip hidden (our fallback mode 3) |
 | 3 | `response_format: json_schema`, still non-streaming | Turn on provenance badges and citations (mode 1) |
 | 4 | Streaming + buffering off + abort handling | Turn on progressive rendering |
 | 5 | Thread properties on review comments | Landing state, `CACHED` state, stale-commit banner |

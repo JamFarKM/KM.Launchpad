@@ -317,7 +317,7 @@ public class SegmentStreamParserTests
     }
 
     [Fact]
-    public void An_empty_segments_array_is_treated_as_no_structured_answer()
+    public void An_empty_segments_array_falls_back_to_prose_when_there_is_any()
     {
         var parser = new SegmentStreamParser();
         parser.Feed("""{"segments":[]}""");
@@ -326,6 +326,31 @@ public class SegmentStreamParserTests
         Assert.True(parser.ArrayClosed);
         Assert.Equal(StructuredMode.Unverified, answer.Mode);
         Assert.Equal("Fell back to this.", answer.Segments[0].Text);
+    }
+
+    [Fact]
+    public void An_empty_answer_produces_no_segments_rather_than_one_empty_one()
+    {
+        // `{"segments":[]}` is schema-valid — there is no minItems in strict structured output — and a
+        // model does return it, most often on a short conversational follow-up. This used to become a
+        // single segment with no text, which stored and rendered as a provenance badge floating over
+        // nothing: it told the reviewer the agent had said something unreadable, when it had said
+        // nothing at all. No segments is the honest shape, and the caller turns it into an error.
+        var parser = new SegmentStreamParser();
+        parser.Feed("""{"segments":[]}""");
+        var answer = parser.Finish("");
+
+        Assert.Empty(answer.Segments);
+        Assert.True(answer.IsEmpty);
+    }
+
+    [Fact]
+    public void Segments_that_are_all_blank_are_treated_the_same_way()
+    {
+        var parser = new SegmentStreamParser();
+        parser.Feed(Payload(Segment("   "), Segment("")));
+
+        Assert.Empty(parser.Finish("").Segments);
     }
 
     // ---------- the one place an answer may become a string ----------

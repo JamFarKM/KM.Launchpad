@@ -302,7 +302,7 @@ public record CitationDto(string Path, int Line, int? EndLine);
 /// One claim, with its own badge and its own citations (§5.2).
 ///
 /// <paramref name="Provenance"/> is null only when the agent asserted nothing for this segment — the
-/// badge then reads UNVERIFIED SOURCE. It is never derived from whether citations are present.
+/// badge then reads SOURCE NOT STATED. It is never derived from whether citations are present.
 /// </summary>
 /// <param name="Severity">
 /// info | warning | error. A separate axis from <paramref name="Provenance"/>: one says how much this
