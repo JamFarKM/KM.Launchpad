@@ -407,3 +407,25 @@ export interface AgentThread {
   id?: string | null;
   turns: AgentTurn[];
 }
+
+/**
+ * A citation the reviewer left on the diff, plus whatever they went on to ask about it (§7.6).
+ *
+ * Private to the reviewer: never written to Azure DevOps, never shown to anyone else looking at the
+ * same pull request, unless they promote one through `Post as comment…`.
+ */
+export interface Annotation {
+  id: string;
+  path: string;
+  line: number;
+  endLine?: number | null;
+  /** The commit the citation was made against — drives the "based on an earlier commit" note. */
+  commitSha?: string | null;
+  /** The claim that opened it: the card's first turn, in the agent's own words. */
+  seed?: string | null;
+  /** open | resolved. Resolving dims the marker and drops it from the cycle; it never deletes. */
+  status: string;
+  turns: AgentTurn[];
+  createdAt: string;
+  updatedAt: string;
+}

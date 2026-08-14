@@ -1,5 +1,6 @@
 import type {
   AgentThread,
+  Annotation,
   Connector,
   ConnectorProvider,
   ProbeResult,
@@ -283,6 +284,23 @@ export const api = {
 
   // ----- agent conversations -----
   agentThread: (project: string, repoId: string, prId: number) =>
-    req<AgentThread>(`/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}`
-      + `/pulls/${prId}/thread`),
+    req<AgentThread>(`${reviewUrl(project, repoId, prId)}/thread`),
+
+  // ----- inline annotations (§7.6) -----
+  annotations: (project: string, repoId: string, prId: number) =>
+    req<Annotation[]>(`${reviewUrl(project, repoId, prId)}/annotations`),
+
+  /** Idempotent per line: opening the same marker twice returns the same conversation. */
+  createAnnotation: (project: string, repoId: string, prId: number,
+                     body: { path: string; line: number; endLine?: number | null;
+                             commitSha?: string | null; seed?: string | null }) =>
+    req<Annotation>(`${reviewUrl(project, repoId, prId)}/annotations`,
+      { method: "POST", body: JSON.stringify(body) }),
+
+  setAnnotationStatus: (project: string, repoId: string, prId: number, id: string, status: string) =>
+    req<Annotation>(`${reviewUrl(project, repoId, prId)}/annotations/${id}/status`,
+      { method: "POST", body: JSON.stringify({ status }) }),
 };
+
+const reviewUrl = (project: string, repoId: string, prId: number) =>
+  `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}/pulls/${prId}`;

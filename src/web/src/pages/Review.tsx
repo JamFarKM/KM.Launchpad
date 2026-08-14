@@ -1,12 +1,15 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
+import { AnnotationCard } from "../components/AnnotationCard";
 import { LeftResizer, RailResizer, useLeftWidth, useRailWidth } from "../components/RailResizer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import type { DiffStats } from "../components/MonacoDiff";
-import type { Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
+import type {
+  Annotation, Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite,
+} from "../types";
 
 /** ADO's vote scale, as review actions. */
 /* Approve is the only solid fill: "approve" genuinely is a good/bad axis and it's a single
@@ -304,6 +307,134 @@ export function ReviewPage() {
     // The nonce makes a repeat click on the same chip a fresh instruction.
     setCite({ line, nonce: Date.now() });
   }, [changes, path]);
+
+  /* ---- inline annotations (DESIGN_SPEC_CONNECTORS.md §7.6) ---- */
+
+  const annotationsQ = useQuery<Annotation[]>({
+    queryKey: ["pr-annotations", project, repoId, prId],
+    queryFn: () => api.annotations(project, repoId, prId!),
+    enabled: !!project && !!repoId && !!prId,
+  });
+
+  const annotations = useMemo(() => annotationsQ.data ?? [], [annotationsQ.data]);
+
+  /* The conversation, read here as well as in the panel. Same query key, so TanStack serves both from
+     one cache and one request — and the page needs it because a gutter marker comes from a *citation*,
+     not from an annotation: the marker is what the reviewer clicks to create the annotation. */
+  const agentThreadQ = useQuery({
+    queryKey: ["agent-thread", project, repoId, prId],
+    queryFn: () => api.agentThread(project, repoId, prId!),
+    enabled: !!project && !!repoId && !!prId,
+  });
+
+  const citedSegments = useMemo(
+    () => (agentThreadQ.data?.turns ?? [])
+      .flatMap((t) => t.segments)
+      .filter((s) => s.citations.length > 0),
+    [agentThreadQ.data],
+  );
+  const refreshAnnotations = useCallback(
+    () => { qc.invalidateQueries({ queryKey: ["pr-annotations", project, repoId, prId] }); },
+    [qc, project, repoId, prId]);
+
+  /** The annotation whose card is open, by id. */
+  const [openAnnotation, setOpenAnnotation] = useState<string | null>(null);
+  /** Whether resolved markers are in the cycle and shown at full strength (§7.6). */
+  const [showResolved, setShowResolved] = useState(false);
+
+  const norm = (p: string) => p.replace(/^\//, "");
+
+  /**
+   * The gutter markers for the file on screen.
+   *
+   * <b>A marker comes from a citation, not from an annotation.</b> Every cited line gets one as soon as
+   * the answer lands — no extra request, because the citation data is already here — and the annotation
+   * is what clicking one creates. Lines that already have an annotation carry its state, so a resolved
+   * one dims and drops out of the list until `Show resolved`.
+   */
+  const fileAnnotations = useMemo(() => {
+    const current = norm(shown?.path ?? "");
+    const byLine = new Map<number, { line: number; resolved: boolean; hasReplies: boolean }>();
+
+    for (const s of citedSegments) {
+      for (const c of s.citations) {
+        if (norm(c.path) === current) byLine.set(c.line, { line: c.line, resolved: false, hasReplies: false });
+      }
+    }
+
+    for (const a of annotations) {
+      if (norm(a.path) !== current) continue;
+      const resolved = a.status === "resolved";
+      if (resolved && !showResolved) { byLine.delete(a.line); continue; }
+      // An annotation whose citation has scrolled out of the replayed history still gets a marker: the
+      // reviewer started a conversation about that line, and losing the way back to it loses the thread.
+      byLine.set(a.line, { line: a.line, resolved, hasReplies: a.turns.length > 0 });
+    }
+
+    return [...byLine.values()];
+  }, [citedSegments, annotations, shown?.path, showResolved]);
+
+  /**
+   * The cycle: **open** annotations only, unless `Show resolved` is on (§7.6).
+   *
+   * A raw marker the reviewer never engaged with is not clutter to be counted — there is no obligation
+   * to work through every citation the agent ever made, only the ones worth a thread. So an annotation
+   * enters the cycle once it has a reply, or once the reviewer has opened its card at least once.
+   */
+  const cycle = useMemo(
+    () => annotations.filter((a) =>
+      (showResolved || a.status !== "resolved") && (a.turns.length > 0 || a.id === openAnnotation)),
+    [annotations, showResolved, openAnnotation],
+  );
+
+  const cycleIndex = cycle.findIndex((a) => a.id === openAnnotation);
+
+  /* The card only renders for the file on screen. A card anchored to a line in another file would
+     point at whatever happens to be on that line here, which is worse than no card. */
+  const openCard = useMemo(() => {
+    const a = annotations.find((x) => x.id === openAnnotation);
+    return a && norm(a.path) === norm(shown?.path ?? "") ? a : null;
+  }, [annotations, openAnnotation, shown?.path]);
+
+  const openAt = useCallback((a: Annotation | undefined) => {
+    if (!a) return;
+    const match = changes.find((c) => norm(c.path) === norm(a.path));
+    if (match && match.path !== path) setPath(match.path);
+    setOpenAnnotation(a.id);
+    setCite({ line: a.line, nonce: Date.now() });
+  }, [changes, path]);
+
+  const step = useCallback((delta: number) => {
+    if (cycle.length === 0) return;
+    // Wraps, because stepping past the last one and finding nothing happens reads as broken.
+    const from = cycleIndex < 0 ? (delta > 0 ? -1 : 0) : cycleIndex;
+    openAt(cycle[(from + delta + cycle.length) % cycle.length]);
+  }, [cycle, cycleIndex, openAt]);
+
+  /**
+   * Opening a marker: find the annotation on that line, or create one seeded with the claim that
+   * cited it.
+   *
+   * Seeded from the segment whose citation put the marker there. A marker exists because a segment
+   * cited the line, so there is always a claim to open with — and it is the agent's own words rather
+   * than a summary, which is why the seed is copied at creation rather than looked up later.
+   */
+  const openAnnotationAt = useCallback(async (line: number) => {
+    if (!shown?.path || !prId) return;
+
+    const existing = annotations.find(
+      (a) => norm(a.path) === norm(shown.path) && a.line === line);
+    if (existing) { setOpenAnnotation(existing.id); return; }
+
+    const seed = citedSegments.find(
+      (s) => s.citations.some((c) => norm(c.path) === norm(shown.path) && c.line === line))?.text;
+
+    const created = await api.createAnnotation(project, repoId, prId, {
+      path: shown.path, line, commitSha: pr?.sourceCommit ?? null, seed: seed ?? null,
+    });
+    refreshAnnotations();
+    setOpenAnnotation(created.id);
+  }, [annotations, shown?.path, prId, project, repoId, pr?.sourceCommit, refreshAnnotations, citedSegments]);
 
   const [viewed, setViewed] = useState<Set<string>>(new Set());
 
@@ -696,6 +827,33 @@ export function ReviewPage() {
               </button>
             </div>
 
+            {/* Stepping through annotations (§7.6). Open ones only: there is no obligation to work
+                through every citation the agent ever made, only the ones worth a thread — so a raw
+                marker nobody engaged with is not counted. Rendered only once there is something to
+                step through, rather than sitting at "0 of 0". */}
+            {cycle.length > 0 && (
+              <div className="ann-cycle">
+                <button className="iconbtn" title="Previous annotation" onClick={() => step(-1)}>‹</button>
+                <span className="ann-count" title="Annotations you've opened or replied to">
+                  {cycleIndex >= 0 ? cycleIndex + 1 : "–"} of {cycle.length}
+                </span>
+                <button className="iconbtn" title="Next annotation" onClick={() => step(1)}>›</button>
+                <button
+                  className={`iconbtn ${showResolved ? "on" : ""}`}
+                  aria-pressed={showResolved}
+                  title={showResolved
+                    ? "Hide resolved annotations"
+                    : "Show resolved annotations — resolving dims a marker, it never deletes it"}
+                  onClick={() => setShowResolved((v) => !v)}
+                >
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
+                    strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 8.5l3 3 7-7" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             {/* View options: wrap and code size. Long lines clipped with no indication that
                 anything was missing, which is what wrap fixes (§5). */}
             <div className="menu-anchor">
@@ -786,6 +944,24 @@ export function ReviewPage() {
                   onReply={onReply}
                   onSetStatus={onSetStatus}
                   onNewThread={onNewThread}
+                  annotations={fileAnnotations}
+                  onOpenAnnotation={openAnnotationAt}
+                  anchorLine={openCard?.line ?? null}
+                  renderAnchored={openCard ? ({ top, left }) => (
+                    <AnnotationCard
+                      annotation={openCard}
+                      project={project}
+                      repoId={repoId}
+                      prId={openCard ? prId! : 0}
+                      headCommit={pr?.sourceCommit}
+                      connectorName={agentTabLabel}
+                      top={top}
+                      left={left}
+                      onClose={() => setOpenAnnotation(null)}
+                      onChanged={refreshAnnotations}
+                      onCite={revealCitation}
+                    />
+                  ) : undefined}
                 />
               </Suspense>
             )}

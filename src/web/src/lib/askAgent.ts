@@ -34,6 +34,10 @@ export interface AskHandlers {
   onError: (error: { code: string; detail?: string | null; httpStatus?: number | null }) => void;
 }
 
+/**
+ * @param annotationId When set, the question is scoped to one inline annotation (§7.6) — the same
+ * stream shape, against that annotation's own turns rather than the main conversation's.
+ */
 export async function askAgent(
   project: string,
   repoId: string,
@@ -41,9 +45,11 @@ export async function askAgent(
   question: string,
   handlers: AskHandlers,
   signal: AbortSignal,
+  annotationId?: string,
 ): Promise<void> {
-  const url = `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}`
-    + `/pulls/${prId}/ask`;
+  const base = `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}`
+    + `/pulls/${prId}`;
+  const url = annotationId ? `${base}/annotations/${annotationId}/ask` : `${base}/ask`;
 
   const resp = await fetch(url, {
     method: "POST",

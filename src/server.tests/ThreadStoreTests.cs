@@ -286,4 +286,118 @@ public class ThreadStoreTests : IDisposable
         Assert.False(ThreadStore.IsPostable(turn));
         Assert.Equal("timeout", turn.ErrorCode);
     }
+
+    // ---------- inline annotations (§7.6) ----------
+
+    private Task<AgentThread> Annotation(string path = "a.sql", int line = 22, string? seed = "The claim.") =>
+        _store.GetOrCreateAnnotationAsync("u1", "Account", "Account", 80494, path, line, null, "sha1", seed, default);
+
+    [Fact]
+    public async Task Opening_the_same_line_twice_returns_one_conversation()
+    {
+        var first = await Annotation();
+        var again = await Annotation(seed: "A different claim, later.");
+
+        // Two claims can cite the same line, and they belong in one conversation about that spot
+        // rather than two cards fighting over one gutter marker. The seed is whichever opened it.
+        Assert.Equal(first.Id, again.Id);
+        Assert.Equal("The claim.", again.Seed);
+        Assert.Single(_db.AgentThreads.Where(t => t.Kind == AgentThreadKinds.Annotation));
+    }
+
+    [Fact]
+    public async Task A_leading_slash_does_not_create_a_second_annotation_on_the_same_line()
+    {
+        // The context block declares paths without one and Azure DevOps hands them back with one, so
+        // the same line arrives in both shapes depending on where the citation came from.
+        var bare = await Annotation("Scripts/a.sql");
+        var slashed = await Annotation("/Scripts/a.sql");
+
+        Assert.Equal(bare.Id, slashed.Id);
+    }
+
+    [Fact]
+    public async Task An_annotation_is_not_the_main_conversation()
+    {
+        var main = await Thread();
+        var annotation = await Annotation();
+
+        Assert.NotEqual(main.Id, annotation.Id);
+        // The main-thread lookup must not return an annotation, or the dock would start rendering a
+        // conversation about one line as though it were the whole PR's.
+        Assert.Equal(main.Id, (await _store.FindAsync("u1", "Account", "Account", 80494, default))!.Id);
+    }
+
+    [Fact]
+    public async Task Annotations_are_private_to_the_reviewer_who_made_them()
+    {
+        await Annotation();
+
+        // Not a default — a hard rule. These are never written to Azure DevOps and never shown to
+        // another reviewer on the same pull request; the query filter is what stops that being an
+        // accident rather than a decision.
+        var mine = await _store.AnnotationsAsync("u1", "Account", "Account", 80494, default);
+        var theirs = await _store.AnnotationsAsync("u2", "Account", "Account", 80494, default);
+
+        Assert.Single(mine);
+        Assert.Empty(theirs);
+        Assert.Null(await _store.FindAnnotationAsync("u2", mine[0].Id, default));
+    }
+
+    [Fact]
+    public async Task Resolving_keeps_the_annotation_and_its_turns()
+    {
+        var annotation = await Annotation();
+        await _store.AppendAsync(annotation, "What about this line?", Answer(), Agent(), "sha1", null, false, null, default);
+
+        await _store.SetStatusAsync(annotation, AgentThreadStatus.Resolved, default);
+
+        // Resolving dims a marker and drops it from the cycle. It never deletes — same principle as
+        // §7.5, and what makes `Show resolved` possible at all.
+        Assert.Equal(AgentThreadStatus.Resolved, annotation.Status);
+        Assert.Single(await _store.TurnsAsync(annotation.Id, default));
+
+        await _store.SetStatusAsync(annotation, AgentThreadStatus.Open, default);
+        Assert.Equal(AgentThreadStatus.Open, annotation.Status);
+    }
+
+    [Fact]
+    public async Task An_annotations_replay_is_its_own_turns_not_the_main_conversations()
+    {
+        var main = await Thread();
+        await _store.AppendAsync(main, "What does this PR change?", Answer("It adds five procedures."),
+            Agent(), "sha1", null, false, null, default);
+
+        var annotation = await Annotation();
+        await _store.AppendAsync(annotation, "Why NOLOCK here?", Answer("Inherited, probably."),
+            Agent(), "sha1", null, false, null, default);
+
+        var replay = await _store.ReplayAsync(annotation.Id, default);
+
+        // Pouring the dock's history into a line-scoped conversation would answer the wrong question.
+        Assert.Single(replay);
+        Assert.Equal("Why NOLOCK here?", replay[0].Question);
+    }
+
+    [Fact]
+    public void The_annotation_prompt_note_names_the_line_and_quotes_the_claim()
+    {
+        var note = TaskPrompt.AnnotationScope("Scripts/a.sql", 22, "Every join carries NOLOCK.");
+
+        Assert.Contains("Scripts/a.sql", note);
+        Assert.Contains("line 22", note);
+        // The seed is stated as something the agent already said, not replayed as a question nobody
+        // asked — a fabricated user turn is a small lie the model then reasons from.
+        Assert.Contains("You had already said", note);
+        Assert.Contains("Every join carries NOLOCK.", note);
+    }
+
+    [Fact]
+    public void The_annotation_prompt_note_omits_the_quote_when_there_is_no_claim()
+    {
+        var note = TaskPrompt.AnnotationScope("Scripts/a.sql", 22, null);
+
+        Assert.Contains("line 22", note);
+        Assert.DoesNotContain("You had already said", note);
+    }
 }

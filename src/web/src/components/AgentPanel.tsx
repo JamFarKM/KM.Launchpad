@@ -394,7 +394,7 @@ function Turn({ turn, onCite, onPost }: {
  * The order is deliberate and matches the mockup: text, then the badge under it, then the citations
  * under that — so a citation is unambiguously *this* claim's rather than the next one's.
  */
-function Segment({ segment, onCite, onPost }: {
+export function Segment({ segment, onCite, onPost }: {
   segment: AgentSegment;
   onCite: (path: string, line: number) => void;
   onPost?: () => void;
@@ -493,7 +493,7 @@ function FailureRow({ failure, name }: { failure: { code: string; detail?: strin
  * the claim level: the segment already names a `path` and `line`, so the comment can be anchored
  * there instead of landing as a general PR comment the reviewer has to place by hand.
  */
-function PostSheet({ segment, connectorName, project, repoId, prId, onClose }: {
+export function PostSheet({ segment, connectorName, project, repoId, prId, onClose }: {
   segment: AgentSegment;
   connectorName?: string | null;
   project: string;
