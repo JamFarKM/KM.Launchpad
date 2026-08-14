@@ -945,7 +945,7 @@ content, but a second, persistent place for content the agent was already produc
 
 **How a marker becomes a thread.** Any segment with at least one citation gets a small persistent dot in the
 diff gutter at that line the moment the segment closes — cheap, no extra request, since the data already exists.
-Clicking a `.cite` chip inside the dock still just jumps and highlights, exactly as it does today; clicking the
+Clicking a `.cite` chip inside the agent panel still just jumps and highlights, exactly as it does today; clicking the
 **gutter marker** opens an annotation: an elevated card anchored to that line, reusing the same visual treatment
 as the real PR comment composer in `DESIGN_SPEC_REVIEW.md` §6 — scrim, rotated-square pointer, elevated surface
 — so the interaction feels native to the diff rather than bolted on. The one deliberate visual difference: a
@@ -955,7 +955,7 @@ is answered the same way a main-thread question is — same connector, same segm
 citation/provenance rules — except the history replayed (§5.A) is this annotation's own turns, not the main
 conversation's.
 
-**Cycling.** The dock gets a small header control — `‹ 3 of 7 ›` — that steps through **open** annotations only
+**Cycling.** The agent panel gets a small header control — `‹ 3 of 7 ›` — that steps through **open** annotations only
 (ones with at least one reply, or explicitly kept open by the reviewer), jumping the diff to each in turn and
 opening its card. Raw unopened markers don't clutter this count; there's no obligation to engage with every
 citation the agent ever made, only the ones worth a thread.
@@ -1013,12 +1013,12 @@ sees and can edit the text before it goes anywhere.
 6. **§5.B, the Anthropic adapter.** A real translation (system field, forced tool call, different SSE shape) but
    a fully specified one — no external dependency and no open questions, so it can be built with the same
    confidence as step 3.
-7. The agent dock (`DESIGN_SPEC_REVIEW.md` §5's grid change) and connector-driven naming and `.ptag` (§7.1),
+7. The agent panel's placement (`DESIGN_SPEC_REVIEW.md` §5) and connector-driven naming and `.ptag` (§7.1),
    `Not connected` (§7.2), segment-by-segment `CHECKING SOURCES` (§5.2.1), then the existing rendering wired to
    real responses from whichever of §5.A/§5.B is configured. This is the point at which the panel should be
    demonstrably provider-agnostic — the harness swap in `betbot-review-v1.html` is the bar to clear.
 8. Inline annotations (§7.6): the persistent gutter marker from a segment's citation, the annotation card and its
-   own reply loop, cycling, resolve. This depends on step 7's dock existing (the cycling control lives there) but
+   own reply loop, cycling, resolve. This depends on step 7's panel existing (the cycling control lives there) but
    not on anything provider-specific — build and test it against whichever of §5.A/§5.B is already wired up.
 9. **A short spike against a real, seated GitHub Copilot account**, per §5.C's caveats — before any Copilot
    adapter code is written. Its job is to answer the open questions in §5.C, not to ship a feature.
@@ -1097,15 +1097,15 @@ and §5.C once its spike has landed), not just once against whichever provider i
   wider codebase, or verify business rules (§5.3). Run this once per adapter — a house system prompt prepended by
   one provider is a plausible way for the disclaimer habit to reappear on that provider alone while the others
   stay clean.
-- With the agent dock expanded, the file tree stays visible and clickable, and switching files does not collapse
-  or hide the dock — this is the acceptance test for the whole reason the dock replaced the old rail tab.
-  Collapsing the dock leaves the 44px identity strip, never nothing (`DESIGN_SPEC_REVIEW.md` §5, §11).
+- With the agent tab selected, the file tree stays visible and clickable, and switching files does not send the
+  left panel back to the pull request list — this is the acceptance test for the whole reason the agent is not in
+  the right rail (`DESIGN_SPEC_REVIEW.md` §5, §11).
 - A segment with a citation produces a gutter marker at that line without an extra request; clicking the marker
-  opens an annotation card seeded with that segment's text, and clicking the `.cite` chip in the dock still just
+  opens an annotation card seeded with that segment's text, and clicking the `.cite` chip in the panel still just
   jumps and highlights rather than also opening a card — these are deliberately two different actions (§7.6).
 - Cycling through annotations (`‹ n of m ›`) visits only open ones, skips resolved ones, and `Show resolved`
   brings them back into rotation. Posting an annotation via `Post as comment…` pre-anchors the Azure DevOps
   comment to that annotation's `path`/`line`.
 - Both themes, at 1280 px and 1680 px wide, for all seven states of the review mockup (including the Connector
-  harness swap across all three sample providers, the dock collapsed/expanded, and at least one open annotation
-  card) and all ten states of the connectors mockup.
+  harness swap across all three sample providers, both left-panel tabs, and at least one open annotation card) and
+  all ten states of the connectors mockup.

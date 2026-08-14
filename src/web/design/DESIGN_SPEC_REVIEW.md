@@ -132,36 +132,35 @@ Both side panels collapse, driven by `data-left` / `data-right` on the grid cont
 
 Put both toggles **in the diff toolbar** — left-most and right-most — so they're always reachable regardless of which panel is hidden. They take the `.iconbtn.on` accent-tint state while their panel is visible. Collapsing both is the intended way to read a wide side-by-side diff; the mockup's collapsed state is the best demonstration of why this matters.
 
-### The agent dock — a bottom panel, not a rail tab
+### Where the agent panel lives — the left column's second tab
 
-`DESIGN_SPEC_CONNECTORS.md` describes *what* lives in the connector panel; this is *where* it lives, and it's worth stating precisely because the first version got it wrong. The original approach put the connector's chat inside a second tab on the right rail, sharing space with the file tree — so switching to the file tree hid the chat and vice versa. That was a real usability gap: the PR list (left) genuinely is never needed at the same time as the agent — you pick a PR, then you're done with that list — but the file tree (right) is needed *constantly* alongside it, since a citation or a follow-up question routinely points at a file other than the one currently open.
+**Amended after building the dock this section used to describe.** `DESIGN_SPEC_CONNECTORS.md` describes *what* lives in the connector panel; this is *where* it lives, and it has now been wrong twice, so the reasoning matters more than the conclusion.
 
-The fix is a **bottom dock**, anchored under the diff and file tree only — not under the PR list, which keeps its full height regardless of the dock's state. This is a `grid-template-areas` change, not a new top-level layout:
+The reasoning has been stable throughout. Two of the three panes are not equally dispensable:
+
+- The **PR list** genuinely is never needed at the same time as the agent. You pick a pull request, then you are done with that list.
+- The **file tree** is needed *constantly* alongside the agent, because a citation or a follow-up routinely points at a file other than the one currently open.
+
+The first design put the chat in a second tab on the **right rail**, sharing space with the file tree — which broke exactly the combination that matters. The second design moved it to a **bottom dock** spanning the diff and the file tree. That fixed the simultaneity problem, and introduced two others: the conversation and the diff then compete for *height*, which is the axis a diff can least afford to lose, and a full-width dock gives a chat column far more width than prose can use while the diff gets less height than code can use.
+
+**The current design applies the same reasoning to the pane that was always the dispensable one.** The left column carries two tabs — `Pull requests` and the connector's name — and the conversation replaces the list when selected. Three columns, one row:
 
 ```css
 .review {
   display: grid;
-  grid-template-columns: var(--w-left,264px) minmax(0,1fr) var(--w-right,276px);
-  grid-template-rows: 1fr var(--h-dock, 340px);
-  grid-template-areas:
-    "prlist diff  files"
-    "prlist dock  dock";
-  transition: grid-template-columns .16s ease, grid-template-rows .16s ease;
+  grid-template-columns: var(--w-left,340px) minmax(0,1fr) var(--w-right,380px);
+  grid-template-areas: "prlist diff files";
 }
-.review[data-left="off"]  { --w-left: 0px; }
-.review[data-right="off"] { --w-right: 0px; }
-.review[data-dock="off"]  { --h-dock: 44px; }   /* collapsed height — see below, this is deliberately not 0 */
-
-.pane.prlist { grid-area: prlist; }
-.pane.c      { grid-area: diff; }
-.pane.r      { grid-area: files; }
-.pane.dock   { grid-area: dock; }
+.review[data-left="off"]  { --w-left: 0px !important; }
+.review[data-right="off"] { --w-right: 0px !important; }
 ```
 
-- **The dock never collapses to zero.** The two side panels can fully disappear because they hold nothing that must stay visible. The dock is different: it's the only surface for the connector's identity, the outage banner, and the `CACHED` tag on a stale automated review. Collapsing it to `0px` would silently hide an outage. Collapsed state is a **44px strip** — avatar, connector name, status dot, and a chevron — not a vanished panel. Expanding is one click, from a control that's always visible.
-- **Resizable, not fixed.** A drag handle on the dock's top edge writes `--h-dock` directly; remember the last expanded height for the session so re-expanding doesn't reset to the 340px default every time. There's no minimum beyond what fits the composer and one visible turn — below that, treat a drag as a collapse.
-- **A third toolbar toggle**, grouped with the existing right-panel one since both affect the same region: `[left-panel] … diff toolbar … [right-panel] [dock]`. Same `.iconbtn.on` accent-tint convention as the other two.
-- Collapsing the dock is the move for reading a tall diff uninterrupted, the same way collapsing both side panels is the move for a wide side-by-side one — these are independent axes and can combine (e.g. both side panels open, dock collapsed to its strip, while typing a single follow-up doesn't need the file tree's width back).
+- **The file tree keeps its own column**, which is the requirement that ruled out the rail tab and is now satisfied without costing the diff any height.
+- **Horizontally resizable**, with a drag handle on the left panel's right edge. Wider bounds than the file rail's (280–900px against 320–900): a PR list is legible at 340px and a conversation is cramped there, so the reviewer has to be able to push it well past the width the list alone would want. Persisted across sessions, not just the session — how much of the window goes to conversation is a preference, not a per-visit accident.
+- **Both tab bodies stay mounted**, hidden with `display`. The PR list keeps its scroll position and its filter, and the conversation keeps a part-typed question, across any number of switches.
+- **The agent tab is disabled, not hidden, with no pull request open.** A tab that appears and disappears as you click around is harder to find than one that is visibly waiting for something.
+- **No third toolbar toggle.** The existing left-panel toggle already hides the whole column, tabs included, which is the "read a wide diff uninterrupted" move — and there is no separate collapsed state to design, because switching back to `Pull requests` is the way you stop looking at the conversation.
+- **The 44px identity strip is gone with the dock**, and with it the argument for it: the outage banner and the `CACHED` tag now live inside the panel, where the conversation they qualify is. The cost is real and worth stating — with the `Pull requests` tab selected, an outage is not visible until you switch. If that turns out to matter, the fix is a marker on the tab itself, not a permanently-visible strip.
 
 ### Context bar
 
@@ -199,9 +198,9 @@ Confirmed decision: **the composer stays an overlay.** Inserting a row would ref
 
 ## 7. Right rail — file tree
 
-The right rail is file-tree only — it does not host a tab for the connector panel. That lives in the agent dock
-(§5, "The agent dock") specifically so the tree stays visible while the connector is in use; see
-`DESIGN_SPEC_CONNECTORS.md` §7 for what the dock itself contains.
+The right rail is file-tree only — it does not host a tab for the connector panel. That is the left column's second
+tab (§5, "Where the agent panel lives") specifically so the tree stays visible while the connector is in use; see
+`DESIGN_SPEC_CONNECTORS.md` §7 for what the panel itself contains.
 
 - **Group by folder.** Collapsible group per directory, path on the folder row in monospace, allowed to wrap to two lines, with a file count. This is what disambiguates the two `001_CreateDB.sql` files — they now sit under visibly different headers — and it means filenames rarely need truncating at all.
 - **Truncation by role:** folder paths truncate at the *start* (the tail is what distinguishes them), filenames at the *end*. That asymmetry is correct, not an inconsistency.
@@ -231,8 +230,8 @@ All of these come off the existing Azure DevOps PR payload (`reviewers`, `isDraf
 6. **Chrome** (§5) — context bar merge, vote hierarchy.
 7. **Composer** (§6) and **empty state** (§9) — independent, can land any time.
 8. **PR list** (§8) — last, because it depends on confirming which API fields are already available.
-9. **Agent dock** (§5) — the `grid-template-areas` change and the collapse/resize mechanics belong here and can land
-   independently of any connector being wired up; what fills the dock is `DESIGN_SPEC_CONNECTORS.md`'s own
+9. **The agent panel's placement** (§5) — the left column's tabs and its resize handle belong here and can land
+   independently of any connector being wired up; what fills the panel is `DESIGN_SPEC_CONNECTORS.md`'s own
    implementation order (§8 there), not this one.
 
 Word-level diff can follow step 2 as its own change; it's the only part needing a diff algorithm rather than styling.
@@ -255,9 +254,10 @@ Word-level diff can follow step 2 as its own change; it's the only part needing 
 - [ ] Composer: covered code is visibly dimmed, the pointer aims at the right line, Comment does not look disabled, Esc dismisses.
 - [ ] No PR selected: exactly one empty message on screen.
 - [ ] Greyscale the diff (devtools → Rendering → emulate achromatopsia): additions and deletions are still distinguishable — the `+`/`−` sign column is the fallback, so confirm it's present in both view modes.
-- [ ] Collapsing the agent dock leaves a 44px identity strip, never nothing — an outage banner or `CACHED` tag underneath must still be visible at a glance without expanding.
-- [ ] Resizing the dock and re-collapsing/re-expanding it within the same session returns to the last height, not the 340px default.
-- [ ] The file tree stays visible and interactive with the dock expanded, at both 1280px and 1680px — this is the specific gap the dock exists to close, so it's worth checking directly rather than assuming the grid math works.
+- [ ] Switching the left panel to the agent tab and back preserves the PR list's scroll position and filter, and a part-typed question survives the round trip.
+- [ ] Dragging the left panel wider takes width from the diff and leaves the file tree's column untouched; the width survives a reload.
+- [ ] The file tree stays visible and interactive with the agent tab selected, at both 1280px and 1680px — this is the specific gap that ruled out putting the agent in the right rail, so it's worth checking directly rather than assuming the grid math works.
+- [ ] With no pull request open, the agent tab is present and disabled rather than missing.
 
 ---
 

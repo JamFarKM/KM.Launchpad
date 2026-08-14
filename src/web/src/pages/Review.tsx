@@ -1,12 +1,12 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
-import { DockResizer, RailResizer, useDockHeight, useRailWidth } from "../components/RailResizer";
+import { LeftResizer, RailResizer, useLeftWidth, useRailWidth } from "../components/RailResizer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import type { DiffStats } from "../components/MonacoDiff";
-import type { PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
+import type { Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
 
 /** ADO's vote scale, as review actions. */
 /* Approve is the only solid fill: "approve" genuinely is a good/bad axis and it's a single
@@ -271,8 +271,22 @@ export function ReviewPage() {
      beside a wide diff is a genuine tension, and which one deserves the space changes by the minute
      — so it is theirs to decide rather than ours to fix at one number. */
   const [railWidth, setRailWidth] = useRailWidth();
-  const [dockHeight, setDockHeight] = useDockHeight();
-  const [dockOpen, setDockOpen] = useState(false);
+  const [leftWidth, setLeftWidth] = useLeftWidth();
+
+  /* Which of the left panel's two tabs is showing. The conversation replaces the pull request list
+     rather than sitting beside it, on the reasoning DESIGN_SPEC_REVIEW.md §5 already gives for why
+     the agent does not belong in the right rail: you pick a pull request, then you are done with that
+     list, whereas the file tree is needed constantly alongside an answer. So the list is the one
+     surface the conversation can take over without costing anything. */
+  const [leftTab, setLeftTab] = useState<"prs" | "agent">("prs");
+
+  /**
+   * The tab is named by whichever connector holds the capability — never a literal (§7.1). With
+   * nothing assigned it reads `Agent` and stays neutral, because there is no identity to name yet.
+   */
+  const connectorsQ = useQuery<Connector[]>({ queryKey: ["connectors"], queryFn: api.connectors });
+  const agentTabLabel =
+    connectorsQ.data?.find((c) => c.capabilities.includes("pr.questions"))?.name ?? "Agent";
 
   /**
    * Reveal a cited line, switching file first if the citation points elsewhere.
@@ -447,31 +461,58 @@ export function ReviewPage() {
         className="review"
         data-left={leftOpen ? "on" : "off"}
         data-right={prId && rightOpen ? "on" : "off"}
-        /* "none" rather than "off" with no PR: a strip announcing a connector over an empty page is
-           furniture. Once a PR is open the dock always occupies at least its 44px strip.
-
-           Keyed on `pr`, not `prId`, so this and the dock element below agree on exactly one
-           condition. They briefly disagreed when keyed separately — a selected id whose PR list was
-           still loading left the grid reserving a dock row with no dock in it, and the dock element
-           auto-placed itself into an implicit column, which silently narrowed the diff. */
-        data-dock={!pr ? "none" : dockOpen ? "on" : "off"}
-        style={{ "--w-right": `${railWidth}px`, "--h-dock": `${dockHeight}px` } as React.CSSProperties}
+        style={{
+          "--w-left": `${leftWidth}px`,
+          "--w-right": `${railWidth}px`,
+        } as React.CSSProperties}
       >
-        {/* ---------- pull requests ---------- */}
+        {/* ---------- pull requests, or the conversation ---------- */}
         <div className="cfg-col prlist">
-          {/* An active repo can carry dozens of PRs; scanning for "the one about sport ids"
-              shouldn't mean scrolling. Matches id, title or author (§8). */}
-          <div className="cfg-head">
-            <input
-              className="input pr-search"
-              type="search"
-              placeholder="Filter pull requests…"
-              value={prFilter}
-              onChange={(e) => setPrFilter(e.target.value)}
-            />
+          {/* On this panel's right edge, so the handle sits on the boundary it moves. Hidden when the
+              panel is collapsed — there is no edge to drag then. */}
+          {leftOpen && <LeftResizer width={leftWidth} onWidth={setLeftWidth} />}
+
+          {/* Two tabs, one column. The agent tab is named by whichever connector holds the
+              capability, never by a literal (§7.1) — a connector called "BetBot" that happens to be
+              Anthropic underneath reads as BetBot here and everywhere else. */}
+          <div className="ag-tabs">
+            <button
+              className={`ag-tab ${leftTab === "prs" ? "on" : ""}`}
+              aria-pressed={leftTab === "prs"}
+              onClick={() => setLeftTab("prs")}
+            >
+              Pull requests <span className="ag-tabn">{prs.length}</span>
+            </button>
+            <button
+              className={`ag-tab bot ${leftTab === "agent" ? "on" : ""}`}
+              aria-pressed={leftTab === "agent"}
+              // Disabled with no PR open rather than hidden: a tab that appears and disappears as you
+              // click around is harder to find than one that is visibly waiting for something.
+              disabled={!pr}
+              title={pr ? undefined : "Open a pull request to ask about it"}
+              onClick={() => setLeftTab("agent")}
+            >
+              {agentTabLabel}
+            </button>
           </div>
 
-          <div className="cfg-scroll">
+          {/* Both panes stay mounted and are hidden with `display`, not unmounted. The PR list keeps
+              its scroll position and its filter, and the conversation keeps a part-typed question,
+              across any number of tab switches. */}
+          <div className="left-pane" style={{ display: leftTab === "prs" ? undefined : "none" }}>
+            {/* An active repo can carry dozens of PRs; scanning for "the one about sport ids"
+                shouldn't mean scrolling. Matches id, title or author (§8). */}
+            <div className="cfg-head">
+              <input
+                className="input pr-search"
+                type="search"
+                placeholder="Filter pull requests…"
+                value={prFilter}
+                onChange={(e) => setPrFilter(e.target.value)}
+              />
+            </div>
+
+            <div className="cfg-scroll">
             {(prsQ.isLoading || reposQ.isLoading) && <div className="center-note"><span className="spin" /> loading…</div>}
             {prsQ.error && (
               <div className="error cfg-note">
@@ -505,7 +546,23 @@ export function ReviewPage() {
                 </div>
               </button>
             ))}
+            </div>
           </div>
+
+          {/* The conversation. Mounted only once a PR is open — it is about a pull request, and there
+              is nothing for it to be about before then. */}
+          {pr && (
+            <div className="left-pane" style={{ display: leftTab === "agent" ? undefined : "none" }}>
+              <AgentPanel
+                project={project}
+                repoId={repoId}
+                pr={pr}
+                prefill={agentPrefill}
+                onPrefillConsumed={() => setAgentPrefill(null)}
+                onCite={revealCitation}
+              />
+            </div>
+          )}
         </div>
 
         {/* ---------- changed files (right-hand rail, so the diff stays centred) ---------- */}
@@ -684,21 +741,6 @@ export function ReviewPage() {
               </svg>
             </button>
 
-            {/* Grouped with the right-panel toggle, since both affect the region on that side of the
-                diff. Collapsing the dock is the move for reading a tall diff uninterrupted, the same
-                way collapsing both side panels is the move for a wide one — independent axes that
-                combine (§5). */}
-            <button
-              className={`iconbtn ${dockOpen ? "on" : ""}`}
-              title={dockOpen ? "Collapse the agent panel" : "Expand the agent panel"}
-              aria-pressed={dockOpen}
-              onClick={() => setDockOpen((v) => !v)}
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
-                <path d="M1.5 10.5h13" />
-              </svg>
-            </button>
           </div>
           )}
 
@@ -750,31 +792,6 @@ export function ReviewPage() {
           </div>
         </div>
 
-        {/* ---------- the agent dock (DESIGN_SPEC_REVIEW.md §5) ---------- */}
-        {pr && (
-          <div className="cfg-col review-dock">
-            {/* On the dock's top edge, so it sits on the boundary it moves. Nothing to drag when
-                collapsed — the strip has one height. */}
-            {dockOpen && (
-              <DockResizer
-                height={dockHeight}
-                onHeight={setDockHeight}
-                // A drag below the minimum is a collapse rather than an unusably short dock (§5).
-                onCollapse={() => setDockOpen(false)}
-              />
-            )}
-            <AgentPanel
-              project={project}
-              repoId={repoId}
-              pr={pr}
-              prefill={agentPrefill}
-              onPrefillConsumed={() => setAgentPrefill(null)}
-              onCite={revealCitation}
-              collapsed={!dockOpen}
-              onToggleCollapsed={() => setDockOpen((v) => !v)}
-            />
-          </div>
-        )}
       </div>
     </div>
   );

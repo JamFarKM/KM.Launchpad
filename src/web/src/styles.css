@@ -2861,21 +2861,19 @@ a {
    in the window rather than shunted right by two stacked lists. Both side panels collapse,
    driven by data-left/data-right so it's a single grid-template-columns animation (§5).
    Collapsing both is the intended way to read a wide side-by-side diff. */
-/* Three columns and two rows, with the dock spanning the diff and the file tree but never the PR
-   list (DESIGN_SPEC_REVIEW.md §5).
+/* Three columns: the left panel, the diff, the file rail.
 
-   The asymmetry is the whole point of the dock existing. A reviewer never needs the PR list and the
-   conversation at once — you pick a pull request, then you are done with that list. But the file
-   tree is needed constantly alongside the conversation, because a citation or a follow-up routinely
-   points at a file other than the one open. The old design put the agent in a second tab on the
-   right rail, which made exactly that combination impossible. */
+   The left panel holds the pull request list and the conversation as two tabs, and the conversation
+   replaces the list rather than sitting beside it. That follows the reasoning
+   DESIGN_SPEC_REVIEW.md §5 gives for why the agent does not belong in the right rail: a reviewer
+   never needs the PR list and the conversation at once — you pick a pull request, then you are done
+   with that list — but the file tree is needed constantly alongside an answer, because a citation
+   routinely points at a file other than the one open. So the list is the one surface the
+   conversation can take over for free, and the file tree keeps its own column. */
 .review {
   display: grid;
   grid-template-columns: var(--w-left, var(--w-sidebar)) minmax(0, 1fr) var(--w-right, 380px);
-  grid-template-rows: minmax(0, 1fr) var(--h-dock, 340px);
-  grid-template-areas:
-    "prlist diff dock-free"
-    "prlist dock dock";
+  grid-template-areas: "prlist diff files";
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -2886,38 +2884,47 @@ a {
      correct. A 160ms flourish is not worth a control that lies. */
 }
 
-.review .cfg-col.prlist { grid-area: prlist; }
+.review .cfg-col.prlist { grid-area: prlist; position: relative; }
 .review .review-diff { grid-area: diff; }
-/* The file tree keeps its own full height beside the diff; the dock starts under both. */
-.review .review-files { grid-area: dock-free; }
-.review .review-dock { grid-area: dock; }
+.review .review-files { grid-area: files; }
 
-.review[data-left="off"] { --w-left: 0px; }
+/* Same !important reasoning as the rail below: the dragged width is an inline custom property on
+   .review, which would otherwise outrank the collapse rule. */
+.review[data-left="off"] { --w-left: 0px !important; }
+
+/* Both tab bodies stay mounted; only one is displayed. The PR list keeps its scroll position and its
+   filter, and the conversation keeps a part-typed question, across any number of tab switches. */
+.left-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* On the left panel's right edge — the boundary it moves. */
+.left-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 6;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.left-resizer:hover,
+.left-resizer:focus-visible {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.left-resizer:focus-visible { outline: none; }
 
 /* !important because the reviewer's dragged width is an inline style on .review, and an inline
    custom property would otherwise outrank this rule — collapsing the rail would set a width it
    then ignored. Collapse has to win over resize: it is the more specific intent. */
 .review[data-right="off"] { --w-right: 0px !important; }
-
-/* Collapsed, and deliberately not zero. The two side panels can disappear entirely because they hold
-   nothing that must stay visible. The dock is the only surface carrying the connector's identity, an
-   outage banner, and the CACHED tag on a stale review — collapsing it to 0px would silently hide an
-   outage, which is the one thing the reviewer most needs to know about. 44px is the identity strip:
-   name, status dot, chevron. Same !important reasoning as the rail above. */
-.review[data-dock="off"] { --h-dock: 44px !important; }
-
-/* No dock at all until a pull request is open — there is nothing for it to be about, and a strip
-   announcing a connector over an empty page is furniture. */
-.review[data-dock="none"] {
-  grid-template-rows: minmax(0, 1fr);
-  grid-template-areas: "prlist diff dock-free";
-}
-
-/* A guard, not decoration. With one row of areas there is no `dock` area to place a dock into, so a
-   dock element that outlived this state would be auto-placed — inventing an implicit column and
-   narrowing the diff, with nothing on screen to explain why. The page keys both off the same
-   condition; this makes a future mismatch invisible instead of destructive. */
-.review[data-dock="none"] .review-dock { display: none; }
 
 /* Icon button in the diff toolbar; takes the accent-tint "on" state while its panel is
    visible, which is the sanctioned selection use of --accent (A1). */
@@ -5267,64 +5274,63 @@ a {
    underneath. Provider identity is the .ag-ptag text only.
    ========================================================================== */
 
-/* The dock: a bottom panel under the diff and the file tree, never under the PR list. Its divider is
-   on the top edge, which is the boundary it shares with the diff. */
-.review-dock {
-  position: relative;
-  border-right: none;
-  border-top: 1px solid var(--border-hairline);
-  overflow: hidden;
+/* The left panel's two tabs: the pull request list, and the conversation. */
+.ag-tabs {
+  display: flex;
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
 }
 
-/* The strip is exactly the collapsed height, so the dock's 44px and its header agree rather than one
-   clipping the other. */
-.review-dock .ag-head {
-  height: 44px;
-  padding: 0 12px;
-  box-sizing: border-box;
-}
-
-/* Collapsed, the strip is the whole dock, so nothing inside it may try to scroll. */
-.review[data-dock="off"] .review-dock .ag-scroll,
-.review[data-dock="off"] .review-dock .ag-composer {
-  display: none;
-}
-
-/* The conversation keeps a readable measure even though the dock is now as wide as the diff plus the
-   file tree. Prose set across 1400px is unreadable regardless of how much room there is, and the
-   restricted markdown subset (no headings, no tables) was chosen for a narrow column — so the column
-   stays narrow and the extra width goes to the diff, not to longer lines. */
-.review-dock .ag-turn,
-.review-dock .ag-noconn,
-.review-dock .ag-banner {
-  max-width: 94ch;
-}
-
-.dock-resizer {
-  position: absolute;
-  top: -3px;
-  left: 0;
-  right: 0;
-  height: 7px;
-  z-index: 6;
-  cursor: row-resize;
+.ag-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
   background: transparent;
-  /* 7px for the same reason as the rail's handle: a 1px target is a target you miss. */
+  color: var(--ink-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.dock-resizer:hover,
-.dock-resizer:focus-visible {
-  background: color-mix(in oklab, var(--accent) 35%, transparent);
+.ag-tab.on {
+  color: var(--ink-primary);
+  border-bottom-color: var(--ink-primary);
 }
 
-.dock-resizer:focus-visible { outline: none; }
-
-body.is-row-resizing {
-  user-select: none;
-  cursor: row-resize !important;
+/* The agent tab takes the activity hue only when it is the one selected — violet means "this is what
+   is answering right now", not "this vendor" (§7.1). */
+.ag-tab.bot.on {
+  color: var(--hue-violet);
+  border-bottom-color: var(--hue-violet);
 }
 
-/* The status dot in the identity strip. Shape and word carry the state as well as hue (A4) — the
+/* Visibly waiting for a pull request rather than absent: a tab that appears and disappears as you
+   click around is harder to find than one that is there and dimmed. */
+.ag-tab:disabled {
+  color: var(--ink-muted);
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ag-tabn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 100px;
+  background: var(--hover-wash);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The status dot in the panel's header. Shape and word carry the state as well as hue (A4) — the
    word is in the line beneath, so this is the second signal rather than the only one. */
 .ag-dot {
   flex-shrink: 0;
@@ -5342,25 +5348,6 @@ body.is-row-resizing {
   border-radius: 2px;
   background: transparent;
   border: 1px solid var(--ink-muted);
-}
-
-.ag-chev {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: var(--r-small);
-  background: transparent;
-  color: var(--ink-muted);
-  cursor: pointer;
-}
-
-.ag-chev:hover {
-  background: var(--hover-wash);
-  color: var(--ink-primary);
 }
 
 .ag-head {

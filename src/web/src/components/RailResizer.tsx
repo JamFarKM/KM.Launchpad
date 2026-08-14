@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * The two resizable edges on the Review page: the file rail's left edge and the agent dock's top
+ * The two resizable edges on the Review page: the left panel's right edge and the file rail's left
  * edge.
  *
  * They share this file because they share every hard part — clamping against the window, persisting
@@ -28,17 +28,18 @@ const RAIL: Axis = {
 };
 
 /**
- * The dock. Its minimum is what fits the composer plus one visible turn; below that a drag is
- * treated as a collapse by the page, rather than leaving a dock too short to use.
+ * The left panel, which holds the pull request list and the conversation as two tabs.
+ *
+ * Wider bounds than the rail's, because the conversation shares this column: a PR list is legible at
+ * 340px and a conversation is cramped there, so the reviewer needs to be able to push it well past
+ * the width the list alone would want.
  */
-const DOCK: Axis = {
-  min: 180,
-  max: 720,
+const LEFT: Axis = {
+  min: 280,
+  max: 900,
   fallback: 340,
-  key: "pl-review-dock-h",
-  // Two thirds rather than a half: the dock competes with the diff for height, and a diff squeezed
-  // to a third of the window is still readable in a way a third-width diff is not.
-  ceiling: () => Math.round(window.innerHeight * 0.66),
+  key: "pl-review-left-w",
+  ceiling: () => Math.round(window.innerWidth / 2),
 };
 
 const STEP = 24;
@@ -75,23 +76,17 @@ function usePaneSize(axis: Axis): [number, (v: number) => void] {
 export function useRailWidth() { return usePaneSize(RAIL); }
 
 /**
- * The agent dock's expanded height, persisted across reloads.
+ * The left panel's width, persisted across reloads.
  *
- * `DESIGN_SPEC_REVIEW.md` §5 asks for "remembered for the session" as the minimum bar and §12 leans
- * towards persisting. Persisted, on the same reasoning as the model `<select>`: how much of the
- * window a reviewer wants given to conversation is a preference, not a per-visit accident, and
- * re-dragging it every morning is the annoying half of the choice.
+ * Persisted rather than remembered for the session, on the same reasoning as the model `<select>`:
+ * how much of the window a reviewer gives to the conversation is a preference, not a per-visit
+ * accident, and re-dragging it every morning is the annoying half of the choice.
  */
-export function useDockHeight() { return usePaneSize(DOCK); }
-
-/** Below this a drag is a collapse rather than a very short dock (§5). */
-export const DOCK_COLLAPSE_AT = DOCK.min;
+export function useLeftWidth() { return usePaneSize(LEFT); }
 
 interface ResizerProps {
   size: number;
   onSize: (v: number) => void;
-  /** Called when a drag goes below the minimum — the dock treats that as "collapse me". */
-  onUndershoot?: () => void;
 }
 
 /**
@@ -102,16 +97,26 @@ interface ResizerProps {
  * `aria-valuenow` is in px because that is genuinely what is being set.
  */
 function Resizer({
-  axis, orientation, className, label, size, onSize, onUndershoot, measure,
+  axis, className, label, size, onSize, measure, growTowards,
 }: ResizerProps & {
   axis: Axis;
-  orientation: "vertical" | "horizontal";
   className: string;
   label: string;
   measure: (e: React.PointerEvent<HTMLDivElement>) => number;
+  /**
+   * Which way the handle travels to make the pane bigger. `start` for a right-anchored pane (drag it
+   * left), `end` for a left-anchored one (drag it right).
+   *
+   * Passed rather than derived, because the two panes are mirror images and guessing produced a
+   * left-panel arrow key that shrank while the handle it named moved the other way.
+   */
+  growTowards: "start" | "end";
 }) {
   const dragging = useRef(false);
-  const body = orientation === "vertical" ? "is-col-resizing" : "is-row-resizing";
+  /* Both edges on this page are vertical, so there is one drag cursor. Set on the body rather than the
+     handle: without it the pointer flickers between cursors as it crosses the diff, and the answer
+     text highlights as though you were selecting it. */
+  const body = "is-col-resizing";
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -124,11 +129,7 @@ function Resizer({
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
-    const raw = measure(e);
-    // The undershoot is reported from the raw measurement, before clamping — clamping first would
-    // pin the value at the minimum and the intent to collapse would never be visible.
-    if (raw < axis.min && onUndershoot) onUndershoot();
-    else onSize(raw);
+    onSize(measure(e));
   };
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -139,10 +140,11 @@ function Resizer({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // The key matches the direction the handle travels, not the direction the number goes: for both
-    // panes, moving the handle "back" (left, or up) makes the pane bigger.
-    const grow = orientation === "vertical" ? "ArrowLeft" : "ArrowUp";
-    const shrink = orientation === "vertical" ? "ArrowRight" : "ArrowDown";
+    // The key matches the direction the handle travels, not the direction the number goes.
+    const towardsStart = "ArrowLeft";
+    const towardsEnd = "ArrowRight";
+    const grow = growTowards === "start" ? towardsStart : towardsEnd;
+    const shrink = growTowards === "start" ? towardsEnd : towardsStart;
 
     if (e.key === grow) { e.preventDefault(); onSize(size + STEP); }
     else if (e.key === shrink) { e.preventDefault(); onSize(size - STEP); }
@@ -154,7 +156,7 @@ function Resizer({
     <div
       className={className}
       role="separator"
-      aria-orientation={orientation}
+      aria-orientation="vertical"
       aria-label={label}
       aria-valuenow={size}
       aria-valuemin={axis.min}
@@ -177,11 +179,11 @@ export function RailResizer({ width, onWidth }: { width: number; onWidth: (w: nu
   return (
     <Resizer
       axis={RAIL}
-      orientation="vertical"
       className="rail-resizer"
       label="Resize the file list"
       size={width}
       onSize={onWidth}
+      growTowards="start"
       // The rail is right-anchored, so its width is the distance from the pointer to the window's
       // right edge — not the pointer's x.
       measure={(e) => window.innerWidth - e.clientX}
@@ -189,23 +191,19 @@ export function RailResizer({ width, onWidth }: { width: number; onWidth: (w: nu
   );
 }
 
-/** The agent dock's top edge. */
-export function DockResizer({ height, onHeight, onCollapse }: {
-  height: number;
-  onHeight: (h: number) => void;
-  onCollapse: () => void;
-}) {
+/** The left panel's right edge. */
+export function LeftResizer({ width, onWidth }: { width: number; onWidth: (w: number) => void }) {
   return (
     <Resizer
-      axis={DOCK}
-      orientation="horizontal"
-      className="dock-resizer"
-      label="Resize the agent panel"
-      size={height}
-      onSize={onHeight}
-      onUndershoot={onCollapse}
-      // Bottom-anchored, so the height is the distance from the pointer to the window's bottom edge.
-      measure={(e) => window.innerHeight - e.clientY}
+      axis={LEFT}
+      className="left-resizer"
+      label="Resize the pull request and conversation panel"
+      size={width}
+      onSize={onWidth}
+      growTowards="end"
+      // Left-anchored, so its width is simply the pointer's x — the mirror of the rail's case, which
+      // is the whole reason both measurements are passed in rather than assumed.
+      measure={(e) => e.clientX}
     />
   );
 }

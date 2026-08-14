@@ -28,25 +28,18 @@ interface Props {
   /** Prefilled from the diff gutter's ask action, so a question can be scoped to a line. */
   prefill?: string | null;
   onPrefillConsumed?: () => void;
-  /** Dock collapsed to its 44px identity strip (DESIGN_SPEC_REVIEW.md §5). */
-  collapsed?: boolean;
-  onToggleCollapsed?: () => void;
 }
 
 /**
- * The agent panel, in the Review page's bottom dock (DESIGN_SPEC_CONNECTORS.md §7).
+ * The agent panel — the Review page's left column, second tab (DESIGN_SPEC_CONNECTORS.md §7).
  *
  * <b>Nothing here names a provider or an agent.</b> The header, the composer placeholder and the
  * outage copy all read the assigned connector's own `name` — which is why a connector called
  * "BetBot" that happens to be Anthropic underneath reads as BetBot throughout, and why swapping the
  * provider changes only text.
- *
- * The identity strip is this component's header rather than the dock's, so the connector is looked up
- * in one place. Collapsed, the strip is all that renders — never nothing, because it is the only
- * surface an outage banner has.
  */
 export function AgentPanel({
-  project, repoId, pr, onCite, prefill, onPrefillConsumed, collapsed, onToggleCollapsed,
+  project, repoId, pr, onCite, prefill, onPrefillConsumed,
 }: Props) {
   const connectorsQ = useQuery<Connector[]>({ queryKey: ["connectors"], queryFn: api.connectors });
   const providersQ = useQuery<ConnectorProvider[]>({
@@ -159,8 +152,8 @@ export function AgentPanel({
   const unreachable = connector?.status === "unreachable";
   const missing = !connectorsQ.isLoading && !connector;
 
-  /* The identity strip. Always rendered, at both dock heights, because it is the only place an
-     outage or a CACHED tag can appear — a dock that collapsed to nothing would hide one silently. */
+  /* The panel's header: who is answering, on what model, and whether it is reachable. The status is
+     a dot plus a word, and the shape differs per state (A4), so hue is never the only signal. */
   const strip = (
     <div className="ag-head">
       <span className={`ag-dot ${missing ? "none" : unreachable ? "down" : "ok"}`} aria-hidden="true" />
@@ -175,25 +168,8 @@ export function AgentPanel({
           {missing ? "Settings › Connectors" : unreachable ? "Unreachable on the last attempt" : connector?.model ?? ""}
         </div>
       </div>
-      {onToggleCollapsed && (
-        <button
-          className="ag-chev"
-          aria-expanded={!collapsed}
-          title={collapsed ? "Expand the agent panel" : "Collapse the agent panel"}
-          onClick={onToggleCollapsed}
-        >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
-            strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-            style={{ transform: collapsed ? "none" : "rotate(180deg)" }}>
-            <path d="M4 10l4-4 4 4" />
-          </svg>
-        </button>
-      )}
     </div>
   );
-
-  // Collapsed: the strip and nothing else. Not a hidden panel — a visible one, 44px tall.
-  if (collapsed) return strip;
 
   // §7.2 — the one state where a full-panel takeover is right: nothing to preserve, and exactly
   // one useful action.
