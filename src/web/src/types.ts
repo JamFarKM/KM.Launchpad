@@ -366,15 +366,30 @@ export interface AgentCitation {
   endLine?: number | null;
 }
 
+/**
+ * One claim, with its own badge and its own citations (§5.2).
+ *
+ * `provenance` is null only when the agent asserted nothing for this claim — the badge then reads
+ * UNVERIFIED SOURCE. It is never derived from whether citations happen to be present.
+ */
+export interface AgentSegment {
+  text: string;
+  /** code | doc | inferred, or null when the agent asserted nothing for this claim. */
+  provenance?: string | null;
+  citations: AgentCitation[];
+  inferenceNote?: string | null;
+}
+
 export interface AgentTurn {
   id: string;
   ordinal: number;
   question: string;
+  /**
+   * The segments' prose, joined. For "Copy all" only — rendering is per segment, or the badge and
+   * the citations go back to being pooled under a whole answer.
+   */
   answer: string;
-  /** code | doc | inferred, or null when the agent asserted nothing (§5.4 mode 3). */
-  provenance?: string | null;
-  citations: AgentCitation[];
-  inferenceNote?: string | null;
+  segments: AgentSegment[];
   /** structured | fencedjson | unverified. */
   mode: string;
   /** Recorded on the turn, so attribution survives the connector's removal. */

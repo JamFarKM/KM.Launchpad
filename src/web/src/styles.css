@@ -5535,6 +5535,50 @@ a {
 
 .ag-infer b { color: var(--ink-primary); }
 
+/* ---------- one card per claim (§5.2) ---------- */
+
+/* Each segment is visually its own block, because each carries its own badge and its own citations.
+   Without the separation a badge reads as belonging to whichever paragraph it happens to sit nearest
+   — which is the ambiguity this shape exists to remove. */
+.ag-seg {
+  padding: 8px 0 2px;
+}
+
+.ag-seg + .ag-seg {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.ag-seg .ag-p:last-of-type,
+.ag-seg .ag-ul:last-child {
+  margin-bottom: 6px;
+}
+
+/* Badge and citations on one wrapping row directly under this claim's text — bundled with it rather
+   than pooled at the end of the turn. */
+.ag-segfoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+/* Pushed to the end of the row so the badge and its citations stay adjacent to each other. */
+.ag-segfoot .ag-post {
+  margin-left: auto;
+}
+
+/* The claim currently being written. Deliberately quiet — a placeholder for something not yet said,
+   not a claim of its own. */
+.ag-pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 0 4px;
+}
+
+.ag-pending .ag-thinking { margin: 0; }
+
 /* ---------- citations ---------- */
 
 .ag-cites {

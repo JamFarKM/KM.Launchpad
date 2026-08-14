@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { askAgent } from "../lib/askAgent";
-import type { AgentCitation, AgentTurn, Connector, ConnectorProvider, PullRequest } from "../types";
+import type {
+  AgentCitation, AgentSegment, AgentTurn, Connector, ConnectorProvider, PullRequest,
+} from "../types";
 
 const PR_QUESTIONS = "pr.questions";
 
@@ -54,6 +56,11 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<AgentTurn[]>([]);
   const [streaming, setStreaming] = useState(false);
+  /* Claims that have closed during this answer. Each renders as a finished card the moment it
+     arrives — the reviewer reads one thought at a time rather than watching a paragraph type
+     itself under a badge that can't be decided until the end. */
+  const [streamedSegments, setStreamedSegments] = useState<AgentSegment[]>([]);
+  /* Mode-3 prose, which is a different thing and looks like one: no badge is earned by it. */
   const [streamed, setStreamed] = useState("");
   const [failure, setFailure] = useState<{ code: string; detail?: string | null } | null>(null);
   const [truncation, setTruncation] = useState<{ omitted: string[] } | null>(null);
@@ -61,7 +68,8 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
      rather than implied — a review that claims nothing is untested should show that it looked. */
   const [reading, setReading] = useState<string | null>(null);
   const [reads, setReads] = useState<string[]>([]);
-  const [posting, setPosting] = useState<AgentTurn | null>(null);
+  /* What is being drafted for the pull request: one specific claim, not a whole turn (§7.4). */
+  const [posting, setPosting] = useState<{ segment: AgentSegment; connectorName?: string | null } | null>(null);
 
   const abort = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -77,7 +85,7 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
   // §7's panel auto-scrolls to the newest answer.
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [turns.length, streamed]);
+  }, [turns.length, streamedSegments.length, streamed]);
 
   useEffect(() => () => abort.current?.abort(), []);
 
@@ -96,6 +104,7 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
     if (!q || streaming || !connector) return;
 
     setQuestion("");
+    setStreamedSegments([]);
     setStreamed("");
     setFailure(null);
     setTruncation(null);
@@ -113,8 +122,15 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
           setReading(info.detail || info.tool);
           setReads((r) => (info.detail && !r.includes(info.detail) ? [...r, info.detail] : r));
         },
+        onSegment: (segment) => setStreamedSegments((s) => [...s, segment]),
         onDelta: (text) => setStreamed((s) => s + text),
-        onComplete: (turn) => { setTurns((t) => [...t, turn]); setStreamed(""); },
+        onComplete: (turn) => {
+          // The recorded turn replaces what streamed: same segments, but now with an id, a commit
+          // and a postability verdict the server decided.
+          setTurns((t) => [...t, turn]);
+          setStreamedSegments([]);
+          setStreamed("");
+        },
         onError: (e) => setFailure(e),
       }, controller.signal);
     } catch (e) {
@@ -199,7 +215,12 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
         )}
 
         {turns.map((t) => (
-          <Turn key={t.id} turn={t} onCite={onCite} onPost={() => setPosting(t)} />
+          <Turn
+            key={t.id}
+            turn={t}
+            onCite={onCite}
+            onPost={(segment) => setPosting({ segment, connectorName: t.connectorName })}
+          />
         ))}
 
         {streaming && (
@@ -208,20 +229,42 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
             <div className="ag-answer">
               <div className="ag-ahead">
                 <span className="ag-who">{name.toUpperCase()}</span>
-                {/* Nothing has been asserted yet, so the badge says it is still looking rather than
-                    claiming a source in advance (§5.2.1). */}
-                <span className="ag-prov pending" title="The source is stated once the answer lands.">
+              </div>
+
+              {/* Claims that have already closed. Badged and citable immediately — they are finished
+                  statements, and holding them back until the whole turn lands would be pretending
+                  the agent hadn't said them yet. */}
+              {streamedSegments.map((s, i) => (
+                <Segment key={i} segment={s} onCite={onCite} />
+              ))}
+
+              {/* Mode 3: prose from a connector that asserts nothing. One badge, and it says so. */}
+              {streamed && (
+                <div className="ag-seg">
+                  <Markdown text={streamed} />
+                  <div className="ag-segfoot">
+                    <span className="ag-prov unver"
+                      title="This connector didn't state where the answer came from.">
+                      UNVERIFIED SOURCE
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* The claim still being written. A placeholder rather than the whole turn sitting at
+                  CHECKING SOURCES, which used to make finished claims wait on unfinished ones. */}
+              <div className="ag-pending">
+                <span className="ag-prov pending" title="The source is stated when this part lands.">
                   CHECKING SOURCES
                 </span>
+                {/* Naming the file it is reading turns a long pause into visible progress, and is the
+                    difference between "this is slow" and "this is checking something". */}
+                {reading
+                  ? <span className="ag-thinking">reading <code>{reading}</code>…</span>
+                  : streamedSegments.length === 0 && !streamed
+                    ? <span className="ag-thinking">reading the diff and the description…</span>
+                    : null}
               </div>
-              {/* Naming the file it is reading turns a long pause into visible progress, and is the
-                  difference between "this is slow" and "this is checking something". */}
-              {reading && !streamed && (
-                <div className="ag-thinking">reading <code>{reading}</code>…</div>
-              )}
-              {streamed
-                ? <Markdown text={streamed} />
-                : !reading && <div className="ag-thinking">reading the diff and the description…</div>}
 
               {reads.length > 0 && (
                 <div className="ag-reads">
@@ -269,7 +312,8 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
 
       {posting && (
         <PostSheet
-          turn={posting}
+          segment={posting.segment}
+          connectorName={posting.connectorName}
           prId={pr.id}
           project={project}
           repoId={repoId}
@@ -280,11 +324,17 @@ export function AgentPanel({ project, repoId, pr, onCite, prefill, onPrefillCons
   );
 }
 
-/** One exchange. */
+/**
+ * One exchange: a question, then one card per claim.
+ *
+ * <b>There is no code path here that treats the answer as one string.</b> `turn.answer` exists and is
+ * used exactly once, by "Copy all" — rendering from it would put every badge and every citation back
+ * under a whole turn, which is the defect the segment shape exists to remove.
+ */
 function Turn({ turn, onCite, onPost }: {
   turn: AgentTurn;
   onCite: (path: string, line: number) => void;
-  onPost: () => void;
+  onPost: (segment: AgentSegment) => void;
 }) {
   return (
     <div className="ag-turn">
@@ -293,43 +343,30 @@ function Turn({ turn, onCite, onPost }: {
       <div className="ag-answer">
         <div className="ag-ahead">
           <span className="ag-who">{(turn.connectorName ?? "Agent").toUpperCase()}</span>
-          <ProvenanceBadge turn={turn} />
         </div>
 
-        {turn.errorCode
-          ? <p className="ag-failed">This answer failed before it finished — <code>{turn.errorCode}</code>.</p>
-          : <Markdown text={turn.answer} />}
+        {turn.errorCode && (
+          <p className="ag-failed">This answer failed before it finished — <code>{turn.errorCode}</code>.</p>
+        )}
+
+        {turn.segments.map((s, i) => (
+          <Segment
+            key={i}
+            segment={s}
+            onCite={onCite}
+            // Absent rather than disabled when not postable: there is nothing the reviewer could do
+            // to make a stopped, failed or unverified claim postable (§7.4).
+            onPost={turn.postable ? () => onPost(s) : undefined}
+          />
+        ))}
 
         {turn.stopped && <p className="ag-failed">You stopped this answer, so it is incomplete.</p>}
 
-        {/* An inference is boxed as well as badged: the agent cannot know why a human chose
-            something, and the UI must not let it sound like it does. */}
-        {turn.inferenceNote && (
-          <div className="ag-infer"><b>This part is a guess.</b> {turn.inferenceNote}</div>
-        )}
-
-        {/* Hidden entirely in mode 3 — an answer with no asserted source has no citations to
-            show, and inventing the strip would imply otherwise. */}
-        {turn.mode !== "unverified" && turn.citations.length > 0 && (
-          <div className="ag-cites">
-            {turn.citations.map((c, i) => (
-              <button key={i} className="ag-cite" onClick={() => onCite(c.path, c.line)}
-                title={`${c.path}:${c.line}`}>
-                {fileName(c.path)}:{c.line}
-              </button>
-            ))}
-          </div>
-        )}
-
         <div className="ag-afoot">
-          <button className="ag-mini" onClick={() => navigator.clipboard?.writeText(turn.answer)}>
-            Copy
+          <button className="ag-mini" onClick={() => navigator.clipboard?.writeText(turn.answer)}
+            title="Copy every part of this answer as one block of text">
+            Copy all
           </button>
-          {/* Absent rather than disabled when not postable: there is nothing the reviewer could do
-              to make a stopped, failed or unverified answer postable (§7.4). */}
-          {turn.postable && (
-            <button className="ag-mini" onClick={onPost}>Post as comment…</button>
-          )}
         </div>
       </div>
     </div>
@@ -337,14 +374,61 @@ function Turn({ turn, onCite, onPost }: {
 }
 
 /**
- * §5.2.1's badge. Always present — there is no unbadged answer — and it only ever renders a value
- * the agent asserted. Never derived from whether citations happen to be present.
+ * One claim: its text, its own badge, its own hedge, its own citations (§5.2).
+ *
+ * The order is deliberate and matches the mockup: text, then the badge under it, then the citations
+ * under that — so a citation is unambiguously *this* claim's rather than the next one's.
  */
-function ProvenanceBadge({ turn }: { turn: AgentTurn }) {
-  if (turn.mode === "unverified" || !turn.provenance) {
+function Segment({ segment, onCite, onPost }: {
+  segment: AgentSegment;
+  onCite: (path: string, line: number) => void;
+  onPost?: () => void;
+}) {
+  const unverified = !segment.provenance;
+
+  return (
+    <div className={`ag-seg ${unverified ? "is-unver" : ""}`}>
+      <Markdown text={segment.text} />
+
+      {/* An inference is boxed as well as badged: the agent cannot know why a human chose
+          something, and the UI must not let it sound like it does. Under this claim only — a hedge
+          on one segment says nothing about the others. */}
+      {segment.inferenceNote && (
+        <div className="ag-infer"><b>This part is a guess.</b> {segment.inferenceNote}</div>
+      )}
+
+      <div className="ag-segfoot">
+        <ProvenanceBadge provenance={segment.provenance} />
+
+        {/* Hidden on an unverified claim — the agent asserted no source, so there is nothing to
+            point at, and showing a strip would imply otherwise. */}
+        {!unverified && segment.citations.map((c, i) => (
+          <button key={i} className="ag-cite" onClick={() => onCite(c.path, c.line)}
+            title={`${c.path}:${c.line}${c.endLine ? `–${c.endLine}` : ""} — jump to this line`}>
+            {fileName(c.path)}:{c.line}
+          </button>
+        ))}
+
+        {onPost && (
+          <button className="ag-mini ag-post" onClick={onPost}
+            title="Post this one point as a comment on the pull request">
+            Post as comment…
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * §5.2.1's badge, per segment. Always present — there is no unbadged claim — and it only ever
+ * renders a value the agent asserted. Never derived from whether citations happen to be present.
+ */
+function ProvenanceBadge({ provenance }: { provenance?: string | null }) {
+  if (!provenance) {
     return (
       <span className="ag-prov unver"
-        title="This connector didn't state where the answer came from. Treat it as unverified.">
+        title="The agent didn't state where this came from. Treat it as unverified.">
         UNVERIFIED SOURCE
       </span>
     );
@@ -355,7 +439,7 @@ function ProvenanceBadge({ turn }: { turn: AgentTurn }) {
     doc: ["doc", "FROM PR DESC", "Grounded in the PR description or a linked work item."],
     inferred: ["infer", "INFERRED", "Not stated anywhere — reasoning from convention. Treat as a hypothesis."],
   };
-  const [cls, label, title] = map[turn.provenance] ?? map.inferred;
+  const [cls, label, title] = map[provenance] ?? map.inferred;
   return <span className={`ag-prov ${cls}`} title={title}>{label}</span>;
 }
 
@@ -388,18 +472,23 @@ function FailureRow({ failure, name }: { failure: { code: string; detail?: strin
  * §7.4 — nothing reaches the pull request without a human.
  *
  * The text is editable, it posts under the reviewer's own name, and the attribution line can be
- * deleted. There is no code path that posts an answer without this sheet being shown first.
+ * deleted. There is no code path that posts anything without this sheet being shown first.
+ *
+ * It posts <b>one segment</b>, not a whole turn. That is a direct benefit of bundling citations at
+ * the claim level: the segment already names a `path` and `line`, so the comment can be anchored
+ * there instead of landing as a general PR comment the reviewer has to place by hand.
  */
-function PostSheet({ turn, project, repoId, prId, onClose }: {
-  turn: AgentTurn;
+function PostSheet({ segment, connectorName, project, repoId, prId, onClose }: {
+  segment: AgentSegment;
+  connectorName?: string | null;
   project: string;
   repoId: string;
   prId: number;
   onClose: () => void;
 }) {
-  const anchor = turn.citations[0];
+  const anchor = segment.citations[0];
   const [text, setText] = useState(
-    `${turn.answer}\n\n— via ${turn.connectorName ?? "an agent"}`);
+    `${segment.text}\n\n— via ${connectorName ?? "an agent"}`);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
