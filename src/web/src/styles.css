@@ -2863,16 +2863,23 @@ a {
    Collapsing both is the intended way to read a wide side-by-side diff. */
 .review {
   display: grid;
-  grid-template-columns: var(--w-left, var(--w-sidebar)) minmax(0, 1fr) var(--w-right, 280px);
+  grid-template-columns: var(--w-left, var(--w-sidebar)) minmax(0, 1fr) var(--w-right, 380px);
   flex: 1;
   min-height: 0;
   width: 100%;
   overflow: hidden;
-  transition: grid-template-columns 0.16s ease;
+  /* No transition on the tracks. It animated the collapse toggles pleasantly, but a transitioned
+     grid-template-columns pins its used value once a drag interrupts it: the variable then changes
+     and the layout does not follow, which makes a resizer look broken while its state is perfectly
+     correct. A 160ms flourish is not worth a control that lies. */
 }
 
 .review[data-left="off"] { --w-left: 0px; }
-.review[data-right="off"] { --w-right: 0px; }
+
+/* !important because the reviewer's dragged width is an inline style on .review, and an inline
+   custom property would otherwise outrank this rule — collapsing the rail would set a width it
+   then ignored. Collapse has to win over resize: it is the more specific intent. */
+.review[data-right="off"] { --w-right: 0px !important; }
 
 /* Icon button in the diff toolbar; takes the accent-tint "on" state while its panel is
    visible, which is the sanctioned selection use of --accent (A1). */
@@ -5683,3 +5690,43 @@ a {
 .ag-noconn b { font-size: 13.5px; color: var(--ink-primary); }
 .ag-noconn p { margin: 0; max-width: 280px; }
 .ag-noconn .ag-fine { font-size: 11px; color: var(--ink-muted); }
+
+/* ==========================================================================
+   Rail resizer — drag the boundary between the diff and the right rail.
+   ========================================================================== */
+
+/* Sits on the rail's own left edge, overlapping the hairline it moves. Absolute rather than a grid
+   column so the layout does not gain a track that would then have to be maintained alongside the
+   collapse toggles. */
+.rail-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 6;
+  cursor: col-resize;
+  background: transparent;
+  /* The hit area is 7px because a 1px target is a target you miss; the visible mark stays the
+     existing hairline until you hover. */
+}
+
+.review-files { position: relative; }
+
+.rail-resizer:hover,
+.rail-resizer:focus-visible {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+/* Focus lands on the handle itself rather than drawing a ring around a 7px strip, which at this
+   size would read as a stray artefact rather than as focus. */
+.rail-resizer:focus-visible { outline: none; }
+
+/* While dragging, kill text selection and force the resize cursor everywhere — otherwise the
+   pointer flickers between cursors as it crosses the diff and the answer text highlights. */
+body.is-col-resizing { cursor: col-resize; user-select: none; }
+body.is-col-resizing * { cursor: col-resize !important; }
+
+/* The grid animates its columns, which is right for the collapse toggles and wrong for a drag —
+   a 160ms transition on every pointermove lags behind the cursor. */
+/* The tracks no longer transition at all, so nothing needs suppressing during a drag. */

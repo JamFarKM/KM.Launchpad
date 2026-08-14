@@ -1,5 +1,6 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
+import { RailResizer, useRailWidth } from "../components/RailResizer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
@@ -267,6 +268,11 @@ export function ReviewPage() {
   const [cite, setCite] = useState<{ line: number; nonce: number } | null>(null);
   const [agentPrefill, setAgentPrefill] = useState<string | null>(null);
 
+  /* The rail's width, dragged by the reviewer and persisted. A long answer beside a wide diff is a
+     genuine tension, and which one deserves the space changes by the minute — so it is theirs to
+     decide rather than ours to fix at one number. */
+  const [railWidth, setRailWidth] = useRailWidth();
+
   /**
    * The tab is named by whichever connector holds the capability — never a literal (§7.1). With
    * nothing assigned it reads `Agent` and stays neutral, because there is no identity to name yet.
@@ -424,10 +430,13 @@ export function ReviewPage() {
         </div>
       )}
 
+      {/* The grid already read --w-right, so resizing only has to set a variable — no layout
+          rewrite, and the collapse toggles keep working because they override the same one. */}
       <div
         className="review"
         data-left={leftOpen ? "on" : "off"}
         data-right={prId && rightOpen ? "on" : "off"}
+        style={{ "--w-right": `${railWidth}px` } as React.CSSProperties}
       >
         {/* ---------- pull requests ---------- */}
         <div className="cfg-col">
@@ -482,6 +491,9 @@ export function ReviewPage() {
 
         {/* ---------- changed files (right-hand rail, so the diff stays centred) ---------- */}
         <div className="cfg-col review-files" style={{ order: 3 }}>
+          {/* On the rail's left edge, so it sits on the boundary it moves. Hidden when the rail is
+              collapsed — there is no edge to drag then. */}
+          {prId && rightOpen && <RailResizer width={railWidth} onWidth={setRailWidth} />}
           {/* A tab on the existing rail, not a fourth column: you never need the file tree and an
               answer at once, and the diff stays centred — which matters, because answers cite lines
               in it. The tab is named by the connector, never by a literal (§7.1). */}
