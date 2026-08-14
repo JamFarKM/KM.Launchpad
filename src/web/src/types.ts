@@ -376,6 +376,14 @@ export interface AgentSegment {
   text: string;
   /** code | doc | inferred, or null when the agent asserted nothing for this claim. */
   provenance?: string | null;
+  /**
+   * info | warning | error — how much this should worry the reviewer.
+   *
+   * A separate axis from `provenance`, and neither implies the other: a claim grounded in the diff
+   * can be harmless, and a hypothesis can be the most important thing on the page. Optional on the
+   * type because a turn recorded before severity existed has none, and those read as `info`.
+   */
+  severity?: string | null;
   citations: AgentCitation[];
   inferenceNote?: string | null;
 }

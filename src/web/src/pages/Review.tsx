@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
-import { AnnotationCard } from "../components/AnnotationCard";
+import { AnnotationCard, type CycleStop } from "../components/AnnotationCard";
 import { LeftResizer, RailResizer, useLeftWidth, useRailWidth } from "../components/RailResizer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
@@ -337,8 +337,6 @@ export function ReviewPage() {
     () => { qc.invalidateQueries({ queryKey: ["pr-annotations", project, repoId, prId] }); },
     [qc, project, repoId, prId]);
 
-  /** The annotation whose card is open, by id. */
-  const [openAnnotation, setOpenAnnotation] = useState<string | null>(null);
   /** Whether resolved markers are in the cycle and shown at full strength (§7.6). */
   const [showResolved, setShowResolved] = useState(false);
 
@@ -353,12 +351,23 @@ export function ReviewPage() {
    * one dims and drops out of the list until `Show resolved`.
    */
   const fileAnnotations = useMemo(() => {
-    const current = norm(shown?.path ?? "");
-    const byLine = new Map<number, { line: number; resolved: boolean; hasReplies: boolean }>();
+    const current = shown ? norm(shown.path) : null;
+    if (current === null) return [];
+
+    type Marker = { line: number; resolved: boolean; hasReplies: boolean; severity: string };
+    const byLine = new Map<number, Marker>();
+
+    // Worst wins where several claims cite one line. A margin reporting the mildest thing said about
+    // a line is worse than no margin at all, because it reads as an all-clear.
+    const rank: Record<string, number> = { info: 0, warning: 1, error: 2 };
 
     for (const s of citedSegments) {
+      const severity = s.severity ?? "info";
       for (const c of s.citations) {
-        if (norm(c.path) === current) byLine.set(c.line, { line: c.line, resolved: false, hasReplies: false });
+        if (norm(c.path) !== current) continue;
+        const seen = byLine.get(c.line);
+        if (seen && (rank[seen.severity] ?? 0) >= (rank[severity] ?? 0)) continue;
+        byLine.set(c.line, { line: c.line, resolved: false, hasReplies: false, severity });
       }
     }
 
@@ -368,40 +377,93 @@ export function ReviewPage() {
       if (resolved && !showResolved) { byLine.delete(a.line); continue; }
       // An annotation whose citation has scrolled out of the replayed history still gets a marker: the
       // reviewer started a conversation about that line, and losing the way back to it loses the thread.
-      byLine.set(a.line, { line: a.line, resolved, hasReplies: a.turns.length > 0 });
+      byLine.set(a.line, {
+        line: a.line,
+        resolved,
+        hasReplies: a.turns.length > 0,
+        severity: byLine.get(a.line)?.severity ?? "info",
+      });
     }
 
     return [...byLine.values()];
-  }, [citedSegments, annotations, shown?.path, showResolved]);
+  }, [citedSegments, annotations, shown, showResolved]);
 
   /**
-   * The cycle: **open** annotations only, unless `Show resolved` is on (§7.6).
+   * Every point the agent made, across the whole pull request, in file order.
    *
-   * A raw marker the reviewer never engaged with is not clutter to be counted — there is no obligation
-   * to work through every citation the agent ever made, only the ones worth a thread. So an annotation
-   * enters the cycle once it has a reply, or once the reviewer has opened its card at least once.
+   * <b>This counts citations, not conversations.</b> It first counted only annotations the reviewer had
+   * replied to, on the reading that §7.6's "open annotations" meant threads worth returning to. That is
+   * the wrong tool: a reviewer wants to walk everything the agent flagged, including — especially — the
+   * points they have not looked at yet. Resolving is how you take one out of the rotation, which is
+   * what `Show resolved` is the other half of.
+   *
+   * Errors and warnings sort to the front. On a long answer the reviewer's first ‹ › press should land
+   * on the thing that might block the merge, not on whichever file happens to sort first alphabetically.
    */
-  const cycle = useMemo(
-    () => annotations.filter((a) =>
-      (showResolved || a.status !== "resolved") && (a.turns.length > 0 || a.id === openAnnotation)),
-    [annotations, showResolved, openAnnotation],
-  );
+  const cycle = useMemo(() => {
+    const rank: Record<string, number> = { info: 0, warning: 1, error: 2 };
+    const byKey = new Map<string, CycleStop>();
 
-  const cycleIndex = cycle.findIndex((a) => a.id === openAnnotation);
+    for (const s of citedSegments) {
+      const severity = s.severity ?? "info";
+      for (const c of s.citations) {
+        const key = `${norm(c.path)}:${c.line}`;
+        const seen = byKey.get(key);
+        if (seen && (rank[seen.severity] ?? 0) >= (rank[severity] ?? 0)) continue;
+        byKey.set(key, {
+          path: norm(c.path), line: c.line, severity,
+          // Whichever claim cited the line opens its card, so stepping onto a stop always has
+          // something to show even before the reviewer has said anything.
+          seed: s.text, annotation: null,
+        });
+      }
+    }
+
+    for (const a of annotations) {
+      const key = `${norm(a.path)}:${a.line}`;
+      const seen = byKey.get(key);
+      byKey.set(key, {
+        path: norm(a.path), line: a.line,
+        severity: seen?.severity ?? "info",
+        seed: a.seed ?? seen?.seed ?? null,
+        annotation: a,
+      });
+    }
+
+    return [...byKey.values()]
+      .filter((s) => showResolved || s.annotation?.status !== "resolved")
+      .sort((a, b) =>
+        (rank[b.severity] ?? 0) - (rank[a.severity] ?? 0)
+        || a.path.localeCompare(b.path)
+        || a.line - b.line);
+  }, [citedSegments, annotations, showResolved]);
+
+  /** Which stop is showing, as a `path:line` key — stops exist before annotations do. */
+  const [openStop, setOpenStop] = useState<string | null>(null);
+  const cycleIndex = cycle.findIndex((s) => `${s.path}:${s.line}` === openStop);
 
   /* The card only renders for the file on screen. A card anchored to a line in another file would
      point at whatever happens to be on that line here, which is worse than no card. */
   const openCard = useMemo(() => {
-    const a = annotations.find((x) => x.id === openAnnotation);
-    return a && norm(a.path) === norm(shown?.path ?? "") ? a : null;
-  }, [annotations, openAnnotation, shown?.path]);
+    if (!openStop || !shown) return null;
+    const stop = cycle.find((s) => `${s.path}:${s.line}` === openStop);
+    return stop && stop.path === norm(shown.path) ? stop : null;
+  }, [cycle, openStop, shown]);
 
-  const openAt = useCallback((a: Annotation | undefined) => {
-    if (!a) return;
-    const match = changes.find((c) => norm(c.path) === norm(a.path));
+  /**
+   * Go to a stop: switch file if it is elsewhere, reveal the line, open its card.
+   *
+   * <b>No row is written just for looking.</b> A stop's card renders from the citation alone, and the
+   * annotation is only persisted when the reviewer actually says or resolves something — otherwise
+   * paging through twenty citations would leave twenty empty conversations behind, and the count of
+   * "annotations" would stop meaning anything.
+   */
+  const openAt = useCallback((stop: CycleStop | undefined) => {
+    if (!stop) return;
+    const match = changes.find((c) => norm(c.path) === stop.path);
     if (match && match.path !== path) setPath(match.path);
-    setOpenAnnotation(a.id);
-    setCite({ line: a.line, nonce: Date.now() });
+    setOpenStop(`${stop.path}:${stop.line}`);
+    setCite({ line: stop.line, nonce: Date.now() });
   }, [changes, path]);
 
   const step = useCallback((delta: number) => {
@@ -411,30 +473,32 @@ export function ReviewPage() {
     openAt(cycle[(from + delta + cycle.length) % cycle.length]);
   }, [cycle, cycleIndex, openAt]);
 
+  /** Clicking a gutter marker: the same thing as stepping onto that stop. */
+  const openAnnotationAt = useCallback((line: number) => {
+    if (!shown) return;
+    setOpenStop(`${norm(shown.path)}:${line}`);
+  }, [shown]);
+
   /**
-   * Opening a marker: find the annotation on that line, or create one seeded with the claim that
-   * cited it.
+   * Persist the open stop's annotation, if it isn't one yet, and return its id.
    *
-   * Seeded from the segment whose citation put the marker there. A marker exists because a segment
-   * cited the line, so there is always a claim to open with — and it is the agent's own words rather
-   * than a summary, which is why the seed is copied at creation rather than looked up later.
+   * Called by the card immediately before its first write — a reply, or a resolve. Seeded with the
+   * claim that cited the line: the agent's own words, copied rather than referenced, so a later
+   * re-ask replacing that turn can't silently change what the card says it is about.
    */
-  const openAnnotationAt = useCallback(async (line: number) => {
-    if (!shown?.path || !prId) return;
-
-    const existing = annotations.find(
-      (a) => norm(a.path) === norm(shown.path) && a.line === line);
-    if (existing) { setOpenAnnotation(existing.id); return; }
-
-    const seed = citedSegments.find(
-      (s) => s.citations.some((c) => norm(c.path) === norm(shown.path) && c.line === line))?.text;
+  const ensureAnnotation = useCallback(async (): Promise<string | null> => {
+    if (!openCard || !prId) return null;
+    if (openCard.annotation) return openCard.annotation.id;
 
     const created = await api.createAnnotation(project, repoId, prId, {
-      path: shown.path, line, commitSha: pr?.sourceCommit ?? null, seed: seed ?? null,
+      path: openCard.path,
+      line: openCard.line,
+      commitSha: pr?.sourceCommit ?? null,
+      seed: openCard.seed,
     });
     refreshAnnotations();
-    setOpenAnnotation(created.id);
-  }, [annotations, shown?.path, prId, project, repoId, pr?.sourceCommit, refreshAnnotations, citedSegments]);
+    return created.id;
+  }, [openCard, prId, project, repoId, pr?.sourceCommit, refreshAnnotations]);
 
   const [viewed, setViewed] = useState<Set<string>>(new Set());
 
@@ -949,15 +1013,16 @@ export function ReviewPage() {
                   anchorLine={openCard?.line ?? null}
                   renderAnchored={openCard ? ({ top, left }) => (
                     <AnnotationCard
-                      annotation={openCard}
+                      stop={openCard}
                       project={project}
                       repoId={repoId}
-                      prId={openCard ? prId! : 0}
+                      prId={prId!}
                       headCommit={pr?.sourceCommit}
                       connectorName={agentTabLabel}
+                      ensure={ensureAnnotation}
                       top={top}
                       left={left}
-                      onClose={() => setOpenAnnotation(null)}
+                      onClose={() => setOpenStop(null)}
                       onChanged={refreshAnnotations}
                       onCite={revealCitation}
                     />

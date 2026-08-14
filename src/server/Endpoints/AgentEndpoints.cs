@@ -420,6 +420,7 @@ public static class AgentEndpoints
     private static AgentSegmentDto ToSegmentDto(AnswerSegment s) => new(
         s.Text,
         s.Provenance is { } p ? ProvenanceNames.ToWire(p) : null,
+        SeverityNames.ToWire(s.Severity),
         s.Citations.Select(c => new CitationDto(c.Path, c.Line, c.EndLine)).ToList(),
         s.InferenceNote);
 

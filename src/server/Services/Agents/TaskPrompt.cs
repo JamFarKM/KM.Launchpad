@@ -73,9 +73,9 @@ public static class TaskPrompt
 
         {CanonicalSchema.ToJson()}
 
-        Each element of `segments` is one claim. `provenance` is one of "code", "doc" or "inferred".
-        `inference_note` is required when that segment's `provenance` is "inferred" and null
-        otherwise. `end_line` is null for a single line.
+        Each element of `segments` is one claim. `provenance` is one of "code", "doc" or "inferred";
+        `severity` is one of "info", "warning" or "error". `inference_note` is required when that
+        segment's `provenance` is "inferred" and null otherwise. `end_line` is null for a single line.
         """;
 
     /// <summary>
@@ -176,6 +176,27 @@ public static class TaskPrompt
         deliberately here is not recorded. Point the reviewer at the author.
 
         Never invent a rationale that isn't written down anywhere.
+
+        # Grade how much each segment should worry the reviewer
+
+        Separately from where a claim came from, every segment carries a `severity`:
+
+        - `info` — describing what the change does, or answering a question. **Most segments.**
+        - `warning` — worth checking before approving. A risk, an edge case, something that may be
+          wrong but you cannot tell from here.
+        - `error` — wrong, and should be fixed before this merges. A bug, a broken contract, a
+          security or data-loss problem you can point at.
+
+        **These are two different axes and neither implies the other.** "This adds five procedures"
+        is grounded in the diff and completely harmless. "This will deadlock under load" may be a
+        hypothesis and still the most important thing on the page. Grade the consequence, not your
+        confidence — your confidence is already in `provenance`.
+
+        **Default to `info`, and be strict about the other two.** A reviewer who sees five amber
+        claims on every pull request stops reading amber, and then the one that mattered is invisible.
+        If you are reaching for `warning` because a claim feels substantive rather than because you
+        want the reviewer to go and check something specific, it is `info`. Reserve `error` for
+        something you would block the merge over.
 
         # Cite what each segment used
 

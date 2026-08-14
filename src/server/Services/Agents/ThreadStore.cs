@@ -224,7 +224,10 @@ public class ThreadStore(AppDbContext db)
                         w.Text ?? "",
                         ProvenanceNames.Parse(w.Provenance),
                         w.Citations ?? [],
-                        w.InferenceNote)).ToList();
+                        w.InferenceNote,
+                        // Absent on turns written before severity existed, and those become info —
+                        // which is what they were, since nothing was grading them.
+                        SeverityNames.Parse(w.Severity))).ToList();
             }
             catch (JsonException)
             {
@@ -254,12 +257,14 @@ public class ThreadStore(AppDbContext db)
     /// record's <c>Provenance</c> is an enum: the default serialiser writes it as a number, and a
     /// stored <c>0</c> would silently become "code" if the enum's members were ever reordered.
     /// </summary>
-    private record WireSegment(string? Text, string? Provenance, List<Citation>? Citations, string? InferenceNote);
+    private record WireSegment(
+        string? Text, string? Provenance, List<Citation>? Citations, string? InferenceNote, string? Severity);
 
     private static List<WireSegment> Wire(IEnumerable<AnswerSegment> segments) =>
         segments.Select(s => new WireSegment(
             s.Text,
             s.Provenance is { } p ? ProvenanceNames.ToWire(p) : null,
             s.Citations,
-            s.InferenceNote)).ToList();
+            s.InferenceNote,
+            SeverityNames.ToWire(s.Severity))).ToList();
 }

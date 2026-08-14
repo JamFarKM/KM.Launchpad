@@ -304,9 +304,14 @@ public record CitationDto(string Path, int Line, int? EndLine);
 /// <paramref name="Provenance"/> is null only when the agent asserted nothing for this segment — the
 /// badge then reads UNVERIFIED SOURCE. It is never derived from whether citations are present.
 /// </summary>
+/// <param name="Severity">
+/// info | warning | error. A separate axis from <paramref name="Provenance"/>: one says how much this
+/// should worry the reviewer, the other says how much the agent knows. Neither implies the other.
+/// </param>
 public record AgentSegmentDto(
     string Text,
     string? Provenance,
+    string Severity,
     List<CitationDto> Citations,
     string? InferenceNote);
 

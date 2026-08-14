@@ -13,6 +13,29 @@ namespace PipelineLaunchpad.Server.Services.Agents;
 /// </summary>
 public enum Provenance { Code, Doc, Inferred }
 
+/// <summary>
+/// How much a claim should worry the reviewer — a separate axis from where it came from.
+///
+/// <b>Provenance and severity answer different questions and neither implies the other.</b> "This
+/// adds five procedures" is grounded in the diff and entirely harmless; "this will deadlock under
+/// load" may be an educated guess and still the most important thing on the page. Collapsing them
+/// into one label would force the badge to lie about one of the two.
+///
+/// Three levels, and no more, for the reason <c>BETBOT_INTEGRATION_PLAN.md</c> §4 gives for its two:
+/// each needs a glyph that survives 12px, and a five-level scale does not have five such glyphs.
+/// </summary>
+public enum Severity
+{
+    /// <summary>Describing what the change does. The default, and most claims.</summary>
+    Info,
+
+    /// <summary>Worth checking before approving — a risk, or something that may be wrong.</summary>
+    Warning,
+
+    /// <summary>Wrong, and should be fixed before this merges.</summary>
+    Error,
+}
+
 /// <summary>A line range in a file the agent says its answer rests on.</summary>
 /// <param name="EndLine">
 /// Nullable, and <em>required</em>. Strict structured output has no optional properties, so the
@@ -41,11 +64,16 @@ public record Citation(string Path, int Line, int? EndLine);
 /// null otherwise. Rendered in a dashed box under this segment, and the reason the `inferred` badge
 /// is honest rather than a shrug.
 /// </param>
+/// <param name="Severity">
+/// How much this claim should worry the reviewer. Defaults to <see cref="Severity.Info"/>, which is
+/// also what an unrecognised or missing value becomes — a claim nobody graded is not thereby urgent.
+/// </param>
 public record AnswerSegment(
     string Text,
     Provenance? Provenance,
     List<Citation> Citations,
-    string? InferenceNote);
+    string? InferenceNote,
+    Severity Severity = Severity.Info);
 
 /// <summary>
 /// The only answer shape the Review panel, the provenance badge and "Post as comment…" ever see,
@@ -405,7 +433,7 @@ public static class CanonicalSchema
                 {
                     ["type"] = "object",
                     ["additionalProperties"] = false,
-                    ["required"] = new JsonArray("text", "provenance", "citations", "inference_note"),
+                    ["required"] = new JsonArray("text", "provenance", "severity", "citations", "inference_note"),
                     ["properties"] = new JsonObject
                     {
                         ["text"] = new JsonObject
@@ -418,6 +446,14 @@ public static class CanonicalSchema
                         {
                             ["type"] = "string",
                             ["enum"] = new JsonArray("code", "doc", "inferred"),
+                        },
+                        ["severity"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["enum"] = new JsonArray("info", "warning", "error"),
+                            ["description"] = "info = describing what the change does, and most claims are this. "
+                                            + "warning = worth checking before approving. "
+                                            + "error = wrong, and should be fixed before merging.",
                         },
                         ["citations"] = new JsonObject
                         {
@@ -465,5 +501,28 @@ public static class ProvenanceNames
         Provenance.Code => "code",
         Provenance.Doc => "doc",
         _ => "inferred",
+    };
+}
+
+/// <summary>Wire names for <see cref="Severity"/>, kept next to the schema that declares them.</summary>
+public static class SeverityNames
+{
+    /// <summary>
+    /// Unrecognised and missing both become <see cref="Severity.Info"/>. A claim nobody graded is not
+    /// thereby urgent, and defaulting the other way would make every schema slip look like a problem
+    /// in the code being reviewed.
+    /// </summary>
+    public static Severity Parse(string? value) => value switch
+    {
+        "warning" => Severity.Warning,
+        "error" => Severity.Error,
+        _ => Severity.Info,
+    };
+
+    public static string ToWire(Severity s) => s switch
+    {
+        Severity.Warning => "warning",
+        Severity.Error => "error",
+        _ => "info",
     };
 }

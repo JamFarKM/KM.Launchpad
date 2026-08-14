@@ -26,10 +26,12 @@ public class SegmentStreamParserTests
         string text = "It adds five procedures.",
         string? provenance = "code",
         object? citations = null,
-        string? note = null) => new
+        string? note = null,
+        string? severity = "info") => new
     {
         text,
         provenance,
+        severity,
         citations = citations ?? Array.Empty<object>(),
         inference_note = note,
     };
@@ -230,6 +232,60 @@ public class SegmentStreamParserTests
 
         Assert.Single(answer.Segments);
         Assert.Equal("The real one.", answer.Segments[0].Text);
+    }
+
+    // ---------- severity, the other axis ----------
+
+    [Fact]
+    public void Reads_each_severity_level()
+    {
+        var (_, answer) = FeedByChar(Payload(
+            Segment("Describes the change.", severity: "info"),
+            Segment("Worth a look.", severity: "warning"),
+            Segment("This is broken.", severity: "error")));
+
+        Assert.Equal([Severity.Info, Severity.Warning, Severity.Error],
+            answer.Segments.Select(s => s.Severity));
+    }
+
+    [Fact]
+    public void An_ungraded_or_unrecognised_segment_is_information_not_a_problem()
+    {
+        var (_, answer) = FeedByChar(Payload(
+            Segment("No severity at all.", severity: null),
+            Segment("A made-up level.", severity: "critical")));
+
+        // Defaulting the other way would make every schema slip look like a problem in the code being
+        // reviewed, which is the one direction this must not fail in.
+        Assert.All(answer.Segments, s => Assert.Equal(Severity.Info, s.Severity));
+    }
+
+    [Fact]
+    public void Severity_and_provenance_are_independent()
+    {
+        var (_, answer) = FeedByChar(Payload(
+            // Grounded in the diff and harmless.
+            Segment("It adds five procedures.", "code", severity: "info"),
+            // A hypothesis, and the most important thing on the page.
+            Segment("This will deadlock under load.", "inferred", note: "Not recorded. Ask the author.",
+                severity: "error")));
+
+        Assert.Equal(Provenance.Code, answer.Segments[0].Provenance);
+        Assert.Equal(Severity.Info, answer.Segments[0].Severity);
+        Assert.Equal(Provenance.Inferred, answer.Segments[1].Provenance);
+        Assert.Equal(Severity.Error, answer.Segments[1].Severity);
+    }
+
+    [Fact]
+    public void A_hedge_with_no_note_loses_its_provenance_but_keeps_its_severity()
+    {
+        var (_, answer) = FeedByChar(Payload(
+            Segment("This will deadlock.", "inferred", note: null, severity: "error")));
+
+        // Losing confidence in where a claim came from is no reason to stop telling the reviewer it
+        // might break something.
+        Assert.Null(answer.Segments[0].Provenance);
+        Assert.Equal(Severity.Error, answer.Segments[0].Severity);
     }
 
     // ---------- mode 3 ----------

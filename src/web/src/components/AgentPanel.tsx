@@ -400,9 +400,17 @@ export function Segment({ segment, onCite, onPost }: {
   onPost?: () => void;
 }) {
   const unverified = !segment.provenance;
+  const severity = segment.severity === "warning" || segment.severity === "error"
+    ? segment.severity
+    : "info";
 
   return (
-    <div className={`ag-seg ${unverified ? "is-unver" : ""}`}>
+    <div className={`ag-seg ${unverified ? "is-unver" : ""}`} data-sev={severity}>
+      {/* Only the two that ask for something get a label. Marking every descriptive sentence
+          "INFORMATIONAL" is the noise that makes the other two stop registering — info is the
+          baseline, and the baseline does not need announcing. */}
+      {severity !== "info" && <SeverityFlag severity={severity} />}
+
       <Markdown text={segment.text} />
 
       {/* An inference is boxed as well as badged: the agent cannot know why a human chose
@@ -432,6 +440,36 @@ export function Segment({ segment, onCite, onPost }: {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * How much a claim should worry the reviewer.
+ *
+ * A word, a hue and a shape, in that order of importance. The hue is the least of the three: it is
+ * the only one that fails in greyscale and the only one a reviewer can be blind to, so `Check` and
+ * `Problem` are spelled out and the glyphs differ in outline rather than only in colour.
+ *
+ * `--status-warn` and `--status-bad` are the right tokens here rather than an A2 violation — "this
+ * will break" is a genuine health signal, which is exactly what those tokens are reserved for.
+ */
+function SeverityFlag({ severity }: { severity: "warning" | "error" }) {
+  const warning = severity === "warning";
+  return (
+    <span className={`ag-sev ${severity}`}
+      title={warning
+        ? "Worth checking before you approve."
+        : "The agent thinks this is wrong and should be fixed before merging."}>
+      <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor"
+        strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {warning
+          // A triangle: the one shape that still reads as "caution" with no colour at all.
+          ? <><path d="M8 2.6L14.5 13.4h-13z" /><path d="M8 6.6v3.1M8 11.6v.1" /></>
+          // A circle with a cross — a different outline, not the same glyph in another hue.
+          : <><circle cx="8" cy="8" r="5.9" /><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" /></>}
+      </svg>
+      {warning ? "Check" : "Problem"}
+    </span>
   );
 }
 
@@ -575,7 +613,7 @@ export function PostSheet({ segment, connectorName, project, repoId, prId, onClo
  * do not survive a 380px column, so the prompt forbids them and there is nothing else to support.
  * Text is never inserted as HTML.
  */
-function Markdown({ text }: { text: string }) {
+export function Markdown({ text }: { text: string }) {
   const blocks = text.split(/\n{2,}/).filter((b) => b.trim().length > 0);
 
   return (

@@ -1,17 +1,36 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { askAgent } from "../lib/askAgent";
-import { PostSheet, Segment } from "./AgentPanel";
+import { Markdown, PostSheet, Segment } from "./AgentPanel";
 import type { AgentSegment, AgentTurn, Annotation } from "../types";
 
+/**
+ * A place on the diff the agent said something about.
+ *
+ * <b>A stop exists before an annotation does.</b> Every cited line is one, so the reviewer can page
+ * through everything the agent flagged without leaving a trail of empty conversations behind — the row
+ * is only written when they actually say or resolve something, which is what `ensure` is for.
+ */
+export interface CycleStop {
+  path: string;
+  line: number;
+  severity: string;
+  /** The claim that cited this line: the card's opening turn, in the agent's own words. */
+  seed: string | null;
+  /** Null until the reviewer has engaged with it. */
+  annotation: Annotation | null;
+}
+
 interface Props {
-  annotation: Annotation;
+  stop: CycleStop;
   project: string;
   repoId: string;
   prId: number;
   /** The PR's head commit, for the staleness note. */
   headCommit?: string | null;
   connectorName?: string | null;
+  /** Persist this stop if it isn't persisted yet, and give back its id. */
+  ensure: () => Promise<string | null>;
   /** Pixel offset of the anchor line within the editor's viewport. */
   top: number;
   /** Left edge of the pane the line belongs to, so the card sits over the right side. */
@@ -36,12 +55,15 @@ interface Props {
  * be mistaken for a comment that is already live on the pull request.
  */
 export function AnnotationCard({
-  annotation, project, repoId, prId, headCommit, connectorName,
-  top, left, onClose, onChanged, onCite,
+  stop, project, repoId, prId, headCommit, connectorName,
+  ensure, top, left, onClose, onChanged, onCite,
 }: Props) {
   const [question, setQuestion] = useState("");
-  const [turns, setTurns] = useState<AgentTurn[]>(annotation.turns);
-  const [streaming, setStreaming] = useState(false);
+  const [turns, setTurns] = useState<AgentTurn[]>(stop.annotation?.turns ?? []);
+  /* The question currently being answered, kept out of `turns` because the server has not recorded it
+     yet. Shown the instant it is sent: typing something, watching it vanish, and seeing it reappear
+     thirty seconds later above an answer reads as having lost the message. */
+  const [pending, setPending] = useState<string | null>(null);
   const [streamedSegments, setStreamedSegments] = useState<AgentSegment[]>([]);
   const [streamed, setStreamed] = useState("");
   const [reading, setReading] = useState<string | null>(null);
@@ -50,10 +72,27 @@ export function AnnotationCard({
   const [busy, setBusy] = useState(false);
 
   const abort = useRef<AbortController | null>(null);
-  const box = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setTurns(annotation.turns); }, [annotation.turns]);
+  const key = `${stop.path}:${stop.line}`;
+
+  // Reset everything when the card moves to another line — a part-typed follow-up about line 22 must
+  // not be sitting in the box when the card reopens on line 108.
+  useEffect(() => {
+    setQuestion("");
+    setPending(null);
+    setStreamedSegments([]);
+    setStreamed("");
+    setFailure(null);
+  }, [key]);
+
+  useEffect(() => { setTurns(stop.annotation?.turns ?? []); }, [stop.annotation?.turns]);
   useEffect(() => () => abort.current?.abort(), []);
+
+  // Keep the newest turn in view as the answer grows.
+  useEffect(() => {
+    if (body.current) body.current.scrollTop = body.current.scrollHeight;
+  }, [turns.length, pending, streamedSegments.length, streamed]);
 
   // Esc dismisses, matching the composer this card is modelled on.
   useEffect(() => {
@@ -62,28 +101,34 @@ export function AnnotationCard({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const resolved = annotation.status === "resolved";
+  const resolved = stop.annotation?.status === "resolved";
+  const streaming = pending !== null;
 
   /* The cited line was recorded against a commit the PR head has since moved past, so it may have
      moved or stopped existing. §7.6 leaves re-anchoring open, and guessing an answer that hasn't been
      thought through would be worse than saying so — this is the flag, not the fix. */
-  const stale = !!annotation.commitSha && !!headCommit && annotation.commitSha !== headCommit;
+  const staleSha = stop.annotation?.commitSha;
+  const stale = !!staleSha && !!headCommit && staleSha !== headCommit;
 
   async function ask(text: string) {
     const q = text.trim();
     if (!q || streaming) return;
 
+    // Cleared and shown as a pending turn in the same tick, so the message never appears to be lost.
     setQuestion("");
+    setPending(q);
     setStreamedSegments([]);
     setStreamed("");
     setReading(null);
     setFailure(null);
-    setStreaming(true);
 
     const controller = new AbortController();
     abort.current = controller;
 
     try {
+      const id = await ensure();
+      if (!id) { setFailure("This annotation could not be saved."); return; }
+
       await askAgent(project, repoId, prId, q, {
         onReading: (info) => setReading(info.detail || info.tool),
         onSegment: (s) => setStreamedSegments((prev) => [...prev, s]),
@@ -96,13 +141,13 @@ export function AnnotationCard({
         onError: (e) => setFailure(e.detail ?? e.code),
         // The only difference from a main-thread question: the history replayed is this
         // annotation's own, and the prompt is told which line the conversation is about.
-      }, controller.signal, annotation.id);
+      }, controller.signal, id);
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) {
         setFailure("The request could not be completed.");
       }
     } finally {
-      setStreaming(false);
+      setPending(null);
       abort.current = null;
       onChanged();
     }
@@ -111,7 +156,8 @@ export function AnnotationCard({
   async function setStatus(status: string) {
     setBusy(true);
     try {
-      await api.setAnnotationStatus(project, repoId, prId, annotation.id, status);
+      const id = await ensure();
+      if (id) await api.setAnnotationStatus(project, repoId, prId, id, status);
       onChanged();
     } finally {
       setBusy(false);
@@ -126,11 +172,11 @@ export function AnnotationCard({
 
       {/* Same geometry as the PR comment composer: `left` is the anchored pane's offset plus a gutter
           allowance, so side by side the card sits over the modified pane rather than the original. */}
-      <div className="ann-card" ref={box} style={{ top: top + 6, left: left + 52 }}>
+      <div className="ann-card" data-sev={stop.severity} style={{ top: top + 6, left: left + 52 }}>
         <div className="ann-head">
           {/* Never mistakable for a live comment: this is the whole reason for the dashed border. */}
           <span className="ann-tag">Not posted</span>
-          <span className="ann-where">line {annotation.line}</span>
+          <span className="ann-where">line {stop.line}</span>
           {resolved && <span className="ann-tag resolved">Resolved</span>}
           <span style={{ flex: 1 }} />
           <button className="ag-mini" onClick={onClose} title="Close (Esc)">✕</button>
@@ -138,22 +184,19 @@ export function AnnotationCard({
 
         {stale && (
           <div className="ann-stale">
-            Based on an earlier commit (<code>{annotation.commitSha!.slice(0, 7)}</code>), so this line
-            may have moved since.
+            Based on an earlier commit (<code>{staleSha!.slice(0, 7)}</code>), so this line may have
+            moved since.
           </div>
         )}
 
-        <div className="ann-body">
-          {/* The claim that opened the annotation, in the agent's own words. Not badged: the badge
-              belongs to the segment in the conversation, and re-asserting a provenance here would be
-              this card claiming something the agent said somewhere else. */}
-          {annotation.seed && (
+        <div className="ann-body" ref={body}>
+          {/* The claim that opened this. Plain prose, deliberately unbadged: the provenance belongs to
+              the segment back in the conversation, and stamping a badge here would be this card
+              asserting something on the agent's behalf — which is exactly what §5.2.1 forbids. */}
+          {stop.seed && (
             <div className="ann-seed">
               <div className="ann-who">{(connectorName ?? "Agent").toUpperCase()} said</div>
-              <Segment
-                segment={{ text: annotation.seed, provenance: null, citations: [] }}
-                onCite={onCite}
-              />
+              <Markdown text={stop.seed} />
             </div>
           )}
 
@@ -174,13 +217,19 @@ export function AnnotationCard({
             </div>
           ))}
 
-          {streaming && (
+          {pending !== null && (
             <div className="ann-turn">
+              {/* The reviewer's own words, on screen from the moment they press Ask. */}
+              <div className="ag-you"><div className="ag-bubble">{pending}</div></div>
+
               {streamedSegments.map((s, i) => <Segment key={i} segment={s} onCite={onCite} />)}
-              {streamed && <Segment segment={{ text: streamed, provenance: null, citations: [] }} onCite={onCite} />}
+              {streamed && <Markdown text={streamed} />}
+
               <div className="ag-pending">
-                <span className="ag-prov pending">CHECKING SOURCES</span>
-                {reading && <span className="ag-thinking">reading <code>{reading}</code>…</span>}
+                <span className="spin" aria-hidden="true" />
+                <span className="ag-thinking">
+                  {reading ? <>reading <code>{reading}</code>…</> : "thinking…"}
+                </span>
               </div>
             </div>
           )}

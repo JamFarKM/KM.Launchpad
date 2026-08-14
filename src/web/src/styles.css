@@ -3369,6 +3369,29 @@ a {
   background: var(--hue-violet);
 }
 
+/* Graded by the worst thing said about the line, so the margin can be scanned for problems rather
+   than only for "the agent mentioned this". These are always filled — a warning you have to look
+   twice at is not doing its job — and `--status-*` is the correct token family here, because "this
+   is wrong" is a genuine health signal rather than an identity. */
+.diff-glyph-annotation.sev-warning::before {
+  border-color: var(--status-warn);
+  background: var(--status-warn);
+  /* A square at 8px, against info's circle: the shape differs as well as the hue (A4), so the margin
+     still sorts into three kinds in greyscale. */
+  border-radius: 2px;
+}
+
+.diff-glyph-annotation.sev-error::before {
+  border-color: var(--status-bad);
+  background: var(--status-bad);
+  border-radius: 2px;
+  /* Slightly larger, and the only marker that is. At 8px in a busy margin, size is the difference
+     between noticing a problem on the way past and finding it later. */
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+}
+
 /* Resolved dims rather than disappears — the record survives, and `Show resolved` brings it back. */
 .diff-glyph-annotation.is-resolved::before {
   opacity: 0.4;
@@ -5791,6 +5814,45 @@ a {
   border-top: 1px solid var(--border-hairline);
 }
 
+/* A graded claim gets a stripe as well as its label, so a long answer can be scanned for the two that
+   need action without reading all six. `info` gets nothing: it is the baseline, and a baseline that
+   decorates itself makes the exceptions harder to see, not easier. */
+.ag-seg[data-sev="warning"],
+.ag-seg[data-sev="error"] {
+  padding-left: 9px;
+  margin-left: -11px;
+  border-left: 2px solid var(--status-warn);
+}
+
+.ag-seg[data-sev="error"] {
+  border-left-color: var(--status-bad);
+}
+
+/* The label. Word first, glyph second, hue third — the hue is the only one of the three that fails in
+   greyscale or to a colour-blind reader, so it is never carrying the meaning alone. */
+.ag-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px 2px 5px;
+  border-radius: 100px;
+}
+
+.ag-sev.warning {
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 14%, transparent);
+}
+
+.ag-sev.error {
+  color: var(--status-bad);
+  background: color-mix(in oklab, var(--status-bad) 14%, transparent);
+}
+
 .ag-seg .ag-p:last-of-type,
 .ag-seg .ag-ul:last-child {
   margin-bottom: 6px;
@@ -5851,10 +5913,22 @@ a {
 }
 
 /* The cited line in the diff. Violet, so it is visibly not an add or a remove — a citation must
-   never be mistaken for a change. */
+   never be mistaken for a change.
+
+   Stronger than a normal row tint on purpose: a cited line is very often an *added* line, so the wash
+   lands on top of the green add tint. At 16% it was invisible there, which is the same as not
+   working. The margin bar below carries it in the one place no diff tint reaches. */
 .agent-cited-line {
-  background: color-mix(in oklab, var(--hue-violet) 16%, transparent) !important;
+  background: color-mix(in oklab, var(--hue-violet) 28%, transparent) !important;
   box-shadow: inset 2px 0 0 var(--hue-violet);
+}
+
+/* In the line-decorations margin, which never takes a diff tint (REVIEW §3, move 2) — so this reads
+   at full strength on an added, removed or context line alike. */
+.agent-cited-margin {
+  background: var(--hue-violet);
+  width: 3px !important;
+  margin-left: 2px;
 }
 
 /* ---------- answer footer ---------- */

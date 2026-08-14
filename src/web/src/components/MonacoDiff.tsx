@@ -239,7 +239,7 @@ interface Props {
    * Lines in this file the agent has cited (DESIGN_SPEC_CONNECTORS.md §7.6). Each gets a persistent
    * gutter marker — cheap, and needing no extra request, because the citation data already exists.
    */
-  annotations?: { line: number; resolved: boolean; hasReplies: boolean }[];
+  annotations?: { line: number; resolved: boolean; hasReplies: boolean; severity: string }[];
 
   /** Clicking an annotation marker. Distinct from clicking the gutter to start a new PR comment. */
   onOpenAnnotation?: (line: number) => void;
@@ -352,8 +352,6 @@ export function MonacoDiff({
     });
   }, [inline, wrap, fontSize]);
 
-  const citeDecorations = useRef<string[]>([]);
-
   // Swap models when the selected file changes. Old models must be disposed explicitly —
   // Monaco keeps them alive otherwise and the memory adds up over a review session.
   useEffect(() => {
@@ -370,40 +368,48 @@ export function MonacoDiff({
     modelsRef.current = { original, modified };
     previous?.original.dispose();
     previous?.modified.dispose();
-
-    // Decoration ids belong to the model that issued them. Carrying them across a swap and handing
-    // them to deltaDecorations as the "old" set means asking a fresh model to remove ids it has
-    // never heard of, and the add is lost with them — so the citation mark silently never appeared.
-    citeDecorations.current = [];
   }, [path, before, after]);
 
   /**
    * Reveal and mark a cited line (§5.2.1).
    *
-   * Declared *after* the model swap, and depending on the model's identity rather than just on
-   * `cite`: a citation for another file changes `path` and `cite` in the same render, and a
-   * decoration applied before the swap lands on a model that is about to be disposed. Ordering the
-   * effects this way is the difference between the chip working and the chip silently doing
-   * nothing.
+   * <b>This used a raw `deltaDecorations` id set and silently painted nothing.</b> The id-set form
+   * does not survive the diff editor's own decoration pass, which re-runs on every `onDidUpdateDiff`
+   * — and a citation click is very often followed by exactly that, because it swaps the file and the
+   * diff recomputes a frame later. The decoration was applied and then reconciled away, which is why
+   * it left no trace and no error: nothing failed, it was simply overwritten.
+   *
+   * A decorations collection re-applies itself across those passes. The evidence was two effects
+   * below the whole time — the thread markers and the hover glyph use a collection and have always
+   * worked, in the same editor, in the same component.
    *
    * Violet, deliberately distinct from the diff's add/remove greens and reds, so a citation can
-   * never be mistaken for a change.
+   * never be mistaken for a change. It marks the margin as well as the row, because on an added line
+   * the row is already tinted and a wash over a wash is not a signal.
    */
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor) return;
+    if (!editor || !cite) return;
     const right = editor.getModifiedEditor();
 
-    if (!cite) {
-      citeDecorations.current = right.deltaDecorations(citeDecorations.current, []);
-      return;
-    }
-
-    right.revealLineInCenter(cite.line);
-    citeDecorations.current = right.deltaDecorations(citeDecorations.current, [{
+    const dec = right.createDecorationsCollection([{
       range: new monaco.Range(cite.line, 1, cite.line, 1),
-      options: { isWholeLine: true, className: "agent-cited-line" },
+      options: {
+        isWholeLine: true,
+        className: "agent-cited-line",
+        linesDecorationsClassName: "agent-cited-margin",
+        overviewRuler: {
+          color: "#8a7bea",
+          position: monaco.editor.OverviewRulerLane.Right,
+        },
+      },
     }]);
+
+    // Revealed after the decoration exists, so the line is already marked when it arrives on screen
+    // rather than being highlighted a frame after the scroll settles.
+    right.revealLineInCenter(cite.line);
+
+    return () => dec.clear();
   }, [cite, path, before, after]);
 
   // ---- comment threads, rendered inline as view zones on the modified (right) side ----
@@ -469,13 +475,17 @@ export function MonacoDiff({
       (annotations ?? []).map((a) => ({
         range: new monaco.Range(a.line, 1, a.line, 1),
         options: {
-          glyphMarginClassName: "diff-glyph-annotation"
+          glyphMarginClassName: `diff-glyph-annotation sev-${a.severity}`
             + (a.resolved ? " is-resolved" : "")
             + (a.hasReplies ? " has-replies" : ""),
           glyphMarginHoverMessage: {
-            value: a.hasReplies
-              ? "Open this annotation — you've asked about this line"
-              : "Open this annotation — the agent cited this line",
+            value: a.severity === "error"
+              ? "The agent thinks something here is wrong — click to open"
+              : a.severity === "warning"
+                ? "The agent flagged this line to check — click to open"
+                : a.hasReplies
+                  ? "Open this annotation — you've asked about this line"
+                  : "Open this annotation — the agent cited this line",
           },
         },
       })),

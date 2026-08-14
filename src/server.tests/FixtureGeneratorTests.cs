@@ -270,8 +270,17 @@ public class FixtureGeneratorTests
 
         var segment = schema["properties"]!["segments"]!["items"]!;
         Assert.Equal(
-            ["citations", "inference_note", "provenance", "text"],
+            ["citations", "inference_note", "provenance", "severity", "text"],
             segment["properties"]!.AsObject().Select(p => p.Key).OrderBy(x => x));
+
+        // Two independent axes, and the schema has to keep them independent: how much a claim should
+        // worry the reviewer is not the same question as how much the agent knows about it.
+        Assert.Equal(
+            ["code", "doc", "inferred"],
+            segment["properties"]!["provenance"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
+        Assert.Equal(
+            ["info", "warning", "error"],
+            segment["properties"]!["severity"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
 
         // Nothing top-level owns provenance or citations any more. If either reappears up there, the
         // badge has gone back to describing a whole turn.

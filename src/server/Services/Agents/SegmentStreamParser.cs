@@ -208,6 +208,13 @@ public sealed class SegmentStreamParser
                 ? ProvenanceNames.Parse(p.GetString())
                 : null;
 
+            // A separate axis from provenance, and read independently: a grounded claim can be
+            // harmless and a guess can be the most important thing on the page.
+            var severity = SeverityNames.Parse(
+                root.TryGetProperty("severity", out var sv) && sv.ValueKind == JsonValueKind.String
+                    ? sv.GetString()
+                    : null);
+
             var note = root.TryGetProperty("inference_note", out var n) && n.ValueKind == JsonValueKind.String
                 ? n.GetString()
                 : null;
@@ -216,14 +223,16 @@ public sealed class SegmentStreamParser
             // with nothing in the box is worse than no badge, so the segment drops to unverified
             // rather than rendering an empty dashed box. Per segment — a hedge on one claim never
             // taints another in the same answer.
+            // The severity survives this degradation: losing confidence in where a claim came from is
+            // no reason to stop telling the reviewer it might break something.
             if (provenance == Provenance.Inferred && string.IsNullOrWhiteSpace(note))
-                return new AnswerSegment(text, null, [], null);
+                return new AnswerSegment(text, null, [], null, severity);
 
             // A note on a non-inferred segment is a contradiction in the agent's own output. Keep the
             // claim, drop the note: the badge is what we render, so it wins.
             if (provenance != Provenance.Inferred) note = null;
 
-            return new AnswerSegment(text, provenance, ReadCitations(root), note);
+            return new AnswerSegment(text, provenance, ReadCitations(root), note, severity);
         }
     }
 

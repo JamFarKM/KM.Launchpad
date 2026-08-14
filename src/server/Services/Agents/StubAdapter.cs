@@ -109,15 +109,22 @@ public sealed class StubAdapter : IAgentAdapter
             + "pattern looks inherited rather than introduced here.",
             "inferred", path, 22, null,
             "The usual reason is avoiding reader-writer blocking on hot tables, at the cost of dirty "
-            + "reads. Whether that was deliberate here is not recorded anywhere I can see. Ask the author.");
+            + "reads. Whether that was deliberate here is not recorded anywhere I can see. Ask the author.",
+            "warning");
+
+        var broken = Segment(
+            "`@SearchTerm` is interpolated into the `WHERE` clause rather than parameterised.",
+            "code", path, 31, null, null, "error");
 
         var segments = script switch
         {
             Script.Inferred => new[] { guess },
 
-            // The case the segment shape exists for: one answer, two claims, two different sources.
-            // A single badge over both would be lying about whichever one it didn't describe.
-            Script.Mixed => [grounded, guess, Segment("A couple of things worth checking:", "doc", null, 0, null, null)],
+            /* The case the segment shape exists for: one answer, three claims, three different
+               sources *and* three different severities. A single badge over all of them would be
+               lying about two, and grading them all the same would bury the one that matters. */
+            Script.Mixed => [grounded, guess, broken,
+                Segment("A couple of things worth checking:", "doc", null, 0, null, null)],
 
             // Seven segments against a cap of six, so the caveat on the last kept one is exercised.
             Script.Overflow => Enumerable.Range(1, 7)
@@ -131,10 +138,12 @@ public sealed class StubAdapter : IAgentAdapter
     }
 
     private static object Segment(
-        string text, string provenance, string? path, int line, int? endLine, string? note) => new
+        string text, string provenance, string? path, int line, int? endLine, string? note,
+        string severity = "info") => new
     {
         text,
         provenance,
+        severity,
         citations = path is null
             ? Array.Empty<object>()
             : [new { path, line, end_line = endLine }],
