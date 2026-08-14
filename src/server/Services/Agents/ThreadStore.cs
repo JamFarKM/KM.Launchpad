@@ -95,10 +95,10 @@ public class ThreadStore(AppDbContext db)
             ThreadId = thread.Id,
             Ordinal = last + 1,
             Question = question,
-            Answer = answer?.Answer ?? "",
-            Provenance = answer?.Provenance is { } p ? ProvenanceNames.ToWire(p) : null,
-            CitationsJson = JsonSerializer.Serialize(answer?.Citations ?? [], Json),
-            InferenceNote = answer?.InferenceNote,
+            // Both, and they are not redundant: the joined prose is what gets replayed to the model
+            // and what "Copy all" copies, the segments are what the panel renders.
+            Answer = answer?.PlainText ?? "",
+            SegmentsJson = answer is null ? null : JsonSerializer.Serialize(Wire(answer.Segments), Json),
             Mode = (answer?.Mode ?? StructuredMode.Unverified).ToString().ToLowerInvariant(),
             ConnectorId = connector?.Id,
             // Denormalised so §7.4's attribution survives the connector's deletion.
@@ -129,9 +129,62 @@ public class ThreadStore(AppDbContext db)
     public static bool IsPostable(AgentThreadTurn turn) =>
         !turn.Stopped && turn.ErrorCode is null && turn.Mode != "unverified" && turn.Answer.Length > 0;
 
-    public static List<Citation> Citations(AgentThreadTurn turn)
+    /// <summary>
+    /// The turn's segments, as the panel renders them.
+    ///
+    /// A turn written before the shape changed has no <c>SegmentsJson</c>, and is read back as one
+    /// segment carrying its old whole-answer provenance, citations and note. That is exactly what the
+    /// old UI showed, so an existing thread reads the same as it always did — and the renderer never
+    /// needs to know two shapes exist, which is the point of doing the fallback here.
+    /// </summary>
+    public static List<AnswerSegment> Segments(AgentThreadTurn turn)
+    {
+        if (!string.IsNullOrWhiteSpace(turn.SegmentsJson))
+        {
+            try
+            {
+                var wire = JsonSerializer.Deserialize<List<WireSegment>>(turn.SegmentsJson, Json);
+                if (wire is { Count: > 0 })
+                    return wire.Select(w => new AnswerSegment(
+                        w.Text ?? "",
+                        ProvenanceNames.Parse(w.Provenance),
+                        w.Citations ?? [],
+                        w.InferenceNote)).ToList();
+            }
+            catch (JsonException)
+            {
+                // Fall through to the legacy shape rather than losing the turn.
+            }
+        }
+
+        if (turn.Answer.Length == 0) return [];
+
+        return [new AnswerSegment(
+            turn.Answer,
+            ProvenanceNames.Parse(turn.Provenance),
+            LegacyCitations(turn),
+            turn.InferenceNote)];
+    }
+
+    private static List<Citation> LegacyCitations(AgentThreadTurn turn)
     {
         try { return JsonSerializer.Deserialize<List<Citation>>(turn.CitationsJson, Json) ?? []; }
         catch (JsonException) { return []; }
     }
+
+    /// <summary>
+    /// The stored shape, in wire naming rather than CLR naming.
+    ///
+    /// Written explicitly instead of serialising <see cref="AnswerSegment"/> directly, because that
+    /// record's <c>Provenance</c> is an enum: the default serialiser writes it as a number, and a
+    /// stored <c>0</c> would silently become "code" if the enum's members were ever reordered.
+    /// </summary>
+    private record WireSegment(string? Text, string? Provenance, List<Citation>? Citations, string? InferenceNote);
+
+    private static List<WireSegment> Wire(IEnumerable<AnswerSegment> segments) =>
+        segments.Select(s => new WireSegment(
+            s.Text,
+            s.Provenance is { } p ? ProvenanceNames.ToWire(p) : null,
+            s.Citations,
+            s.InferenceNote)).ToList();
 }

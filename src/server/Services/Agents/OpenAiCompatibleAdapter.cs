@@ -278,13 +278,20 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
     /// Two shapes now arrive here. Without tools the answer is <c>choices[0].delta.content</c>, as
     /// before. With tools it is the <c>record_pr_answer</c> function's streamed arguments, alongside
     /// any repository calls — so tool calls accumulate by index and the answer function's fragments
-    /// are routed to the tolerant parser exactly as content would be.
+    /// are routed to the segment parser exactly as content would be.
+    ///
+    /// <c>content</c> is the one place this adapter has to guess, because the same field carries both
+    /// a `json_schema` object (mode 1) and plain prose (mode 3). The guess is made once, on the first
+    /// non-whitespace character: a structured response always opens with <c>{</c>. Streaming content
+    /// blind would show the reviewer raw JSON as it typed itself, and waiting for the object to close
+    /// before showing anything would make mode 3 look like a hang.
     /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
         HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)
     {
-        var parser = new CanonicalAnswerParser();
-        var sawAnyDelta = false;
+        var parser = new SegmentStreamParser();
+        var prose = new StringBuilder();
+        bool? contentIsJson = null;
         AgentError? failure = null;
         int? promptTokens = null;
         int? completionTokens = null;
@@ -327,6 +334,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             if (payload == "[DONE]") break;
 
             string? answerFragment = null;
+            string? contentFragment = null;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
@@ -351,7 +359,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                         if (delta.TryGetProperty("content", out var content)
                             && content.ValueKind == JsonValueKind.String)
                         {
-                            answerFragment = content.GetString();
+                            contentFragment = content.GetString();
                         }
 
                         if (delta.TryGetProperty("tool_calls", out var toolCalls)
@@ -388,12 +396,12 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
                     // Non-streaming responses, and some endpoints' final frame, put the whole thing
                     // in message.content instead.
-                    if (answerFragment is null
+                    if (answerFragment is null && contentFragment is null
                         && choice.TryGetProperty("message", out var msg)
                         && msg.TryGetProperty("content", out var mc)
                         && mc.ValueKind == JsonValueKind.String)
                     {
-                        answerFragment = mc.GetString();
+                        contentFragment = mc.GetString();
                     }
                 }
 
@@ -405,15 +413,37 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                 continue;
             }
 
+            if (!string.IsNullOrEmpty(contentFragment))
+            {
+                // Decided once, from the first character that isn't whitespace, and never revisited:
+                // a fragment boundary must not be able to flip the verdict mid-answer.
+                contentIsJson ??= FirstMeaningfulChar(contentFragment) switch
+                {
+                    '{' => true,
+                    null => null,      // still nothing but whitespace — ask again next fragment
+                    _ => false,
+                };
+
+                if (contentIsJson == false)
+                {
+                    prose.Append(contentFragment);
+                    yield return new AgentEvent.Delta(contentFragment);
+                }
+                else
+                {
+                    answerFragment = contentFragment;
+                }
+            }
+
             if (!string.IsNullOrEmpty(answerFragment))
             {
-                var prose = parser.Feed(answerFragment);
                 deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
-                if (prose.Length > 0)
-                {
-                    sawAnyDelta = true;
-                    yield return new AgentEvent.Delta(prose);
-                }
+                foreach (var segment in parser.Feed(answerFragment))
+                    yield return new AgentEvent.Segment(segment);
+            }
+            else if (!string.IsNullOrEmpty(contentFragment))
+            {
+                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
             }
         }
 
@@ -436,11 +466,15 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             yield break;
         }
 
-        var answer = parser.Finish();
-        if (!sawAnyDelta && answer.Answer.Length > 0)
-            yield return new AgentEvent.Delta(answer.Answer);
+        yield return new AgentEvent.Complete(parser.Finish(prose.ToString()), usage);
+    }
 
-        yield return new AgentEvent.Complete(answer, usage);
+    /// <summary>First non-whitespace character of a fragment, or null if it has none.</summary>
+    private static char? FirstMeaningfulChar(string text)
+    {
+        foreach (var ch in text)
+            if (!char.IsWhiteSpace(ch)) return ch;
+        return null;
     }
 
     private static int? ReadTokens(JsonElement parent, string field) =>

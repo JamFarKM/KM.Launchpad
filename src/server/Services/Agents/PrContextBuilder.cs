@@ -23,7 +23,17 @@ public record PrContextInput(
     IReadOnlyList<string> NearbyPaths);
 
 /// <summary>The assembled block, plus what had to be left out of it.</summary>
-public record PrContext(string Xml, bool Truncated, IReadOnlyList<string> OmittedPaths, int DiffBytes);
+/// <param name="Paths">
+/// Every changed file's path, including ones whose diff was truncated away — the set a citation is
+/// allowed to name (§5.2). Carried as a field rather than re-parsed out of <paramref name="Xml"/>,
+/// because the block is a wire format and reading it back would quietly make it an API.
+/// </param>
+public record PrContext(
+    string Xml,
+    bool Truncated,
+    IReadOnlyList<string> OmittedPaths,
+    int DiffBytes,
+    IReadOnlyList<string> Paths);
 
 /// <summary>
 /// Assembles the <c>&lt;pull-request-context&gt;</c> block (§5.1).
@@ -115,7 +125,12 @@ public static class PrContextBuilder
 
         sb.Append("</pull-request-context>");
 
-        return new PrContext(sb.ToString(), truncated, omitted.Select(f => f.Path).ToList(), diffBytes);
+        return new PrContext(
+            sb.ToString(),
+            truncated,
+            omitted.Select(f => f.Path).ToList(),
+            diffBytes,
+            input.Files.Select(f => f.Path).ToList());
     }
 
     /// <summary>

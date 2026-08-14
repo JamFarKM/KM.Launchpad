@@ -241,15 +241,33 @@ public class AgentThreadTurn
 
     public string Question { get; set; } = "";
 
-    /// <summary>The prose only. Replayed verbatim; never the JSON envelope around it.</summary>
+    /// <summary>
+    /// The segments' prose, joined. Replayed verbatim; never the JSON envelope around it.
+    ///
+    /// Its own column rather than derived on read, because replay and the reviewer's "Copy all" both
+    /// want exactly this — and because it is all a turn written before the segment shape existed has.
+    /// </summary>
     public string Answer { get; set; } = "";
 
-    /// <summary>code | doc | inferred, or null when the agent asserted nothing (§5.4 mode 3).</summary>
+    /// <summary>
+    /// JSON array of the canonical segment shape (§5.2) — the answer as the panel renders it.
+    ///
+    /// Null on turns written before provenance and citations moved into each segment. Those are read
+    /// back as one synthesised segment from the three legacy columns below, so an existing thread
+    /// stays readable instead of being migrated or dropped.
+    /// </summary>
+    public string? SegmentsJson { get; set; }
+
+    /// <summary>
+    /// Legacy: the whole answer's provenance, from before it moved into each segment. No longer
+    /// written; still read, for turns that predate the change.
+    /// </summary>
     public string? Provenance { get; set; }
 
-    /// <summary>JSON array of the canonical citation shape.</summary>
+    /// <summary>Legacy: the answer's pooled citations. Same treatment as <see cref="Provenance"/>.</summary>
     public string CitationsJson { get; set; } = "[]";
 
+    /// <summary>Legacy: the whole answer's hedge. Same treatment as <see cref="Provenance"/>.</summary>
     public string? InferenceNote { get; set; }
 
     /// <summary>structured | fencedjson | unverified — decides whether this is postable (§7.4).</summary>

@@ -22,24 +22,56 @@ public enum Provenance { Code, Doc, Inferred }
 public record Citation(string Path, int Line, int? EndLine);
 
 /// <summary>
+/// One claim, with its own sources attached (§5.2).
+///
+/// <b>A citation belongs to a claim, not to an answer.</b> The first version of this shape had one
+/// <c>answer</c> string and a flat citation list at the end, and with several claims in one answer
+/// there was no way to tell which citation backed which sentence — no amount of layout invents that
+/// link if the model doesn't state it. So the model states it: one segment per claim, carrying its
+/// own citations <em>and</em> its own provenance. One answer can honestly hold a segment grounded in
+/// the diff next to a segment that is a guess, which a single badge for the whole turn was already
+/// lying about.
+/// </summary>
+/// <param name="Text">
+/// Markdown, restricted to paragraphs, unordered lists, bold and inline code — typically a sentence
+/// or two, not the whole answer.
+/// </param>
+/// <param name="InferenceNote">
+/// Required when this segment's <paramref name="Provenance"/> is <see cref="Provenance.Inferred"/>,
+/// null otherwise. Rendered in a dashed box under this segment, and the reason the `inferred` badge
+/// is honest rather than a shrug.
+/// </param>
+public record AnswerSegment(
+    string Text,
+    Provenance? Provenance,
+    List<Citation> Citations,
+    string? InferenceNote);
+
+/// <summary>
 /// The only answer shape the Review panel, the provenance badge and "Post as comment…" ever see,
 /// whichever provider produced it (§5.2).
 /// </summary>
-/// <param name="InferenceNote">
-/// Required when <paramref name="Provenance"/> is <see cref="Provenance.Inferred"/>, null
-/// otherwise. Rendered in a dashed box, and the reason the `inferred` badge is honest rather than
-/// a shrug.
-/// </param>
 /// <param name="Mode">
-/// Which rung of the §5.4 ladder produced this. Mode 3 answers carry no asserted provenance and
-/// are not postable as a PR comment (§7.4), so the panel needs to know.
+/// Which rung of the §5.4 ladder produced this. Mode 3 carries exactly one synthetic segment with no
+/// asserted provenance, and is not postable as a PR comment (§7.4) — so the panel needs to know, but
+/// the renderer never needs an "unstructured" branch.
 /// </param>
 public record CanonicalAnswer(
-    string Answer,
-    Provenance? Provenance,
-    List<Citation> Citations,
-    string? InferenceNote,
-    StructuredMode Mode = StructuredMode.Structured);
+    List<AnswerSegment> Segments,
+    StructuredMode Mode = StructuredMode.Structured)
+{
+    /// <summary>
+    /// The segments' prose, joined the way §5.A asks a replayed assistant turn to be joined.
+    ///
+    /// This is the one place an answer is allowed to become a single string, and both its uses are
+    /// deliberate: replaying history to the model, and the reviewer's own "Copy all". Nothing renders
+    /// from it — rendering is per segment, or the badge and the citations go back to being pooled.
+    /// </summary>
+    public string PlainText => string.Join("\n\n", Segments.Select(s => s.Text).Where(t => t.Length > 0));
+
+    /// <summary>True when nothing usable came back, whatever the mode claims.</summary>
+    public bool IsEmpty => Segments.All(s => s.Text.Trim().Length == 0);
+}
 
 /// <summary>
 /// The rungs of the fallback ladder in §5.4. Modes 2 and 3 are real degradations and must look
@@ -205,7 +237,23 @@ public record AgentTarget(string Provider, string? BaseUrl, string Credential);
 /// </summary>
 public abstract record AgentEvent
 {
-    /// <summary>More prose. Fragments concatenate; each is already-decoded text, not JSON.</summary>
+    /// <summary>
+    /// One segment closed and validated — the streaming unit (§5.2).
+    ///
+    /// Emitted as each array element completes, so the panel renders a whole claim with its badge and
+    /// its citations rather than growing a string. An adapter that cannot detect element boundaries
+    /// simply emits none of these and the finished list renders in one go from
+    /// <see cref="Complete"/>; degrading is allowed, blocking is not.
+    /// </summary>
+    public sealed record Segment(AnswerSegment Value) : AgentEvent;
+
+    /// <summary>
+    /// Raw prose, for a connector with no structure at all (§5.4 mode 3). Fragments concatenate.
+    ///
+    /// Kept distinct from <see cref="Segment"/> because these two mean different things: a segment is
+    /// a claim the agent labelled, this is text nobody vouched for. Conflating them is how an
+    /// unverified answer would end up wearing a provenance badge.
+    /// </summary>
     public sealed record Delta(string Text) : AgentEvent;
 
     /// <summary>The answer closed and validated. Terminal.</summary>
@@ -283,54 +331,80 @@ public sealed class AgentBudget(int maxBytes = AgentBudget.DefaultMaxBytes, int 
 /// </item>
 /// </list>
 ///
-/// <c>answer</c> is first deliberately: under streaming the object arrives as fragments, so a
-/// provider emitting keys in schema order lets prose render while the trailing metadata is still
-/// being produced. That is a request, never a guarantee — see the parser's degradation path.
+/// The streaming unit is a closed <em>segment</em>, not a character. Each array element is a
+/// complete object, so segment <i>N</i> renders — text, badge and citations together — the moment it
+/// closes, while <i>N+1</i> shows a placeholder. That reads like a person adding one thought at a
+/// time rather than watching a document type itself, and it removes the old parser's whole
+/// escape-decoding problem: nothing is emitted until it is valid JSON.
 /// </summary>
 public static class CanonicalSchema
 {
     public const string Name = "pr_answer";
 
-    /// <summary>Maximum citations kept. Enforced here rather than in the schema, per above.</summary>
-    public const int MaxCitations = 8;
+    /// <summary>
+    /// Per segment, not per answer. Enforced here rather than in the schema, per above — and 4 rather
+    /// than the old flat shape's 8, because a citation now sits with the one claim it supports and a
+    /// claim resting on nine lines is not a claim.
+    /// </summary>
+    public const int MaxCitations = 4;
+
+    /// <summary>
+    /// Extra segments are dropped with a trace, not silently: unlike a citation, a whole missing
+    /// claim is not a safe thing to lose without saying so (§5.2).
+    /// </summary>
+    public const int MaxSegments = 6;
 
     public static JsonObject Build() => new()
     {
         ["type"] = "object",
         ["additionalProperties"] = false,
-        ["required"] = new JsonArray("answer", "provenance", "citations", "inference_note"),
+        ["required"] = new JsonArray("segments"),
         ["properties"] = new JsonObject
         {
-            ["answer"] = new JsonObject
-            {
-                ["type"] = "string",
-                ["description"] = "Markdown. Restricted subset: paragraphs, unordered lists, bold, inline code.",
-            },
-            ["provenance"] = new JsonObject
-            {
-                ["type"] = "string",
-                ["enum"] = new JsonArray("code", "doc", "inferred"),
-            },
-            ["citations"] = new JsonObject
+            ["segments"] = new JsonObject
             {
                 ["type"] = "array",
                 ["items"] = new JsonObject
                 {
                     ["type"] = "object",
                     ["additionalProperties"] = false,
-                    ["required"] = new JsonArray("path", "line", "end_line"),
+                    ["required"] = new JsonArray("text", "provenance", "citations", "inference_note"),
                     ["properties"] = new JsonObject
                     {
-                        ["path"] = new JsonObject { ["type"] = "string" },
-                        ["line"] = new JsonObject { ["type"] = "integer" },
-                        ["end_line"] = new JsonObject { ["type"] = new JsonArray("integer", "null") },
+                        ["text"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["description"] = "Markdown. Restricted subset: paragraphs, unordered lists, bold, "
+                                            + "inline code. One claim — typically a sentence or two, not the whole answer.",
+                        },
+                        ["provenance"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["enum"] = new JsonArray("code", "doc", "inferred"),
+                        },
+                        ["citations"] = new JsonObject
+                        {
+                            ["type"] = "array",
+                            ["items"] = new JsonObject
+                            {
+                                ["type"] = "object",
+                                ["additionalProperties"] = false,
+                                ["required"] = new JsonArray("path", "line", "end_line"),
+                                ["properties"] = new JsonObject
+                                {
+                                    ["path"] = new JsonObject { ["type"] = "string" },
+                                    ["line"] = new JsonObject { ["type"] = "integer" },
+                                    ["end_line"] = new JsonObject { ["type"] = new JsonArray("integer", "null") },
+                                },
+                            },
+                        },
+                        ["inference_note"] = new JsonObject
+                        {
+                            ["type"] = new JsonArray("string", "null"),
+                            ["description"] = "Required when this segment's provenance is 'inferred'; null otherwise.",
+                        },
                     },
                 },
-            },
-            ["inference_note"] = new JsonObject
-            {
-                ["type"] = new JsonArray("string", "null"),
-                ["description"] = "Required when provenance is 'inferred'; null otherwise.",
             },
         },
     };

@@ -5,6 +5,10 @@ namespace PipelineLaunchpad.Server.Services.Agents;
 /// <summary>What the panel is told while the agent is working, on top of the answer itself.</summary>
 public abstract record ConversationEvent
 {
+    /// <summary>One closed claim. The streaming unit (§5.2).</summary>
+    public sealed record Segment(AnswerSegment Value) : ConversationEvent;
+
+    /// <summary>Unlabelled prose, from a connector with no structure at all (§5.4 mode 3).</summary>
     public sealed record Delta(string Text) : ConversationEvent;
 
     /// <summary>The agent asked for something. Surfaced so an answer's basis is visible.</summary>
@@ -27,12 +31,17 @@ public abstract record ConversationEvent
 /// </summary>
 public class AgentConversation(RepoTools tools)
 {
+    /// <param name="citablePaths">
+    /// Paths a citation may name: the pull request's changed files. Anything else the agent cites is
+    /// resolved against what it actually read (below) before being kept.
+    /// </param>
     public async IAsyncEnumerable<ConversationEvent> RunAsync(
         IAgentAdapter adapter,
         AgentTarget target,
         CanonicalRequest request,
         RepoScope scope,
         AgentBudget budget,
+        IReadOnlyCollection<string> citablePaths,
         [EnumeratorCancellation] CancellationToken ct)
     {
         var exchanges = new List<AgentToolExchange>();
@@ -62,13 +71,19 @@ public class AgentConversation(RepoTools tools)
             {
                 switch (ev)
                 {
+                    case AgentEvent.Segment s:
+                        yield return new ConversationEvent.Segment(Resolve(s.Value, citablePaths));
+                        break;
+
                     case AgentEvent.Delta d:
                         yield return new ConversationEvent.Delta(d.Text);
                         break;
 
                     case AgentEvent.Complete c:
                         usage = Merge(usage, c.Usage);
-                        yield return new ConversationEvent.Complete(c.Answer, usage, tools.Reads);
+                        yield return new ConversationEvent.Complete(
+                            c.Answer with { Segments = [..c.Answer.Segments.Select(s => Resolve(s, citablePaths))] },
+                            usage, tools.Reads);
                         finished = true;
                         break;
 
@@ -103,6 +118,38 @@ public class AgentConversation(RepoTools tools)
             }
         }
     }
+
+    /// <summary>
+    /// Drops citations to paths that were never in front of the agent (§5.2).
+    ///
+    /// This lives here rather than in the parser because it is the only place that knows both halves:
+    /// the changed files, and the files the agent went and read. The spec says a citation must match a
+    /// path in <c>&lt;files&gt;</c>, which was written before the agent could read anything — a
+    /// citation to a caller it looked up is now a legitimate answer to "is this still used?", so reads
+    /// count too. What is still dropped is a path from neither set, because that is a path the agent
+    /// invented, and a chip that scrolls nowhere is worse than no chip.
+    ///
+    /// Leading slashes are normalised off both sides: the context block declares paths without one and
+    /// Azure DevOps hands them back with one, and a citation should not be discarded over a character
+    /// the reviewer never sees.
+    /// </summary>
+    private AnswerSegment Resolve(AnswerSegment segment, IReadOnlyCollection<string> citablePaths)
+    {
+        if (segment.Citations.Count == 0) return segment;
+
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in citablePaths) known.Add(Normalise(p));
+        foreach (var p in tools.Reads) known.Add(Normalise(p));
+
+        // No file list at all means nothing to check against, and dropping every citation would be
+        // worse than keeping them: they'd all disappear on a PR whose files failed to load.
+        if (known.Count == 0) return segment;
+
+        var kept = segment.Citations.Where(c => known.Contains(Normalise(c.Path))).ToList();
+        return kept.Count == segment.Citations.Count ? segment : segment with { Citations = kept };
+    }
+
+    private static string Normalise(string path) => path.TrimStart('/');
 
     /// <summary>
     /// Appended when the agent can no longer read — so it answers with what it has and says what it

@@ -45,7 +45,7 @@ public class ThreadStoreTests : IDisposable
         Provenance? provenance = Provenance.Code,
         StructuredMode mode = StructuredMode.Structured,
         string? note = null) =>
-        new(text, provenance, [new Citation("a.sql", 22, null)], note, mode);
+        new([new AnswerSegment(text, provenance, [new Citation("a.sql", 22, null)], note)], mode);
 
     private Task<AgentThread> Thread() => _store.GetOrCreateAsync("u1", "Account", "Account", 80494, default);
 
@@ -184,17 +184,66 @@ public class ThreadStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Round_trips_citations()
+    public async Task Round_trips_segments_with_their_own_citations()
     {
         var thread = await Thread();
-        await _store.AppendAsync(thread, "q", Answer(), Agent(), "sha", null, false, null, default);
+        var answer = new CanonicalAnswer([
+            new AnswerSegment("Grounded.", Provenance.Code, [new Citation("a.sql", 22, 30)], null),
+            new AnswerSegment("A guess.", Provenance.Inferred, [], "Nobody wrote it down."),
+        ]);
+        await _store.AppendAsync(thread, "q", answer, Agent(), "sha", null, false, null, default);
 
         var turn = (await _store.TurnsAsync(thread.Id, default)).Single();
-        var citations = ThreadStore.Citations(turn);
+        var segments = ThreadStore.Segments(turn);
 
-        Assert.Equal("a.sql", Assert.Single(citations).Path);
-        Assert.Equal(22, citations[0].Line);
-        Assert.Null(citations[0].EndLine);
+        Assert.Equal(2, segments.Count);
+        Assert.Equal(Provenance.Code, segments[0].Provenance);
+        Assert.Equal(30, Assert.Single(segments[0].Citations).EndLine);
+        // The hedge stays on its own claim rather than becoming the whole turn's.
+        Assert.Equal("Nobody wrote it down.", segments[1].InferenceNote);
+        Assert.Empty(segments[1].Citations);
+    }
+
+    [Fact]
+    public async Task Provenance_survives_the_round_trip_as_a_name_not_a_number()
+    {
+        var thread = await Thread();
+        await _store.AppendAsync(thread, "q", Answer(provenance: Provenance.Doc), Agent(), "sha", null, false, null, default);
+
+        var turn = (await _store.TurnsAsync(thread.Id, default)).Single();
+
+        // Serialising the enum by value would store 1 here, and reordering the enum's members would
+        // silently repaint every stored badge.
+        Assert.Contains("\"doc\"", turn.SegmentsJson);
+        Assert.Equal(Provenance.Doc, ThreadStore.Segments(turn)[0].Provenance);
+    }
+
+    [Fact]
+    public async Task A_turn_written_before_the_segment_shape_still_reads_back()
+    {
+        // Turns already in a reviewer's thread have the old flat columns and no SegmentsJson. They
+        // come back as one segment carrying the old whole-answer provenance and citations, which is
+        // exactly what the panel used to show — so nothing is migrated and nothing is lost.
+        var thread = await Thread();
+        _db.AgentThreadTurns.Add(new AgentThreadTurn
+        {
+            Id = "legacy", ThreadId = thread.Id, Ordinal = 1,
+            Question = "q",
+            Answer = "It adds five procedures.",
+            SegmentsJson = null,
+            Provenance = "code",
+            CitationsJson = """[{"path":"a.sql","line":22,"endLine":null}]""",
+            Mode = "structured",
+            CreatedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
+
+        var segments = ThreadStore.Segments(_db.AgentThreadTurns.Single(t => t.Id == "legacy"));
+
+        var only = Assert.Single(segments);
+        Assert.Equal("It adds five procedures.", only.Text);
+        Assert.Equal(Provenance.Code, only.Provenance);
+        Assert.Equal("a.sql", Assert.Single(only.Citations).Path);
     }
 
     // ---------- postability (§7.4) ----------

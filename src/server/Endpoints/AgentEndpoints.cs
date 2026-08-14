@@ -180,13 +180,26 @@ public static class AgentEndpoints
             var budget = new AgentBudget();
             var scope = new RepoScope(project, repoId, pr.SourceCommit ?? "");
             var reads = new List<string>();
+            // What a citation is allowed to name (§5.2). The changed files; the conversation adds
+            // whatever the agent actually read to it, since a citation to a caller it looked up is a
+            // legitimate answer rather than an invented path.
+            var citablePaths = context.Paths;
 
             try
             {
-                await foreach (var ev in conversation.RunAsync(adapter, target, request, scope, budget, ct))
+                await foreach (var ev in conversation.RunAsync(
+                    adapter, target, request, scope, budget, citablePaths, ct))
                 {
                     switch (ev)
                     {
+                        // The streaming unit (§5.2): a whole claim with its badge and its citations,
+                        // rendered the moment it closes rather than a string growing a character at a
+                        // time under a badge that can't be decided yet.
+                        case ConversationEvent.Segment s:
+                            await Send(http, "segment", ToSegmentDto(s.Value), ct);
+                            break;
+
+                        // Mode 3 only — prose from a connector that asserted nothing.
                         case ConversationEvent.Delta d:
                             await Send(http, "delta", new { text = d.Text }, ct);
                             break;
@@ -270,9 +283,7 @@ public static class AgentEndpoints
         t.Ordinal,
         t.Question,
         t.Answer,
-        t.Provenance,
-        ThreadStore.Citations(t).Select(c => new CitationDto(c.Path, c.Line, c.EndLine)).ToList(),
-        t.InferenceNote,
+        ThreadStore.Segments(t).Select(ToSegmentDto).ToList(),
         t.Mode,
         t.ConnectorName,
         t.Model,
@@ -281,6 +292,12 @@ public static class AgentEndpoints
         t.ErrorCode,
         ThreadStore.IsPostable(t),
         t.CreatedAt);
+
+    private static AgentSegmentDto ToSegmentDto(AnswerSegment s) => new(
+        s.Text,
+        s.Provenance is { } p ? ProvenanceNames.ToWire(p) : null,
+        s.Citations.Select(c => new CitationDto(c.Path, c.Line, c.EndLine)).ToList(),
+        s.InferenceNote);
 
     /// <summary>
     /// Puts the response into streaming mode.

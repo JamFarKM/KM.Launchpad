@@ -200,6 +200,7 @@ using (var scope = app.Services.CreateScope())
             "Ordinal" INTEGER NOT NULL,
             "Question" TEXT NOT NULL,
             "Answer" TEXT NOT NULL,
+            "SegmentsJson" TEXT NULL,
             "Provenance" TEXT NULL,
             "CitationsJson" TEXT NOT NULL DEFAULT '[]',
             "InferenceNote" TEXT NULL,
@@ -219,6 +220,30 @@ using (var scope = app.Services.CreateScope())
         CREATE INDEX IF NOT EXISTS "IX_AgentThreadTurns_ThreadId"
             ON "AgentThreadTurns" ("ThreadId");
         """);
+
+    /* Columns added to a table that already existed. CREATE TABLE IF NOT EXISTS is a no-op on an
+       existing table, so an existing database never sees a new column from the statements above —
+       and SQLite has no ADD COLUMN IF NOT EXISTS, so the check has to be explicit.
+
+       SegmentsJson: the canonical answer became a list of segments rather than one string. Turns
+       written before that keep their Answer/Provenance/CitationsJson and are read back as a single
+       synthesised segment (see ThreadStore.Segments), so an existing thread stays readable rather
+       than being migrated or discarded. */
+    AddColumnIfMissing("AgentThreadTurns", "SegmentsJson", "TEXT NULL");
+
+    void AddColumnIfMissing(string table, string column, string declaration)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+
+        using var check = conn.CreateCommand();
+        check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
+        if (Convert.ToInt64(check.ExecuteScalar() ?? 0L) > 0) return;
+
+        using var alter = conn.CreateCommand();
+        alter.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {declaration}";
+        alter.ExecuteNonQuery();
+    }
 
     // Any sequence run still "running" was orphaned by a previous process (restart/crash)
     // and can never resume — fail it so it doesn't hang forever as "in progress".

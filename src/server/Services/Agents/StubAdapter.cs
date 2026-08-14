@@ -10,7 +10,8 @@ namespace PipelineLaunchpad.Server.Services.Agents;
 /// parser, the fallback ladder and the SSE relay can be finished and tested before any real
 /// provider is reachable. It also stays useful afterwards: it is the only way to exercise the
 /// panel's states deterministically, including the ones that are awkward to provoke on purpose —
-/// a mid-stream failure, or an answer whose keys arrive in the wrong order.
+/// a mid-stream failure, an answer that mixes a grounded claim with a guess, or one that overruns
+/// the segment cap.
 ///
 /// Registered but never selectable as a provider: <see cref="ConnectorProviders.Selectable"/>
 /// doesn't list it, so it cannot be created from the UI and cannot be reached by accident.
@@ -20,7 +21,7 @@ public sealed class StubAdapter : IAgentAdapter
     public const string ProviderKey = "stub";
 
     /// <summary>How the stub should behave, chosen by the credential string so a test can pick.</summary>
-    public enum Script { Structured, Inferred, KeysOutOfOrder, Prose, FailMidStream }
+    public enum Script { Structured, Inferred, Mixed, Overflow, Prose, FailMidStream }
 
     public string Provider => ProviderKey;
 
@@ -40,39 +41,39 @@ public sealed class StubAdapter : IAgentAdapter
         {
             // Mode 3: no JSON at all. The parser has to reach "unverified" on its own rather than
             // being told, which is what makes this worth testing.
-            foreach (var chunk in Chunk("This pull request adds five stored procedures. "
-                + "I can't say where that came from in a structured way.", 12))
+            const string text = "This pull request adds five stored procedures. "
+                              + "I can't say where that came from in a structured way.";
+            foreach (var chunk in Chunk(text, 12))
             {
                 ct.ThrowIfCancellationRequested();
                 if (_delay > TimeSpan.Zero) await Task.Delay(_delay, ct);
                 yield return new AgentEvent.Delta(chunk);
             }
             yield return new AgentEvent.Complete(
-                new CanonicalAnswer("This pull request adds five stored procedures. "
-                    + "I can't say where that came from in a structured way.",
-                    null, [], null, StructuredMode.Unverified));
+                new CanonicalAnswer([new AnswerSegment(text, null, [], null)], StructuredMode.Unverified));
             yield break;
         }
 
         var payload = PayloadFor(script, request);
-        var parser = new CanonicalAnswerParser();
+        var parser = new SegmentStreamParser();
 
-        var emitted = 0;
+        // 17 characters at a time, which lands mid-token and mid-escape often enough to be a real
+        // test of the boundary detection rather than a formality.
+        var closed = 0;
         foreach (var chunk in Chunk(payload, 17))
         {
             ct.ThrowIfCancellationRequested();
             if (_delay > TimeSpan.Zero) await Task.Delay(_delay, ct);
 
-            var prose = parser.Feed(chunk);
-            if (prose.Length > 0)
+            foreach (var segment in parser.Feed(chunk))
             {
-                emitted++;
-                yield return new AgentEvent.Delta(prose);
+                closed++;
+                yield return new AgentEvent.Segment(segment);
             }
 
-            // Die once there is visible prose, so the panel has a partial answer to keep beside
-            // the error — the case §6 cares about.
-            if (script == Script.FailMidStream && emitted >= 2)
+            // Die once a whole segment has landed, so the panel has a real partial answer to keep
+            // beside the error — the case §6 cares about.
+            if (script == Script.FailMidStream && closed >= 1)
             {
                 yield return new AgentEvent.Failed(new AgentError(AgentErrorCode.Upstream, 500,
                     "The stub was asked to fail mid-stream."));
@@ -86,7 +87,8 @@ public sealed class StubAdapter : IAgentAdapter
     private static Script ScriptOf(string credential) => credential switch
     {
         "inferred" => Script.Inferred,
-        "out-of-order" => Script.KeysOutOfOrder,
+        "mixed" => Script.Mixed,
+        "overflow" => Script.Overflow,
         "prose" => Script.Prose,
         "fail" => Script.FailMidStream,
         _ => Script.Structured,
@@ -94,40 +96,50 @@ public sealed class StubAdapter : IAgentAdapter
 
     private static string PayloadFor(Script script, CanonicalRequest request)
     {
-        // Cite the first path the context actually lists, so the parser's "drop citations whose
-        // path isn't in <files>" rule is exercised against a real value rather than a made-up one.
+        // Cite the first path the context actually lists, so a citation resolves to a real file
+        // rather than to a made-up one the panel would have to refuse.
         var path = FirstPath(request.Context) ?? "unknown.sql";
 
-        var answer = script == Script.Inferred
-            ? "Every join carries `WITH (NOLOCK)`, and the procedures this replaces do the same, "
-              + "so the pattern is inherited rather than introduced here."
-            : "It adds five stored procedures under `Scripts/tps-user`. Nothing is modified or "
-              + "deleted, and each one returns `COALESCE(u.Email, uev.Email)`.";
+        var grounded = Segment(
+            "It adds five stored procedures under `Scripts/tps-user`. Nothing is modified or deleted.",
+            "code", path, 27, 34, null);
 
-        var obj = new Dictionary<string, object?>();
+        var guess = Segment(
+            "Every join carries `WITH (NOLOCK)`, and the procedures this replaces do the same, so the "
+            + "pattern looks inherited rather than introduced here.",
+            "inferred", path, 22, null,
+            "The usual reason is avoiding reader-writer blocking on hot tables, at the cost of dirty "
+            + "reads. Whether that was deliberate here is not recorded anywhere I can see. Ask the author.");
 
-        if (script == Script.KeysOutOfOrder)
+        var segments = script switch
         {
-            // Metadata first, prose last — legal JSON, and the case that must degrade to
-            // rendering in one go rather than hanging.
-            obj["provenance"] = "code";
-            obj["citations"] = new[] { new { path, line = 22, end_line = (int?)null } };
-            obj["inference_note"] = null;
-            obj["answer"] = answer;
-        }
-        else
-        {
-            obj["answer"] = answer;
-            obj["provenance"] = script == Script.Inferred ? "inferred" : "code";
-            obj["citations"] = new[] { new { path, line = 27, end_line = (int?)34 } };
-            obj["inference_note"] = script == Script.Inferred
-                ? "The usual reason is avoiding reader-writer blocking on hot tables, at the cost "
-                  + "of dirty reads. Whether that was deliberate here is not recorded. Ask the author."
-                : null;
-        }
+            Script.Inferred => new[] { guess },
 
-        return JsonSerializer.Serialize(obj);
+            // The case the segment shape exists for: one answer, two claims, two different sources.
+            // A single badge over both would be lying about whichever one it didn't describe.
+            Script.Mixed => [grounded, guess, Segment("A couple of things worth checking:", "doc", null, 0, null, null)],
+
+            // Seven segments against a cap of six, so the caveat on the last kept one is exercised.
+            Script.Overflow => Enumerable.Range(1, 7)
+                .Select(i => Segment($"Claim number {i}.", "code", path, i, null, null))
+                .ToArray(),
+
+            _ => [grounded],
+        };
+
+        return JsonSerializer.Serialize(new { segments });
     }
+
+    private static object Segment(
+        string text, string provenance, string? path, int line, int? endLine, string? note) => new
+    {
+        text,
+        provenance,
+        citations = path is null
+            ? Array.Empty<object>()
+            : [new { path, line, end_line = endLine }],
+        inference_note = note,
+    };
 
     private static string? FirstPath(string context)
     {

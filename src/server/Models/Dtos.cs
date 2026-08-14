@@ -298,6 +298,22 @@ public record AskRequest(string Question);
 
 public record CitationDto(string Path, int Line, int? EndLine);
 
+/// <summary>
+/// One claim, with its own badge and its own citations (§5.2).
+///
+/// <paramref name="Provenance"/> is null only when the agent asserted nothing for this segment — the
+/// badge then reads UNVERIFIED SOURCE. It is never derived from whether citations are present.
+/// </summary>
+public record AgentSegmentDto(
+    string Text,
+    string? Provenance,
+    List<CitationDto> Citations,
+    string? InferenceNote);
+
+/// <param name="Answer">
+/// The segments' prose, joined. For "Copy all" only — nothing renders from it, or the badge and the
+/// citations would go back to being pooled under a whole answer.
+/// </param>
 /// <param name="ConnectorName">
 /// Recorded on the turn rather than looked up, so attribution still renders after the connector
 /// that produced it has been removed (§7.5).
@@ -311,9 +327,7 @@ public record AgentTurnDto(
     int Ordinal,
     string Question,
     string Answer,
-    string? Provenance,
-    List<CitationDto> Citations,
-    string? InferenceNote,
+    List<AgentSegmentDto> Segments,
     string Mode,
     string? ConnectorName,
     string? Model,

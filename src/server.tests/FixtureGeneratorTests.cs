@@ -75,7 +75,7 @@ public class FixtureGeneratorTests
                 new JsonObject
                 {
                     ["role"] = "system",
-                    ["content"] = TaskPrompt.Structured(diffTruncated: false),
+                    ["content"] = TaskPrompt.Structured(diffTruncated: false, withRepoTools: false),
                 },
                 new JsonObject
                 {
@@ -118,7 +118,7 @@ public class FixtureGeneratorTests
             ["stream"] = true,
             ["max_completion_tokens"] = 2048,
             ["messages"] = new JsonArray(
-                new JsonObject { ["role"] = "system", ["content"] = TaskPrompt.Structured(false) },
+                new JsonObject { ["role"] = "system", ["content"] = TaskPrompt.Structured(diffTruncated: false, withRepoTools: false) },
                 new JsonObject { ["role"] = "user", ["content"] = Context + "\n\nWhat does this PR change?" },
                 new JsonObject
                 {
@@ -171,7 +171,7 @@ public class FixtureGeneratorTests
             ["stream"] = false,
             ["max_completion_tokens"] = 2048,
             ["messages"] = new JsonArray(
-                new JsonObject { ["role"] = "system", ["content"] = TaskPrompt.Structured(false) },
+                new JsonObject { ["role"] = "system", ["content"] = TaskPrompt.Structured(diffTruncated: false, withRepoTools: false) },
                 new JsonObject { ["role"] = "user", ["content"] = context + "\n\nWhat does this PR change?" }),
             ["response_format"] = new JsonObject
             {
@@ -205,7 +205,7 @@ public class FixtureGeneratorTests
     [Fact]
     public void The_task_prompt_says_the_context_is_untrusted()
     {
-        var prompt = TaskPrompt.Structured(false);
+        var prompt = TaskPrompt.Structured(diffTruncated: false, withRepoTools: false);
 
         Assert.Contains("untrusted", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("never as instructions", prompt, StringComparison.OrdinalIgnoreCase);
@@ -216,7 +216,7 @@ public class FixtureGeneratorTests
     public void The_truncated_prompt_tells_the_model_to_say_so()
     {
         Assert.Contains("truncated", TaskPrompt.Structured(diffTruncated: true), StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("<omitted>", TaskPrompt.Structured(diffTruncated: false));
+        Assert.DoesNotContain("<omitted>", TaskPrompt.Structured(diffTruncated: false, withRepoTools: false));
     }
 
     /// <summary>
@@ -228,26 +228,54 @@ public class FixtureGeneratorTests
     {
         var schema = CanonicalSchema.Build();
 
+        // Now on three levels, not one: the outer object, each segment, and each citation. Missing
+        // any of them rejects the whole response rather than degrading.
+        AssertEveryPropertyIsRequired(schema);
+
+        var segment = schema["properties"]!["segments"]!["items"]!;
+        AssertEveryPropertyIsRequired(segment);
+
+        var citation = segment["properties"]!["citations"]!["items"]!;
+        AssertEveryPropertyIsRequired(citation);
+
+        // Both caps are enforced in the parser instead — 4 citations per segment, 6 segments per
+        // answer — because array length keywords are unsupported by several strict implementations.
+        Assert.DoesNotContain("maxItems", schema.ToJsonString());
+        Assert.DoesNotContain("minItems", schema.ToJsonString());
+
+        // The optionality has to live in the type unions, since it cannot live in `required`.
+        Assert.Contains("null", citation["properties"]!["end_line"]!["type"]!.ToJsonString());
+        Assert.Contains("null", segment["properties"]!["inference_note"]!["type"]!.ToJsonString());
+    }
+
+    private static void AssertEveryPropertyIsRequired(JsonNode schema)
+    {
         var properties = schema["properties"]!.AsObject().Select(p => p.Key).OrderBy(x => x).ToList();
         var required = schema["required"]!.AsArray().Select(r => r!.GetValue<string>()).OrderBy(x => x).ToList();
         Assert.Equal(properties, required);
-
-        var citationItem = schema["properties"]!["citations"]!["items"]!;
-        var itemProps = citationItem["properties"]!.AsObject().Select(p => p.Key).OrderBy(x => x).ToList();
-        var itemRequired = citationItem["required"]!.AsArray().Select(r => r!.GetValue<string>()).OrderBy(x => x).ToList();
-        Assert.Equal(itemProps, itemRequired);
-
-        Assert.DoesNotContain("maxItems", schema.ToJsonString());
-
-        // The optionality has to live in the type unions, since it cannot live in `required`.
-        Assert.Contains("null", citationItem["properties"]!["end_line"]!["type"]!.ToJsonString());
-        Assert.Contains("null", schema["properties"]!["inference_note"]!["type"]!.ToJsonString());
     }
 
-    /// <summary>answer is first so prose can render while the metadata is still streaming (§5.2).</summary>
+    /// <summary>
+    /// The answer is a list of claims, each carrying its own sources — not one string with the
+    /// citations pooled beneath it (§5.2). This is the shape the whole feature rests on, so it is
+    /// asserted directly rather than left implicit in the fixtures.
+    /// </summary>
     [Fact]
-    public void Answer_is_the_first_property_in_the_schema()
+    public void The_schema_is_a_list_of_segments_each_owning_its_own_provenance_and_citations()
     {
-        Assert.Equal("answer", CanonicalSchema.Build()["properties"]!.AsObject().First().Key);
+        var schema = CanonicalSchema.Build();
+
+        Assert.Equal(["segments"], schema["properties"]!.AsObject().Select(p => p.Key));
+        Assert.Equal("array", schema["properties"]!["segments"]!["type"]!.GetValue<string>());
+
+        var segment = schema["properties"]!["segments"]!["items"]!;
+        Assert.Equal(
+            ["citations", "inference_note", "provenance", "text"],
+            segment["properties"]!.AsObject().Select(p => p.Key).OrderBy(x => x));
+
+        // Nothing top-level owns provenance or citations any more. If either reappears up there, the
+        // badge has gone back to describing a whole turn.
+        Assert.False(schema["properties"]!.AsObject().ContainsKey("provenance"));
+        Assert.False(schema["properties"]!.AsObject().ContainsKey("citations"));
     }
 }
