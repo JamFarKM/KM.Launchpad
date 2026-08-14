@@ -29,6 +29,18 @@ builder.Services.AddDataProtection()
 builder.Services.AddSingleton<PatProtector>();
 builder.Services.AddSingleton<ConnectorProtector>();
 
+// --- agent connectors ---
+// Infinite HttpClient timeout on purpose: it applies to the whole operation including reading the
+// body, so any finite value would kill a legitimately long stream. The §5.5 budget is enforced
+// per-phase inside the adapters instead.
+builder.Services.AddHttpClient("agent", c => c.Timeout = Timeout.InfiniteTimeSpan);
+builder.Services.AddSingleton<PipelineLaunchpad.Server.Services.Agents.IAgentAdapter, PipelineLaunchpad.Server.Services.Agents.AnthropicAdapter>();
+// The stub is registered but not selectable (ConnectorProviders.Selectable omits it), so the SSE
+// relay and the panel states can be exercised without a real provider or a real credential.
+builder.Services.AddSingleton<PipelineLaunchpad.Server.Services.Agents.IAgentAdapter>(
+    _ => new PipelineLaunchpad.Server.Services.Agents.StubAdapter(TimeSpan.FromMilliseconds(60)));
+builder.Services.AddSingleton<PipelineLaunchpad.Server.Services.Agents.AgentRegistry>();
+
 // --- Azure DevOps access ---
 builder.Services.AddHttpClient("ado", c => c.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddScoped<AdoContext>();
@@ -183,6 +195,7 @@ app.MapImportExport();
 app.MapConfigRegistries();
 app.MapVaultRegistries();
 app.MapConnectors();
+app.MapAgents();
 
 // Serve the built React SPA and fall back to index.html for client routes.
 app.UseDefaultFiles();

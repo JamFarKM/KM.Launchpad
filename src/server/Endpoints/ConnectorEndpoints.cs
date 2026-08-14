@@ -73,8 +73,11 @@ public static class ConnectorEndpoints
             var baseUrl = ConnectorProviders.ResolveBaseUrl(body.Provider, body.BaseUrl);
             if (baseUrl is null)
                 return Results.BadRequest(new { error = "A base URL is required, e.g. https://host/v1" });
-            if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsed)
-                || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+
+            // Only validate a URL the user actually supplied. A provider with a fixed host supplies
+            // its own constant, and checking that would be both pointless and — for a non-http
+            // scheme — wrong.
+            if (info.FixedBaseUrl is null && !IsHttpUrl(baseUrl))
                 return Results.BadRequest(new { error = "The base URL must be an absolute http or https URL." });
 
             var token = body.Token.Trim();
@@ -126,8 +129,7 @@ public static class ConnectorEndpoints
                 var next = ConnectorProviders.ResolveBaseUrl(connector.Provider, body.BaseUrl);
                 if (next is null)
                     return Results.BadRequest(new { error = "A base URL is required, e.g. https://host/v1" });
-                if (!Uri.TryCreate(next, UriKind.Absolute, out var parsed)
-                    || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+                if (!IsHttpUrl(next))
                     return Results.BadRequest(new { error = "The base URL must be an absolute http or https URL." });
 
                 // A changed host invalidates what we know about reachability: the old green tick
@@ -186,6 +188,11 @@ public static class ConnectorEndpoints
             return Results.NoContent();
         });
     }
+
+    /// <summary>A URL we can actually make a request to — the only kind worth storing.</summary>
+    private static bool IsHttpUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+        && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
 
     /// <summary>
     /// Moves each named capability to this connector, taking it from whichever one held it.

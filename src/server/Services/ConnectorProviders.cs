@@ -33,6 +33,9 @@ public static class ConnectorProviders
     public const string GitHubCopilot = "github_copilot";
     public const string Custom = "custom";
 
+    /// <summary>Test-only. See the note in the provider table below.</summary>
+    public const string Stub = "stub";
+
     /// <summary>The only capability defined so far (§2).</summary>
     public const string PrQuestions = "pr.questions";
 
@@ -54,6 +57,15 @@ public static class ConnectorProviders
         // The only provider where the reviewer supplies a host.
         [Custom] = new(Custom, "Custom agent", ConnectorAuth.ApiKey,
             null, "CUSTOM", "API token"),
+
+        // Not a product provider. Answers from a canned canonical response without calling
+        // anything, so the SSE relay, the §5.4 ladder and the panel's states can be exercised
+        // without a real credential — including the states that are awkward to provoke on purpose,
+        // like a mid-stream failure. Absent from Selectable(), so it can never be picked in the UI;
+        // present here so it can be created deliberately by an explicit API call. The "credential"
+        // chooses which script runs — see StubAdapter.Script.
+        [Stub] = new(Stub, "Stub agent", ConnectorAuth.ApiKey,
+            "stub://local", "STUB", "script name"),
     };
 
     public static bool IsKnown(string? provider) => provider is not null && All.ContainsKey(provider);

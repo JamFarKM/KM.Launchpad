@@ -273,3 +273,23 @@ public record PatchConnectorRequest(
     string? Model,
     string? Token,
     List<string>? Capabilities);
+
+/// <summary>Pre-save connection test (§4). The credential is used once and never stored by this call.</summary>
+public record TestConnectorRequest(string Provider, string? BaseUrl, string? Token);
+
+/// <param name="ErrorCode">One of the §4 codes, never free text.</param>
+public record ProbeResultDto(
+    bool Ok,
+    long LatencyMs,
+    List<string> Models,
+    string? ErrorCode,
+    int? HttpStatus,
+    string? Detail,
+    int? RetryAfterSeconds);
+
+/// <param name="History">
+/// Prior turns, oldest first. Client-supplied for now; step 4 moves threads server-side, at which
+/// point this becomes a thread id instead.
+/// </param>
+public record AskRequest(string Question, List<AskTurnDto>? History);
+public record AskTurnDto(string Question, string Answer);
