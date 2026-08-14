@@ -15,6 +15,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RepoFavourite> RepoFavourites => Set<RepoFavourite>();
     public DbSet<Connector> Connectors => Set<Connector>();
     public DbSet<ConnectorCapability> ConnectorCapabilities => Set<ConnectorCapability>();
+    public DbSet<AgentThread> AgentThreads => Set<AgentThread>();
+    public DbSet<AgentThreadTurn> AgentThreadTurns => Set<AgentThreadTurn>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -64,6 +66,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne<Connector>()
             .WithMany()
             .HasForeignKey(c => c.ConnectorId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        b.Entity<AgentThread>().HasKey(t => t.Id);
+        b.Entity<AgentThread>().HasIndex(t => new { t.UserId, t.Project, t.RepoId, t.PullRequestId });
+
+        b.Entity<AgentThreadTurn>().HasKey(t => t.Id);
+        b.Entity<AgentThreadTurn>().HasIndex(t => t.ThreadId);
+        // Turns cascade from their thread but NOT from a connector: 7.5 keeps a reviewer's
+        // history when the agent that answered is removed or swapped.
+        b.Entity<AgentThreadTurn>()
+            .HasOne<AgentThread>()
+            .WithMany()
+            .HasForeignKey(t => t.ThreadId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

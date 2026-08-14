@@ -287,9 +287,41 @@ public record ProbeResultDto(
     string? Detail,
     int? RetryAfterSeconds);
 
-/// <param name="History">
-/// Prior turns, oldest first. Client-supplied for now; step 4 moves threads server-side, at which
-/// point this becomes a thread id instead.
+/// <summary>
+/// A question. No history field: 7.5 makes Launchpad the owner of the conversation, so the server
+/// replays the thread it already has rather than trusting whatever a client sends — which also means
+/// a reopened panel cannot silently lose the earlier turns.
+/// </summary>
+public record AskRequest(string Question);
+
+// ----- agent conversations (§7.5) -----
+
+public record CitationDto(string Path, int Line, int? EndLine);
+
+/// <param name="ConnectorName">
+/// Recorded on the turn rather than looked up, so attribution still renders after the connector
+/// that produced it has been removed (§7.5).
 /// </param>
-public record AskRequest(string Question, List<AskTurnDto>? History);
-public record AskTurnDto(string Question, string Answer);
+/// <param name="Postable">
+/// Whether "Post as comment…" appears at all. Stopped, failed and mode-3 answers are not postable,
+/// and the button is absent rather than disabled — there is nothing the reviewer could do (§7.4).
+/// </param>
+public record AgentTurnDto(
+    string Id,
+    int Ordinal,
+    string Question,
+    string Answer,
+    string? Provenance,
+    List<CitationDto> Citations,
+    string? InferenceNote,
+    string Mode,
+    string? ConnectorName,
+    string? Model,
+    string? CommitSha,
+    bool Stopped,
+    string? ErrorCode,
+    bool Postable,
+    DateTime CreatedAt);
+
+/// <param name="Id">Null when the reviewer has never asked anything about this pull request.</param>
+public record ThreadDto(string? Id, List<AgentTurnDto> Turns);

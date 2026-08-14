@@ -202,3 +202,82 @@ public class ConnectorCapability
     public string ConnectorId { get; set; } = default!;
     public DateTime AssignedAt { get; set; }
 }
+
+/// <summary>
+/// A reviewer's conversation about one pull request (DESIGN_SPEC_CONNECTORS.md §7.5).
+///
+/// Keyed on the reviewer plus the pull request, and private to them. Launchpad owns the thread
+/// rather than the connector: that is what keeps connectors stateless and therefore
+/// interchangeable, and it is why a thread survives swapping the provider underneath it —
+/// mid-conversation if need be.
+/// </summary>
+public class AgentThread
+{
+    public string Id { get; set; } = default!;
+    public string UserId { get; set; } = default!;
+    public string Project { get; set; } = "";
+    public string RepoId { get; set; } = "";
+    public int PullRequestId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// One question and its answer.
+///
+/// <b>Turns outlive the connector that produced them.</b> §7.5: a thread is a record of what the
+/// reviewer asked, and removing an agent does not un-ask it. So there is deliberately no foreign
+/// key to <see cref="Connector"/> — a cascade here would delete the reviewer's history as a side
+/// effect of changing agents — and <see cref="ConnectorName"/> is denormalised alongside the id,
+/// because §7.4's "— via {name}" attribution has to still render after the connector is gone.
+/// </summary>
+public class AgentThreadTurn
+{
+    public string Id { get; set; } = default!;
+    public string ThreadId { get; set; } = default!;
+
+    /// <summary>Position in the thread, from 1. Ordering by time would tie on a fast exchange.</summary>
+    public int Ordinal { get; set; }
+
+    public string Question { get; set; } = "";
+
+    /// <summary>The prose only. Replayed verbatim; never the JSON envelope around it.</summary>
+    public string Answer { get; set; } = "";
+
+    /// <summary>code | doc | inferred, or null when the agent asserted nothing (§5.4 mode 3).</summary>
+    public string? Provenance { get; set; }
+
+    /// <summary>JSON array of the canonical citation shape.</summary>
+    public string CitationsJson { get; set; } = "[]";
+
+    public string? InferenceNote { get; set; }
+
+    /// <summary>structured | fencedjson | unverified — decides whether this is postable (§7.4).</summary>
+    public string Mode { get; set; } = "structured";
+
+    /// <summary>May point at a connector that no longer exists. Not a foreign key, by design.</summary>
+    public string? ConnectorId { get; set; }
+
+    /// <summary>Kept so attribution survives the connector's deletion.</summary>
+    public string? ConnectorName { get; set; }
+
+    public string? Model { get; set; }
+
+    /// <summary>The PR head this was answered against — drives the stale-commit banner (§7.3).</summary>
+    public string? CommitSha { get; set; }
+
+    /// <summary>
+    /// Reported by the provider when it reports them. Recorded now because it is impossible
+    /// retroactively, and BETBOT_INTEGRATION_PLAN.md's third ask wants per-reviewer cost.
+    /// </summary>
+    public int? PromptTokens { get; set; }
+    public int? CompletionTokens { get; set; }
+
+    /// <summary>Stopped by the reviewer. Kept in the thread, but not postable (§5.5).</summary>
+    public bool Stopped { get; set; }
+
+    /// <summary>A §4 code when the answer failed or was cut short. Never a raw exception.</summary>
+    public string? ErrorCode { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}

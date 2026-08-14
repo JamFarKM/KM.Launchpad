@@ -47,6 +47,7 @@ builder.Services.AddScoped<AdoContext>();
 builder.Services.AddScoped<AdoService>();
 builder.Services.AddScoped<ConfigService>();
 builder.Services.AddScoped<PipelineLaunchpad.Server.Services.Agents.PrContextService>();
+builder.Services.AddScoped<PipelineLaunchpad.Server.Services.Agents.ThreadStore>();
 builder.Services.AddSingleton<ConfigStoreService>();
 builder.Services.AddSingleton<VaultStoreService>();
 builder.Services.AddSingleton<SequenceRunner>();
@@ -163,6 +164,51 @@ using (var scope = app.Services.CreateScope())
         );
         CREATE INDEX IF NOT EXISTS "IX_ConnectorCapabilities_ConnectorId"
             ON "ConnectorCapabilities" ("ConnectorId");
+
+        -- Conversations (7.5). Owned by Launchpad, not by a connector, which is what keeps
+        -- connectors stateless and lets a thread survive swapping the provider underneath it.
+        CREATE TABLE IF NOT EXISTS "AgentThreads" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_AgentThreads" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Project" TEXT NOT NULL,
+            "RepoId" TEXT NOT NULL,
+            "PullRequestId" INTEGER NOT NULL,
+            "CreatedAt" TEXT NOT NULL,
+            "UpdatedAt" TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_AgentThreads_Owner"
+            ON "AgentThreads" ("UserId", "Project", "RepoId", "PullRequestId");
+
+        -- No foreign key to Connectors, deliberately: a cascade there would delete a reviewer's
+        -- history as a side effect of changing agents. ConnectorName is denormalised so the
+        -- via-the-connector attribution in 7.4 still renders once the connector is gone.
+        -- NB: no curly braces anywhere in this string, including comments. ExecuteSqlRaw parses it
+        -- for zero-indexed placeholders written in curly braces, so a brace anywhere in here --
+        -- even inside a comment -- crashes the app at startup.
+        CREATE TABLE IF NOT EXISTS "AgentThreadTurns" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_AgentThreadTurns" PRIMARY KEY,
+            "ThreadId" TEXT NOT NULL,
+            "Ordinal" INTEGER NOT NULL,
+            "Question" TEXT NOT NULL,
+            "Answer" TEXT NOT NULL,
+            "Provenance" TEXT NULL,
+            "CitationsJson" TEXT NOT NULL DEFAULT '[]',
+            "InferenceNote" TEXT NULL,
+            "Mode" TEXT NOT NULL DEFAULT 'structured',
+            "ConnectorId" TEXT NULL,
+            "ConnectorName" TEXT NULL,
+            "Model" TEXT NULL,
+            "CommitSha" TEXT NULL,
+            "PromptTokens" INTEGER NULL,
+            "CompletionTokens" INTEGER NULL,
+            "Stopped" INTEGER NOT NULL DEFAULT 0,
+            "ErrorCode" TEXT NULL,
+            "CreatedAt" TEXT NOT NULL,
+            CONSTRAINT "FK_AgentThreadTurns_AgentThreads" FOREIGN KEY ("ThreadId")
+                REFERENCES "AgentThreads" ("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS "IX_AgentThreadTurns_ThreadId"
+            ON "AgentThreadTurns" ("ThreadId");
         """);
 
     // Any sequence run still "running" was orphaned by a previous process (restart/crash)

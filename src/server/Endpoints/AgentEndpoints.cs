@@ -80,7 +80,8 @@ public static class AgentEndpoints
         api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/ask", async (
             string project, string repoId, int prId, AskRequest body,
             HttpContext http, AdoContext ctx, AppDbContext db,
-            AgentRegistry registry, AdoService ado, PrContextService contexts, CancellationToken ct) =>
+            AgentRegistry registry, AdoService ado, PrContextService contexts,
+            ThreadStore threads, CancellationToken ct) =>
         {
             if (!ctx.IsAuthenticated) { http.Response.StatusCode = 401; return; }
 
@@ -127,10 +128,11 @@ public static class AgentEndpoints
             // Building the context needs several ADO calls; a failure there is Launchpad's, not the
             // agent's, and saying so stops a reviewer diagnosing the wrong service.
             PrContext context;
+            PullRequestDto? pr;
             try
             {
                 var pulls = await ado.GetPullRequestsAsync(project, repoId, "all", 200, ct);
-                var pr = pulls.FirstOrDefault(p => p.Id == prId);
+                pr = pulls.FirstOrDefault(p => p.Id == prId);
                 if (pr is null)
                 {
                     await Send(http, "error", new { code = "upstream", detail = "That pull request could not be read from Azure DevOps." }, ct);
@@ -152,57 +154,119 @@ public static class AgentEndpoints
                 connector = new { connector.Name, connector.Provider, connector.Model },
             }, ct);
 
+            // History comes from the thread, not the client. §7.5: Launchpad owns the conversation,
+            // which is what keeps connectors stateless and lets the provider change mid-thread.
+            var thread = await threads.GetOrCreateAsync(ctx.UserId!, project, repoId, prId, ct);
+            var history = await threads.ReplayAsync(thread.Id, ct);
+
             var request = new CanonicalRequest(
                 SystemPrompt: TaskPrompt.Structured(context.Truncated),
                 Context: context.Xml,
-                History: (body.History ?? []).Select(h => new AgentTurn(h.Question, h.Answer)).ToList(),
+                History: history,
                 Question: body.Question,
                 Model: connector.Model ?? "",
                 Stream: true);
 
-            var failed = false;
-            await foreach (var ev in adapter.CompleteAsync(target, request, ct))
+            await Send(http, "turn", new { threadId = thread.Id, replayedTurns = history.Count }, ct);
+
+            CanonicalAnswer? answer = null;
+            AgentUsage? usage = null;
+            AgentError? failure = null;
+            var stopped = false;
+
+            try
             {
-                switch (ev)
+                await foreach (var ev in adapter.CompleteAsync(target, request, ct))
                 {
-                    case AgentEvent.Delta d:
-                        await Send(http, "delta", new { text = d.Text }, ct);
-                        break;
+                    switch (ev)
+                    {
+                        case AgentEvent.Delta d:
+                            await Send(http, "delta", new { text = d.Text }, ct);
+                            break;
 
-                    case AgentEvent.Complete c:
-                        await Send(http, "complete", new
-                        {
-                            answer = c.Answer.Answer,
-                            provenance = c.Answer.Provenance is { } p ? ProvenanceNames.ToWire(p) : null,
-                            citations = c.Answer.Citations.Select(x => new { x.Path, x.Line, x.EndLine }),
-                            inferenceNote = c.Answer.InferenceNote,
-                            mode = c.Answer.Mode.ToString().ToLowerInvariant(),
-                            // Mode 3 and failures are not postable as a PR comment (§7.4). Decided
-                            // here rather than in the panel, so the rule has one home.
-                            postable = c.Answer.Mode != StructuredMode.Unverified,
-                        }, ct);
-                        break;
+                        case AgentEvent.Complete c:
+                            answer = c.Answer;
+                            usage = c.Usage;
+                            break;
 
-                    case AgentEvent.Failed f:
-                        failed = true;
-                        await Send(http, "error", new
-                        {
-                            code = f.Error.Code.ToString().ToLowerInvariant(),
-                            httpStatus = f.Error.HttpStatus,
-                            detail = f.Error.Detail,
-                            retryAfter = f.Error.RetryAfterSeconds,
-                        }, ct);
-                        break;
+                        case AgentEvent.Failed f:
+                            failure = f.Error;
+                            break;
+                    }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // The reviewer pressed Stop, or navigated away. §5.5 keeps the partial answer in the
+                // thread marked Stopped, and §7.4 makes it unpostable — so it is recorded rather
+                // than discarded, but never becomes a PR comment.
+                stopped = true;
+            }
+
+            var turn = await threads.AppendAsync(
+                thread, body.Question, answer, connector, pr.SourceCommit, usage,
+                stopped, failure?.Code,
+                // The request's own token is already cancelled when the reviewer stops, so the
+                // write needs one that isn't, or the record of the stop is itself lost.
+                stopped ? CancellationToken.None : ct);
+
+            if (failure is not null)
+            {
+                await Send(http, "error", new
+                {
+                    code = failure.Code.ToString().ToLowerInvariant(),
+                    httpStatus = failure.HttpStatus,
+                    detail = failure.Detail,
+                    retryAfter = failure.RetryAfterSeconds,
+                    turnId = turn.Id,
+                }, ct);
+            }
+            else if (!stopped && answer is not null)
+            {
+                await Send(http, "complete", ToTurnDto(turn), ct);
             }
 
             // Record the outcome so Settings shows what the panel just experienced, rather than the
             // two disagreeing about whether the agent is reachable.
-            connector.LastOkAt = failed ? connector.LastOkAt : DateTime.UtcNow;
-            if (failed) connector.LastErrorAt = DateTime.UtcNow;
-            await db.SaveChangesAsync(ct);
+            if (failure is null && !stopped) connector.LastOkAt = DateTime.UtcNow;
+            if (failure is not null) connector.LastErrorAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(stopped ? CancellationToken.None : ct);
+        });
+
+        // The thread as the panel renders it on load. Includes the PR head so the stale-commit
+        // banner can compare against what each turn was actually answered about (§7.3).
+        api.MapGet("/review/{project}/{repoId}/pulls/{prId:int}/thread", async (
+            string project, string repoId, int prId,
+            AdoContext ctx, ThreadStore threads, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) return Results.Unauthorized();
+
+            var thread = await threads.FindAsync(ctx.UserId!, project, repoId, prId, ct);
+            if (thread is null)
+                return Results.Ok(new ThreadDto(null, []));
+
+            var turns = await threads.TurnsAsync(thread.Id, ct);
+            return Results.Ok(new ThreadDto(thread.Id, turns.Select(ToTurnDto).ToList()));
         });
     }
+
+    /// <summary>One turn as the panel renders it. Postability is decided here so the rule has one home.</summary>
+    private static AgentTurnDto ToTurnDto(Data.AgentThreadTurn t) => new(
+        t.Id,
+        t.Ordinal,
+        t.Question,
+        t.Answer,
+        t.Provenance,
+        ThreadStore.Citations(t).Select(c => new CitationDto(c.Path, c.Line, c.EndLine)).ToList(),
+        t.InferenceNote,
+        t.Mode,
+        t.ConnectorName,
+        t.Model,
+        t.CommitSha,
+        t.Stopped,
+        t.ErrorCode,
+        ThreadStore.IsPostable(t),
+        t.CreatedAt);
 
     /// <summary>
     /// Puts the response into streaming mode.

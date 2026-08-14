@@ -227,6 +227,11 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         var sawAnyDelta = false;
         AgentError? failure = null;
 
+        // Anthropic splits usage across two events: input_tokens on message_start, output_tokens on
+        // message_delta at the end. Both are collected as they pass.
+        int? promptTokens = null;
+        int? completionTokens = null;
+
         var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream, Encoding.UTF8);
 
@@ -278,6 +283,15 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
                 switch (type)
                 {
+                    case "message_start":
+                        if (root.TryGetProperty("message", out var msg))
+                            promptTokens = ReadTokens(msg, "input_tokens") ?? promptTokens;
+                        break;
+
+                    case "message_delta":
+                        completionTokens = ReadTokens(root, "output_tokens") ?? completionTokens;
+                        break;
+
                     case "content_block_delta":
                         // input_json_delta for a tool call; text_delta if the model answered in
                         // prose despite tool_choice, which the tolerant parser handles as mode 3.
@@ -292,9 +306,9 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                             System.Net.HttpStatusCode.InternalServerError, payload);
                         break;
 
-                    // message_start / content_block_start / content_block_stop / message_delta /
-                    // message_stop / ping carry no prose. Ignored rather than enumerated, so a new
-                    // event type Anthropic adds cannot break the stream.
+                    // content_block_start / content_block_stop / message_stop / ping carry neither
+                    // prose nor usage. Ignored rather than enumerated, so a new event type
+                    // Anthropic adds cannot break the stream.
                 }
             }
             catch (JsonException)
@@ -330,6 +344,14 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         if (!sawAnyDelta && answer.Answer.Length > 0)
             yield return new AgentEvent.Delta(answer.Answer);
 
-        yield return new AgentEvent.Complete(answer);
+        yield return new AgentEvent.Complete(answer, new AgentUsage(promptTokens, completionTokens));
     }
+
+    /// <summary>Reads a token count out of an Anthropic `usage` object, if it is there.</summary>
+    private static int? ReadTokens(JsonElement parent, string field) =>
+        parent.TryGetProperty("usage", out var usage)
+        && usage.TryGetProperty(field, out var v)
+        && v.ValueKind == JsonValueKind.Number
+        && v.TryGetInt32(out var n)
+            ? n : null;
 }

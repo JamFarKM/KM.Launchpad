@@ -115,6 +115,12 @@ public record AgentError(
 public record AgentProbe(bool Ok, long LatencyMs, List<string> Models, AgentError? Error);
 
 /// <summary>
+/// What a turn cost, as the provider reported it. Both nullable: not every provider reports both,
+/// and a guessed number is worse than a missing one when the point is attributing spend.
+/// </summary>
+public record AgentUsage(int? PromptTokens, int? CompletionTokens);
+
+/// <summary>
 /// The §5.5 budget. Uniform across adapters on purpose: an adapter that cannot meet these has a
 /// problem the timeout is correctly surfacing, not a reason for its own numbers.
 /// </summary>
@@ -169,7 +175,12 @@ public abstract record AgentEvent
     public sealed record Delta(string Text) : AgentEvent;
 
     /// <summary>The answer closed and validated. Terminal.</summary>
-    public sealed record Complete(CanonicalAnswer Answer) : AgentEvent;
+    /// <param name="Usage">
+    /// Token counts, when the provider reports them. Carried through the boundary because it can
+    /// only be captured as the answer happens — and BETBOT_INTEGRATION_PLAN.md's third ask wants
+    /// per-reviewer cost, which is unanswerable from data nobody recorded.
+    /// </param>
+    public sealed record Complete(CanonicalAnswer Answer, AgentUsage? Usage = null) : AgentEvent;
 
     /// <summary>
     /// The answer failed. Terminal. Any prose already emitted stays on screen with this beside it
