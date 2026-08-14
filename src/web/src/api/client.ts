@@ -1,4 +1,5 @@
 import type {
+  AgentThread,
   Connector,
   ConnectorProvider,
   ProbeResult,
@@ -279,4 +280,9 @@ export const api = {
 
   testSavedConnector: (id: string) =>
     req<ProbeResult>(`/api/connectors/${id}/test`, { method: "POST" }),
+
+  // ----- agent conversations -----
+  agentThread: (project: string, repoId: string, prId: number) =>
+    req<AgentThread>(`/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}`
+      + `/pulls/${prId}/thread`),
 };

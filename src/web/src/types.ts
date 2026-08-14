@@ -357,3 +357,38 @@ export interface ProbeResult {
   detail?: string | null;
   retryAfterSeconds?: number | null;
 }
+
+// ----- agent conversations (§7.5) -----
+
+export interface AgentCitation {
+  path: string;
+  line: number;
+  endLine?: number | null;
+}
+
+export interface AgentTurn {
+  id: string;
+  ordinal: number;
+  question: string;
+  answer: string;
+  /** code | doc | inferred, or null when the agent asserted nothing (§5.4 mode 3). */
+  provenance?: string | null;
+  citations: AgentCitation[];
+  inferenceNote?: string | null;
+  /** structured | fencedjson | unverified. */
+  mode: string;
+  /** Recorded on the turn, so attribution survives the connector's removal. */
+  connectorName?: string | null;
+  model?: string | null;
+  commitSha?: string | null;
+  stopped: boolean;
+  errorCode?: string | null;
+  /** Whether "Post as comment…" appears at all (§7.4). */
+  postable: boolean;
+  createdAt: string;
+}
+
+export interface AgentThread {
+  id?: string | null;
+  turns: AgentTurn[];
+}

@@ -173,6 +173,13 @@ interface Props {
   fontSize?: number;
   /** Line counts, reported once Monaco has computed the diff. */
   onStats?: (stats: DiffStats) => void;
+  /**
+   * A line to scroll to and mark, from an agent citation (DESIGN_SPEC_CONNECTORS.md §5.2.1).
+   *
+   * Declarative with a nonce rather than an imperative ref: clicking the same chip twice has to
+   * work, and a changing nonce is what makes a repeat click a new instruction rather than a no-op.
+   */
+  cite?: { line: number; nonce: number } | null;
   /** Threads anchored to this file. Rendered inline as view zones. */
   threads?: PrThread[];
   onReply?: (threadId: number, content: string) => Promise<void>;
@@ -182,7 +189,7 @@ interface Props {
 
 export function MonacoDiff({
   path, before, after, inline, stale, wrap, fontSize, onStats,
-  threads, onReply, onSetStatus, onNewThread,
+  cite, threads, onReply, onSetStatus, onNewThread,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -280,6 +287,8 @@ export function MonacoDiff({
     });
   }, [inline, wrap, fontSize]);
 
+  const citeDecorations = useRef<string[]>([]);
+
   // Swap models when the selected file changes. Old models must be disposed explicitly —
   // Monaco keeps them alive otherwise and the memory adds up over a review session.
   useEffect(() => {
@@ -296,7 +305,41 @@ export function MonacoDiff({
     modelsRef.current = { original, modified };
     previous?.original.dispose();
     previous?.modified.dispose();
+
+    // Decoration ids belong to the model that issued them. Carrying them across a swap and handing
+    // them to deltaDecorations as the "old" set means asking a fresh model to remove ids it has
+    // never heard of, and the add is lost with them — so the citation mark silently never appeared.
+    citeDecorations.current = [];
   }, [path, before, after]);
+
+  /**
+   * Reveal and mark a cited line (§5.2.1).
+   *
+   * Declared *after* the model swap, and depending on the model's identity rather than just on
+   * `cite`: a citation for another file changes `path` and `cite` in the same render, and a
+   * decoration applied before the swap lands on a model that is about to be disposed. Ordering the
+   * effects this way is the difference between the chip working and the chip silently doing
+   * nothing.
+   *
+   * Violet, deliberately distinct from the diff's add/remove greens and reds, so a citation can
+   * never be mistaken for a change.
+   */
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const right = editor.getModifiedEditor();
+
+    if (!cite) {
+      citeDecorations.current = right.deltaDecorations(citeDecorations.current, []);
+      return;
+    }
+
+    right.revealLineInCenter(cite.line);
+    citeDecorations.current = right.deltaDecorations(citeDecorations.current, [{
+      range: new monaco.Range(cite.line, 1, cite.line, 1),
+      options: { isWholeLine: true, className: "agent-cited-line" },
+    }]);
+  }, [cite, path, before, after]);
 
   // ---- comment threads, rendered inline as view zones on the modified (right) side ----
 

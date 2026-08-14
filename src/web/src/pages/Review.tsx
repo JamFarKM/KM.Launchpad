@@ -1,10 +1,11 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { AgentPanel } from "../components/AgentPanel";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import type { DiffStats } from "../components/MonacoDiff";
-import type { PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
+import type { Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
 
 /** ADO's vote scale, as review actions. */
 /* Approve is the only solid fill: "approve" genuinely is a good/bad axis and it's a single
@@ -260,6 +261,19 @@ export function ReviewPage() {
   }, [changes]);
 
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+
+  // Which rail tab is showing, and the citation the diff should reveal.
+  const [rail, setRail] = useState<"files" | "agent">("files");
+  const [cite, setCite] = useState<{ line: number; nonce: number } | null>(null);
+  const [agentPrefill, setAgentPrefill] = useState<string | null>(null);
+
+  /**
+   * The tab is named by whichever connector holds the capability — never a literal (§7.1). With
+   * nothing assigned it reads `Agent` and stays neutral, because there is no identity to name yet.
+   */
+  const connectorsQ = useQuery<Connector[]>({ queryKey: ["connectors"], queryFn: api.connectors });
+  const agentTabLabel =
+    connectorsQ.data?.find((c) => c.capabilities.includes("pr.questions"))?.name ?? "Agent";
   const [viewed, setViewed] = useState<Set<string>>(new Set());
 
   // Reload viewed state whenever the PR or its head commit changes.
@@ -468,7 +482,21 @@ export function ReviewPage() {
 
         {/* ---------- changed files (right-hand rail, so the diff stays centred) ---------- */}
         <div className="cfg-col review-files" style={{ order: 3 }}>
-          <div className="keys-head rail-head">
+          {/* A tab on the existing rail, not a fourth column: you never need the file tree and an
+              answer at once, and the diff stays centred — which matters, because answers cite lines
+              in it. The tab is named by the connector, never by a literal (§7.1). */}
+          {pr && (
+            <div className="ag-tabs">
+              <button className={`ag-tab ${rail === "files" ? "on" : ""}`} onClick={() => setRail("files")}>
+                Files <span className="ag-tabn">{changes.length}</span>
+              </button>
+              <button className={`ag-tab bot ${rail === "agent" ? "on" : ""}`} onClick={() => setRail("agent")}>
+                {agentTabLabel}
+              </button>
+            </div>
+          )}
+
+          <div className="keys-head rail-head" style={{ display: rail === "files" ? undefined : "none" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="keys-title">{pr ? `!${pr.id}` : "Files"}</div>
               <div className="keys-sub">
@@ -484,7 +512,35 @@ export function ReviewPage() {
               )}
             </div>
           </div>
-          <div className="cfg-scroll">
+          {/* The agent pane is a sibling rather than a wrapper, so the file tree's own scroll
+              position survives switching tabs and coming back. */}
+          {pr && rail === "agent" && (
+            <div className="ag-pane">
+              <AgentPanel
+                project={project}
+                repoId={repoId}
+                pr={pr}
+                prefill={agentPrefill}
+                onPrefillConsumed={() => setAgentPrefill(null)}
+                onCite={(citedPath, line) => {
+                  /* Resolve against the real file list rather than trusting the two strings to
+                     match. The context block declares paths without a leading slash and Azure
+                     DevOps hands them back with one, so a plain equality check set a path that
+                     matched no file and the chip silently scrolled nowhere — which §5.2 calls out
+                     as worse than having no chip. Compared on the normalised form, so a citation in
+                     either shape resolves to the file the page actually keys on. */
+                  const norm = (p: string) => p.replace(/^\//, "");
+                  const match = changes.find((c) => norm(c.path) === norm(citedPath));
+                  if (!match) return;
+                  if (match.path !== path) setPath(match.path);
+                  // The nonce makes a repeat click on the same chip a fresh instruction.
+                  setCite({ line, nonce: Date.now() });
+                }}
+              />
+            </div>
+          )}
+
+          <div className="cfg-scroll" style={{ display: rail === "files" ? undefined : "none" }}>
             {changesQ.isLoading && <div className="center-note"><span className="spin" /> loading…</div>}
             {fileGroups.map(([dir, files]) => {
               const collapsed = collapsedDirs.has(dir);
@@ -677,6 +733,7 @@ export function ReviewPage() {
                   wrap={wrap}
                   fontSize={codeSize}
                   onStats={onStats}
+                  cite={cite}
                   threads={fileThreads}
                   onReply={onReply}
                   onSetStatus={onSetStatus}

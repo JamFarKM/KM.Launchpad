@@ -41,7 +41,8 @@ public static class ConnectorEndpoints
 
         api.MapPost("/connectors", async (
             CreateConnectorRequest body, AdoContext ctx, AppDbContext db,
-            ConnectorProtector protector, CancellationToken ct) =>
+            ConnectorProtector protector, Services.Agents.AgentRegistry registry,
+            CancellationToken ct) =>
         {
             if (!ctx.IsAuthenticated) return Results.Unauthorized();
 
@@ -98,6 +99,33 @@ public static class ConnectorEndpoints
                 TokenSetAt = now,
                 CreatedAt = now,
             };
+
+            // The pre-save test proved this credential moments ago, but it ran before the row
+            // existed so there was nothing to record it against -- leaving a working connector
+            // reading "Not tested" the instant it was created. Probing once here makes the stored
+            // state truthful, and enforces 2's "model must be a value the adapter reports" rather
+            // than merely asserting it.
+            var adapter = registry.For(connector.Provider);
+            var target = registry.TargetFor(connector);
+            if (adapter is not null && target is not null)
+            {
+                var probe = await adapter.ProbeAsync(target, ct);
+                if (probe.Ok)
+                {
+                    if (connector.Model is not null && !probe.Models.Contains(connector.Model))
+                        return Results.BadRequest(new
+                        {
+                            error = $"{connector.Model} isn't a model this endpoint reports. Pick "
+                                  + "one from the list after testing the connection.",
+                        });
+                    connector.LastOkAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    connector.LastErrorCode = probe.Error?.Code.ToString().ToLowerInvariant();
+                    connector.LastErrorAt = DateTime.UtcNow;
+                }
+            }
 
             db.Connectors.Add(connector);
             await AssignCapabilitiesAsync(db, ctx.UserId!, connector.Id, body.Capabilities, ct);
