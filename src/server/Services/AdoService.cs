@@ -954,4 +954,64 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         catch { /* not json */ }
         return fallback ?? "Azure DevOps request failed.";
     }
+
+    // ----- agent context (DESIGN_SPEC_CONNECTORS.md §5.1) -----
+
+    /// <summary>
+    /// A pull request's description, which the PR list deliberately drops.
+    ///
+    /// The list endpoint returns it, but carrying a full description per row for fifty PRs is
+    /// dead weight in the panel that shows their titles. It matters here because it is one of the
+    /// two things §5.2's `doc` provenance can legitimately point at — without it, an agent could
+    /// never honestly answer "the description says so".
+    /// </summary>
+    public async Task<string?> GetPullRequestDescriptionAsync(
+        string project, string repoId, int prId, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(HttpMethod.Get,
+            $"{PrBase(project, repoId, prId)}?api-version={ApiVersion}", null, null, null, ct);
+        return Str(doc.RootElement, "description");
+    }
+
+    /// <summary>
+    /// Work items linked to a pull request, with their titles.
+    ///
+    /// Two calls, because the PR's own work-item route returns ids and URLs but no titles, and a
+    /// bare id tells an agent nothing. Failures are swallowed to an empty list on purpose: a
+    /// missing work-item link is not a reason to refuse to answer a question about the diff.
+    /// </summary>
+    public async Task<List<(string Id, string Title)>> GetPullRequestWorkItemsAsync(
+        string project, string repoId, int prId, CancellationToken ct)
+    {
+        List<string> ids;
+        try
+        {
+            using var links = await SendJsonAsync(HttpMethod.Get,
+                $"{PrBase(project, repoId, prId)}/workitems?api-version={ApiVersion}", null, null, null, ct);
+            ids = links.RootElement.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Array
+                ? v.EnumerateArray().Select(w => Str(w, "id")).Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList()
+                : [];
+        }
+        catch (AdoException) { return []; }
+
+        if (ids.Count == 0) return [];
+
+        try
+        {
+            using var items = await SendJsonAsync(HttpMethod.Get,
+                $"{OrgBase}/_apis/wit/workitems?ids={string.Join(",", ids)}" +
+                $"&fields=System.Title&api-version={ApiVersion}", null, null, null, ct);
+
+            if (!items.RootElement.TryGetProperty("value", out var v) || v.ValueKind != JsonValueKind.Array)
+                return ids.Select(id => (id, "")).ToList();
+
+            return v.EnumerateArray().Select(w =>
+            {
+                var id = w.TryGetProperty("id", out var iv) && iv.TryGetInt32(out var n) ? n.ToString() : "";
+                var title = w.TryGetProperty("fields", out var f) ? Str(f, "System.Title") ?? "" : "";
+                return (id, title);
+            }).Where(x => x.id.Length > 0).ToList();
+        }
+        catch (AdoException) { return ids.Select(id => (id, "")).ToList(); }
+    }
 }

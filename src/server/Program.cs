@@ -34,6 +34,7 @@ builder.Services.AddHttpClient("ado", c => c.Timeout = TimeSpan.FromSeconds(60))
 builder.Services.AddScoped<AdoContext>();
 builder.Services.AddScoped<AdoService>();
 builder.Services.AddScoped<ConfigService>();
+builder.Services.AddScoped<PipelineLaunchpad.Server.Services.Agents.PrContextService>();
 builder.Services.AddSingleton<ConfigStoreService>();
 builder.Services.AddSingleton<VaultStoreService>();
 builder.Services.AddSingleton<SequenceRunner>();
