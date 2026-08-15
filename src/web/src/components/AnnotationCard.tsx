@@ -203,20 +203,27 @@ export function AnnotationCard({
           {turns.map((t) => (
             <div className="ann-turn" key={t.id}>
               <div className="ag-you"><div className="ag-bubble">{t.question}</div></div>
-              {t.errorCode && (
-                <p className="ag-failed">
-                  {failureCopy(t.errorCode, connectorName ?? "The agent")}
-                  {t.errorDetail && <> {t.errorDetail}</>}
-                </p>
-              )}
-              {t.segments.map((s, i) => (
-                <Segment
-                  key={i}
-                  segment={s}
-                  onCite={onCite}
-                  onPost={t.postable ? () => setPosting(s) : undefined}
-                />
-              ))}
+              {/* The same rail the dock draws around an answer. It groups one answer's claims
+                  against the reviewer's bubbles, and the severity stripe's geometry expects it —
+                  without the rail's padding, the stripe's negative margin lands outside the card
+                  body. No who-header here, deliberately: the card names its agent once, on the
+                  seed, and a card this small repeating the name per turn is noise. */}
+              <div className="ag-answer">
+                {t.errorCode && (
+                  <p className="ag-failed">
+                    {failureCopy(t.errorCode, connectorName ?? "The agent")}
+                    {t.errorDetail && <> {t.errorDetail}</>}
+                  </p>
+                )}
+                {t.segments.map((s, i) => (
+                  <Segment
+                    key={i}
+                    segment={s}
+                    onCite={onCite}
+                    onPost={t.postable ? () => setPosting(s) : undefined}
+                  />
+                ))}
+              </div>
             </div>
           ))}
 
@@ -225,14 +232,17 @@ export function AnnotationCard({
               {/* The reviewer's own words, on screen from the moment they press Ask. */}
               <div className="ag-you"><div className="ag-bubble">{pending}</div></div>
 
-              {streamedSegments.map((s, i) => <Segment key={i} segment={s} onCite={onCite} />)}
-              {streamed && <Markdown text={streamed} />}
+              {/* Railed like a finished turn, so an answer doesn't jump left when it completes. */}
+              <div className="ag-answer">
+                {streamedSegments.map((s, i) => <Segment key={i} segment={s} onCite={onCite} />)}
+                {streamed && <Markdown text={streamed} />}
 
-              <div className="ag-pending">
-                <span className="spin" aria-hidden="true" />
-                <span className="ag-thinking">
-                  {reading ? <>reading <code>{reading}</code>…</> : "thinking…"}
-                </span>
+                <div className="ag-pending">
+                  <span className="spin" aria-hidden="true" />
+                  <span className="ag-thinking">
+                    {reading ? <>reading <code>{reading}</code>…</> : "thinking…"}
+                  </span>
+                </div>
               </div>
             </div>
           )}

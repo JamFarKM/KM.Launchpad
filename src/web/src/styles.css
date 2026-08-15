@@ -3725,7 +3725,7 @@ a {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  padding: 9px 10px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border-hairline);
 }
 
@@ -3757,7 +3757,7 @@ a {
    open; this is the flag, not the fix. */
 .ann-stale {
   flex-shrink: 0;
-  padding: 7px 10px;
+  padding: 7px 12px;
   font-size: 11px;
   line-height: 1.5;
   color: var(--ink-secondary);
@@ -3769,13 +3769,22 @@ a {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 10px;
+  padding: 6px 12px;
 }
 
-/* The claim that opened the annotation, in the agent's own words. */
+/* A 620px card is nearly twice the dock's measure, and 12.5px prose across ~95 characters loses
+   the return sweep. Capped in ch so it tracks the type size; badge rows and the composer stay
+   full-width, which keeps the card feeling its size. */
+.ann-body .ag-p,
+.ann-body .ag-ul,
+.ann-body .ag-infer { max-width: 60ch; }
+
+/* The claim that opened the annotation, in the agent's own words. Same rail geometry as the
+   .ag-answer blocks below it, so the seed and the answers share one visible voice line. */
 .ann-seed {
   border-left: 2px solid var(--hue-violet);
-  padding-left: 9px;
+  padding-left: 11px;
+  margin-left: 2px;
 }
 
 .ann-who {
@@ -3786,15 +3795,17 @@ a {
   margin-top: 8px;
 }
 
+/* One question-and-answer exchange. Its rule must read as a stronger break than the hairline
+   between claims inside an answer — a turn is the bigger unit, so it gets air as well as a line. */
 .ann-turn {
   border-top: 1px solid var(--border-hairline);
-  margin-top: 8px;
-  padding-top: 4px;
+  margin-top: 12px;
+  padding-top: 8px;
 }
 
 .ann-foot {
   flex-shrink: 0;
-  padding: 8px 10px 9px;
+  padding: 8px 12px 9px;
   border-top: 1px solid var(--border-hairline);
 }
 
@@ -5807,12 +5818,16 @@ a {
    Without the separation a badge reads as belonging to whichever paragraph it happens to sit nearest
    — which is the ambiguity this shape exists to remove. */
 .ag-seg {
-  padding: 8px 0 2px;
+  padding: 9px 0 4px;
 }
 
 .ag-seg + .ag-seg {
   border-top: 1px solid var(--border-hairline);
 }
+
+/* The first claim sits directly under the answer's header (dock) or the reviewer's bubble
+   (annotation card); the full seam belongs between claims, not above the first one. */
+.ag-answer .ag-seg:first-child { padding-top: 2px; }
 
 /* A graded claim gets a stripe as well as its label, so a long answer can be scanned for the two that
    need action without reading all six. `info` gets nothing: it is the baseline, and a baseline that
@@ -5853,9 +5868,12 @@ a {
   background: color-mix(in oklab, var(--status-bad) 14%, transparent);
 }
 
+/* Inside a claim, the badge row hugs its text at 4px; between claims the gap is nearly four times
+   that (2px + 4px + hairline + 9px). Proximity is the only thing telling a reader which text a
+   badge grades — the ratio is the mechanism, not taste. */
 .ag-seg .ag-p:last-of-type,
 .ag-seg .ag-ul:last-child {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 /* Badge and citations on one wrapping row directly under this claim's text — bundled with it rather
@@ -5865,13 +5883,21 @@ a {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
-/* Pushed to the end of the row so the badge and its citations stay adjacent to each other. */
+/* Pushed to the end of the row so the badge and its citations stay adjacent — and quiet at rest.
+   It repeats on every claim, and a column of bordered buttons was the loudest thing in the answer:
+   emphasis belongs to the grade and the evidence, not the tertiary action. The label stays visible
+   (a control that only appears on hover is a control nobody finds); hovering restores the usual
+   .ag-mini chrome. */
 .ag-segfoot .ag-post {
   margin-left: auto;
+  border-color: transparent;
+  color: var(--ink-muted);
 }
+
+.ag-segfoot .ag-post:hover { border-color: var(--border-hairline); }
 
 /* The claim currently being written. Deliberately quiet — a placeholder for something not yet said,
    not a claim of its own. */
