@@ -6201,16 +6201,25 @@ body.is-card-sliding * { cursor: grabbing !important; }
 
 /* Row header in its own column, not a caption inside the diagram — the space below it is where
    edges route, and a label sitting in that space would compete with them for the same pixels. */
+/* The label column is sized for real layer names, which arrive as prose — "Abstractions &
+   Application contracts" is 36 characters. At 82px those overflowed their column and printed over
+   the cards; they wrap here instead, and the column is wide enough that two lines is the worst
+   case. */
 .map-band {
-  display: grid; grid-template-columns: 82px 1fr; column-gap: 14px; align-items: start;
+  display: grid; grid-template-columns: 116px 1fr; column-gap: 14px; align-items: start;
   padding: 10px 0 42px;
 }
 .map-band + .map-band { border-top: 1px dashed var(--border-hairline); }
 
+/* Not uppercased, unlike every other small label in the app. These are names out of the codebase —
+   `Core.Implementation` is a namespace — and CORE.IMPLEMENTATION both misrepresents it and is wide
+   enough to break mid-word in its own column. Sentence case is the model's own casing, ~15% narrower,
+   and the thing the reviewer would recognise. */
 .map-band-label {
   text-align: right; padding-top: 9px;
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--ink-muted);
+  font-size: 10px; font-weight: 650;
+  line-height: 1.35; color: var(--ink-muted);
+  overflow-wrap: anywhere;
 }
 
 /* stretch (the flex default) keeps every card in a row the same height, so all edges leaving a row
@@ -6256,14 +6265,20 @@ body.is-card-sliding * { cursor: grabbing !important; }
 .map-edge path.line { fill: none; stroke: var(--hue-slate); stroke-width: 1.4; opacity: 0.75; pointer-events: none; }
 .map-edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
 
-/* A verb appears on the edge being pointed at, one at a time — never before. The violation label is
-   the one exception: it never waits to be asked. */
+/* A verb appears on the edge being pointed at, one at a time — never before.
+
+   Violations used to be exempt, on the reasoning that the one label that matters most shouldn't
+   wait to be asked. That held while a map had one violation. A real one had four, all in the same
+   band gutter, and four labels printed on top of each other read as a single line of gibberish —
+   strictly less informative than none. The dashed amber stroke already says "this points the wrong
+   way" without a word; the footer says how many there are; the label is for the reviewer who asks
+   which one. */
 .map-edge text {
   display: none;
   font: 600 9.5px system-ui, sans-serif; fill: var(--ink-muted);
   paint-order: stroke; stroke: var(--bg-surface); stroke-width: 3px;
 }
-.map-edge:hover text, .map-edge.viol text, .map-edge.flowarrow text { display: revert; }
+.map-edge:hover text { display: revert; }
 .map-edge text.mid { text-anchor: middle; }
 .map-edge text.side { text-anchor: end; }
 

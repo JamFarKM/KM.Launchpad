@@ -88,8 +88,14 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
         rects[id] = { left, top, right: left + r.width, bottom: top + r.height,
                       cx: left + r.width / 2, cy: top + r.height / 2 };
       }
+      /* Consecutive steps often land in the same group — a flow can return to the orchestrator
+         twice — and an arrow from a card to itself has no route: the router would draw a backwards
+         line from its right edge to its left. The step chips already carry the sequence, so those
+         are simply not drawn. */
       const edgeList: { from: string; to: string; label: string; flowarrow?: boolean }[] = flowOn
-        ? map.flow.slice(0, -1).map((s, i) => ({ from: s.group, to: map.flow[i + 1].group, label: String(i + 1), flowarrow: true }))
+        ? map.flow.slice(0, -1)
+            .map((s, i) => ({ from: s.group, to: map.flow[i + 1].group, label: String(i + 1), flowarrow: true }))
+            .filter((e) => e.from !== e.to)
         : map.edges;
       setLayout(computeLayout(edgeList, rects, byId, container.clientWidth));
     };
@@ -99,6 +105,13 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
     ro.observe(container);
     return () => ro.disconnect();
   }, [map, order, flowOn, byId, depths]);
+
+  /* The dependency-rule overlay's own count (§5) — client-side arithmetic on the emitted graph, the
+     same test the renderer uses to decide which edges draw dashed. */
+  const violations = useMemo(
+    () => map.edges.filter((e) => (byId.get(e.from)?.depth ?? 0) < (byId.get(e.to)?.depth ?? 0)).length,
+    [map.edges, byId],
+  );
 
   const group = selected ? byId.get(selected) : null;
   const flowIndex = useMemo(() => new Map(map.flow.map((s) => [s.group, s.step])), [map.flow]);
@@ -135,7 +148,10 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
 
         <div className="map-sheet-main">
           <div className="map-diagram" ref={mapRef} data-mode={flowOn ? "flow" : selected ? "sel" : undefined}>
-            {depths.length > 1 && <div className="map-axis">{bandLabel(depths[0])}&nbsp;→&nbsp;{bandLabel(depths[depths.length - 1])}</div>}
+            {/* The axis names the *direction*, not the bands — those have their own labels. Feeding
+                band names in here rendered "Infrastructure, config & tests → Core.Domain" sideways
+                down a 13px strip, on top of everything else. */}
+            {depths.length > 1 && <div className="map-axis">outer&nbsp;→&nbsp;core</div>}
 
             <svg className="map-edges" style={{ width: "100%", height: "100%" }}>
               <defs>
@@ -233,9 +249,17 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
         )}
 
         <div className="map-sheet-foot">
-          Point at an edge to see what it does. A <b>dashed amber</b> edge points outward, against
-          this architecture's own rule — arithmetic on the graph, not the model grading itself.
-          Grouping by <b>{connectorName}</b>; not a build-system fact.
+          {violations > 0 ? (
+            <>
+              <b>{violations} of {map.edges.length} edges point outward</b>, against this
+              architecture's own rule — drawn dashed amber. That is arithmetic on the graph, not the
+              model grading itself.{" "}
+            </>
+          ) : (
+            <>No edge points outward: every dependency here runs toward the core.{" "}</>
+          )}
+          Point at an edge to see what it does. Grouping by <b>{connectorName}</b>; not a
+          build-system fact.
         </div>
       </div>
     </div>
