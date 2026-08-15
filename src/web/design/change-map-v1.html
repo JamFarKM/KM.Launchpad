@@ -77,7 +77,9 @@ body {
    float above the cards, which put it in the middle of the space edges route through — arrows ran
    through the words, and the words competed with the cards for attention. Out here it reads as an
    axis tick: quiet, skimmable, and nothing has to route around it. */
-.band { display: grid; grid-template-columns: 82px 1fr; column-gap: 14px; align-items: start; padding: 10px 0 34px; }
+/* The bottom padding is the label gutter: a selected group can light four labels at once, and at
+   10px per track they need ~50px of card-free strip to stack in. */
+.band { display: grid; grid-template-columns: 82px 1fr; column-gap: 14px; align-items: start; padding: 10px 0 42px; }
 .band + .band { border-top: 1px dashed var(--border-hairline); }
 .band-label {
   text-align: right; padding-top: 9px;
@@ -103,9 +105,16 @@ body {
 .node:hover { border-color: var(--hue-slate); }
 .node[aria-pressed="true"] { border-color: var(--hue-violet); box-shadow: 0 0 0 1px var(--hue-violet); }
 .node-name { font-size: 12px; font-weight: 650; }
-.node-meta { display: flex; gap: 8px; margin-top: 3px; font-size: 10.5px; color: var(--ink-muted); }
+.node-meta { display: flex; gap: 8px; margin-top: 3px; font-size: 10.5px; color: var(--ink-muted); white-space: nowrap; }
 .node-meta .add { color: var(--hue-aqua); }
 .node-meta .del { color: var(--status-bad); }
+/* Review findings citing lines in this area — the map doubling as the review's table of contents.
+   Its own row, because at these card widths it wrapped mid-phrase inside the meta line. Neutral
+   ink: the count is navigation, and severity is already the ⚠ flag's job. */
+.node-find {
+  margin-top: 4px; font-size: 10.5px; font-weight: 600;
+  color: var(--ink-secondary); white-space: nowrap;
+}
 .node .flag {
   position: absolute; top: -7px; right: 8px; font-size: 9px; font-weight: 700;
   letter-spacing: 0.04em; padding: 1px 6px; border-radius: 100px;
@@ -120,20 +129,34 @@ body {
 
 /* edges live in one SVG over the whole diagram */
 svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
-.edge path { fill: none; stroke: var(--hue-slate); stroke-width: 1.4; opacity: 0.75; }
-/* Verbs appear when a group is selected (or in flow mode); at rest the map is pure shape. The one
-   exception is the violation label, which is a warning and never waits to be asked. */
+.edge path.line { fill: none; stroke: var(--hue-slate); stroke-width: 1.4; opacity: 0.75; }
+/* A verb appears on the edge you point at, one at a time — never before. Selection lights the shape
+   (which edges belong to this group); pointing asks what one does. Two questions, answered
+   separately, because answering both at once put five pieces of text on a seven-node graph.
+
+   The violation is no exception, and that is the point: the *warning* is carried by the dashed amber
+   line and the ⚠ pill on the card, which are always visible and need no words. Only the sentence
+   explaining it waits to be asked for. A permanent block of amber text was reading as clutter rather
+   than as urgency — the sign that a signal is too loud is that it stops being read. */
 .edge text {
   display: none;
   font: 600 9.5px system-ui, sans-serif; fill: var(--ink-muted);
   paint-order: stroke; stroke: var(--bg-surface); stroke-width: 3px;
+  pointer-events: none;
 }
-.edge.lit text, .edge.viol text, .edge.flowarrow text { display: revert; }
+.edge:hover text { display: revert; }
+.edge:hover path.line { stroke-width: 2.2; }
+/* Invisible and fat, because a 1.4px line is not a pointer target. */
+.edge path.hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; cursor: help; }
+/* A dimmed edge you are pointing at comes back to full strength — otherwise its label reads as
+   faint too, at the moment it is the one thing being asked for. */
+.map[data-mode] .edge:hover { opacity: 1; }
 /* Channel labels grow leftward into the empty space beside the channel, never off the sheet. */
 .edge text.side { text-anchor: end; }
-.edge.viol path { stroke: var(--status-warn); stroke-dasharray: 5 4; stroke-width: 1.7; opacity: 1; }
+.edge text.mid { text-anchor: middle; }
+.edge.viol path.line { stroke: var(--status-warn); stroke-dasharray: 5 4; stroke-width: 1.7; opacity: 1; }
 .edge.viol text { fill: var(--status-warn); }
-.edge.flowarrow path { stroke: var(--ink-primary); stroke-width: 1.8; opacity: 0.9; }
+.edge.flowarrow path.line { stroke: var(--ink-primary); stroke-width: 1.8; opacity: 0.9; }
 
 /* dimming: selection and flow mode */
 .map[data-mode] .node, .map[data-mode] .edge { opacity: 0.28; transition: none; }
@@ -210,10 +233,12 @@ svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visibl
           <button class="node" id="n-orch"><span class="step"></span><span class="flag">⚠ check</span>
             <div class="node-name">Coupon placement orchestration</div>
             <div class="node-meta"><span>1 file</span><span class="add">+31</span><span class="del">−12</span></div>
+            <div class="node-find">2 review findings</div>
           </button>
           <button class="node" id="n-valid"><span class="step"></span>
             <div class="node-name">Snapshot validation</div>
             <div class="node-meta"><span>1 file</span><span class="add">+8</span><span class="del">−1</span></div>
+            <div class="node-find">1 review finding</div>
           </button>
         </div>
       </div>
@@ -237,7 +262,7 @@ svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visibl
   </div>
 
   <div class="flow-sentence" id="flowSentence"></div>
-  <div class="map-foot">Grouping by <b>Claude</b>, from the diff and 4 files it read. Not a build-system fact — the dashed edge is arithmetic on the graph, not the model grading itself.</div>
+  <div class="map-foot">Point at an edge to see what it does. A <b>dashed amber</b> edge points outward, against this architecture's own rule — arithmetic on the graph, not the model grading itself. Grouping by <b>Claude</b>, from the diff and 4 files it read; not a build-system fact.</div>
 </div>
 
 <script>
@@ -329,6 +354,48 @@ function makeLanes() {
       }
     },
   };
+}
+
+/*
+ * Labels claim space the same way edges claim lanes. Every label is placed at draw time whether or
+ * not it is currently visible — selection only toggles visibility — so any subset the reviewer can
+ * reveal is collision-free by construction. A label tries its natural spot, then steps up and down
+ * a track at a time, refusing to sit on another label or graze a card. Width is estimated (9.5px
+ * system-ui at weight 600 ≈ 5.4px/char), which is exact enough for avoidance.
+ */
+function makeLabelSpots() {
+  const claimed = [];
+  return (lx, ly, label, anchor, keep = true) => {
+    const w = label.length * 5.8;
+    const x1 = anchor === "mid" ? lx - w / 2 : anchor === "side" ? lx - w : lx;
+    const x2 = x1 + w;
+    // 12px tracks: a 9.5px label plus its descenders genuinely needs them, and 10px tracks left
+    // adjacent labels grazing.
+    for (const dy of [0, 12, -12, 24, -24, 36]) {
+      const y = ly + dy, top = y - 9;
+      const onCard = Object.values(RECTS).some(r =>
+        x1 < r.right + 3 && x2 > r.left - 3 && top < r.bottom + 2 && y > r.top - 2);
+      const onLabel = claimed.some(c =>
+        x1 < c.x2 + 5 && x2 > c.x1 - 5 && top < c.y + 3 && y > c.y - 13);
+      if (!onCard && !onLabel) { if (keep) claimed.push({ x1, x2, y }); return y; }
+    }
+    if (keep) claimed.push({ x1, x2, y: ly });
+    return ly;
+  };
+}
+
+/*
+ * Placed once per draw, against the cards only. Exactly one label is ever on screen — the one being
+ * pointed at — so labels have no need to avoid each other. Two earlier attempts made them mutually
+ * exclusive and demanded more tracks than a gutter has, solving collisions between labels that could
+ * never appear together.
+ */
+function placeLabels() {
+  const place = makeLabelSpots();
+  for (const t of svg.querySelectorAll(".edge text")) {
+    const anchor = (t.getAttribute("class") || "").trim();
+    t.setAttribute("y", place(+t.getAttribute("x"), +t.dataset.ny, t.textContent, anchor, false));
+  }
 }
 
 /* The gutter is deep enough for a few parallel tracks; pick the one that collides least. */
@@ -460,7 +527,15 @@ function aroundRoute(e, lanes) {
                { x: lane, y: yA }, { x: lane, y: yB }, { x: xB, y: yB },
                { x: xB, y: down ? B.top - gap : B.bottom + gap }];
   lanes.add(pts);
-  return { d: orthPath(pts), lx: lane + 7, ly: (yA + yB) / 2 };
+
+  /* The label rides the longer of the two horizontal runs, centred above it. Those runs are in band
+     gutters, which are card-free by construction; the old spot — beside the vertical at its
+     mid-height — was card territory, and the one label that must never disappear (the ⚠ violation)
+     is routed by exactly this function. */
+  const segA = { len: Math.abs(lane - xA), x: (xA + lane) / 2, y: yA };
+  const segB = { len: Math.abs(lane - xB), x: (xB + lane) / 2, y: yB };
+  const seg = segA.len >= segB.len ? segA : segB;
+  return { d: orthPath(pts), lx: seg.x, ly: seg.y - 5, mid: true };
 }
 
 function routeFor(e, lanes) {
@@ -471,7 +546,9 @@ function routeFor(e, lanes) {
 
   if (Math.abs(dA - dB) >= 2) return aroundRoute(e, lanes);
 
-  // Same band, same row: a plain horizontal between facing sides.
+  // Same band, same row: a plain horizontal between facing sides. The label goes UNDER the pair,
+  // centred on the gap — beside the line it started at the gap's midpoint and ran on beneath the
+  // target card, which hid all but its first letters.
   if (dA === dB && Math.abs(A.cy - B.cy) < 4) {
     const fromLeft = A.cx <= B.cx;
     const y = A.cy;
@@ -479,7 +556,7 @@ function routeFor(e, lanes) {
                  { x: fromLeft ? B.left - gap : B.right + gap, y }];
     return blocked(pts, ends)
       ? aroundRoute(e, lanes)
-      : keep(pts, { lx: (pts[0].x + pts[1].x) / 2, ly: y - 8 });
+      : keep(pts, { lx: (pts[0].x + pts[1].x) / 2, ly: Math.max(A.bottom, B.bottom) + 11, mid: true });
   }
 
   const down = B.top > A.top;
@@ -528,11 +605,20 @@ function draw() {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", "edge" + (e.flowarrow ? " flowarrow lit" : isViolation(e) ? " viol" : ""));
     g.dataset.from = e.from; g.dataset.to = e.to;
-    g.innerHTML = `<path d="${r.d}" marker-end="url(#arr)"/>`
-      // A label close to the right edge is anchored the other way so it grows inward, not off-sheet.
-      + `<text class="${r.lx > map.clientWidth - 130 ? "side" : ""}" x="${r.lx}" y="${r.ly}">${e.label}</text>`;
+    // Flow arrows carry no text of their own: the cards already wear numbered step chips, and the
+    // duplicate digits were the only labels that ever collided with each other.
+    if (e.flowarrow) {
+      g.innerHTML = `<path class="line" d="${r.d}" marker-end="url(#arr)"/>`;
+    } else {
+      const anchor = r.mid ? "mid" : r.lx > map.clientWidth - 130 ? "side" : "";
+      // The hit path sits under the visible one and carries the hover; the label is inert so moving
+      // onto it can't steal the hover from the line and make the text flicker.
+      g.innerHTML = `<path class="hit" d="${r.d}"/><path class="line" d="${r.d}" marker-end="url(#arr)"/>`
+        + `<text class="${anchor}" x="${r.lx}" y="${r.ly}" data-ny="${r.ly}">${e.label}</text>`;
+    }
     svg.appendChild(g);
   }
+  placeLabels();
   relight();
 }
 

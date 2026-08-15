@@ -81,8 +81,9 @@ Architecture classification is a judgment call, and the UI must not let it sound
 
 ## 4. Interaction
 
-- **Open**: a `Map` button in the agent panel header, next to the annotation cycle control. Absent
-  (not disabled) when no connector holds `pr.questions` — same rule as the composer.
+- **Open**: the `Review` button (§4.1) and thereafter a `Map` control in the agent panel header, next
+  to the annotation cycle control. Absent (not disabled) when no connector holds `pr.questions` —
+  same rule as the composer.
 - **Sheet**: covers the diff column, Esc closes, focus returns to the button. The diff never
   navigates away; the map is a lens, not a page.
 - **Click a group** → its files list in the sheet's rail; clicking a file closes the sheet and
@@ -92,6 +93,49 @@ Architecture classification is a judgment call, and the UI must not let it sound
 - **Flow toggle** → the numbered path lights, everything off-path dims, and the flow reads as a
   sentence under the diagram ("1 Placement request arrives → 2 …"). This is the "reads like a
   flowchart" half of the feature, and it is a *view* of the same graph, not a second artefact.
+- **Edge labels appear on hover, one at a time.** Selecting a group lights *which* edges belong to
+  it; pointing at one asks *what it does*. Those are separate questions, and answering both at once
+  put five pieces of text on a seven-node graph. Edges carry a 14px transparent hit path, because a
+  1.4px line is not a pointer target.
+- **Nothing is labelled at rest, including the violation.** The warning is carried by the dashed
+  amber line and the card's ⚠ pill — both always visible, both wordless. Only the sentence explaining
+  it waits to be asked for: a permanent block of amber text read as clutter rather than urgency, and
+  the sign that a signal is too loud is that it stops being read. The footer states what a dashed
+  edge means, so the vocabulary is learnable without hovering anything.
+
+### 4.1 One `Review` button
+
+The map should not be a second thing to go and ask for. §7.3 already gives the panel a landing state
+built from the automated review Launchpad parses out of the PR's own threads, and the map is the same
+material with a shape — so they arrive together, from one action.
+
+`Review` sits in the agent panel header, and one press does both: run the review, build the map. The
+stream is already SSE with typed events (§6), so one request carries both payloads — `reading` events
+while the agent works, then the review findings and one `map` event. No second endpoint to authorise,
+no second spend to explain, and no state where a reviewer has a map but not the findings it indexes.
+
+**The map is the review's table of contents.** Each group shows the count of review findings citing
+lines inside it, and clicking through goes to the finding rather than merely to the file. That is the
+thing neither half does alone: the review tells you *what* is wrong, the map tells you *where in the
+system*, and a count per area tells you which area to read first. It also gives the map a job for
+reviewers who would never open a diagram for its own sake.
+
+Three states the button has to carry, all of which already exist elsewhere in §7:
+
+| State | Button | Panel |
+|---|---|---|
+| Never run for this commit | `Review` | Suggested-question chips (§7.3's fallback) |
+| Running | `Reviewing…` + Stop | `reading` trace, segments streaming, map builds last |
+| Done | `Re-review` | Findings, with `Map` beside it |
+
+Cached per `(PR, commit)` like a turn, so reopening is free and re-running is deliberate. When the
+head moves, §7.3's stale-commit banner already covers both halves — the findings and the map went
+stale together, because they were produced together.
+
+**Why not two buttons.** A `Map` button alone asks the reviewer to want a diagram before they know
+what it shows, which is the wrong order: the interesting thing about the map is where the findings
+land, and that is only true once findings exist. Keeping `Map` as a control that appears *after* a
+review — rather than an action that triggers one — is what makes it a lens on work already done.
 
 ## 5. The dependency-rule overlay
 
@@ -235,17 +279,24 @@ because the output is capped JSON rather than prose.
 
 1. `ChangeMapSchema` + caps in `Canonical.cs`, `TaskPrompt.Map(...)`, parser with path validation
    reusing the citation resolver. Testable without UI.
-2. `POST /api/review/{project}/{repoId}/pulls/{prId}/map` — same SSE shape (`reading` events, then
-   one `map` event), stored via ThreadStore.
-3. The sheet: bands, cards, edges, badges, click-to-diff. Mockup `change-map-v1.html` is ground
-   truth for geometry and states.
+2. `POST /api/review/{project}/{repoId}/pulls/{prId}/review` — the §4.1 button's one request: same
+   SSE shape, `reading` events, then findings, then one `map` event. Stored via ThreadStore.
+3. The sheet: bands, cards, edges, badges, hover labels, click-to-diff. Mockup `change-map-v1.html`
+   is ground truth for geometry, routing and states.
 4. Flow toggle and the dependency-rule overlay.
-5. The panel-header button, staleness banner, Remap.
+5. The `Review` button's three states, per-group finding counts, staleness banner, `Re-review`.
 
 ## 10. Open questions
 
-- **Annotations on the map?** Gutter markers already exist per cited line; a count pill per group
-  ("3 flagged lines in this area") would tie the two features together. Leaning yes, second pass.
+- **Annotations on the map?** §4.1 puts review-finding counts on each group. Inline annotations
+  (§7.6) are a second countable thing per area, and showing both risks two numbers meaning different
+  kinds of attention. Leaning: findings only, and let a group's annotations surface when you click
+  into it.
+- **Does `Review` post to the pull request?** §7.3's review is read *from* PR threads, which assumes
+  something else posted it. If Launchpad's own `Review` is to be that something, it crosses §7.4's
+  human-edit gate for the first time at run scale. Likeliest answer: `Review` stays local to the
+  panel and posting remains per-claim through the existing sheet — but this needs deciding before
+  step 2, not after.
 - **`unknown` style**: when the agent can't name an architecture, bands degrade to "areas" with no
   depth semantics and the dependency overlay stays off. Is that map still worth showing? Leaning
   yes — grouping alone carries most of the value.
