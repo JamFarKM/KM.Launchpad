@@ -388,6 +388,15 @@ public sealed class AgentBudget(int maxBytes = AgentBudget.DefaultMaxBytes, int 
     /// <summary>Per single read. A generated migration should not consume the whole question.</summary>
     public const int MaxLinesPerRead = 2000;
 
+    /// <summary>
+    /// Ceiling on one answer, shared by every adapter — the same question must not get a shorter
+    /// answer purely because of which provider holds the capability. Hitting it is typed truncation
+    /// (<c>stop_reason</c>/<c>finish_reason</c>, surfaced via <see cref="AgentErrorMapper.Truncated"/>),
+    /// never a silent early ending. The §5.A fixtures quote this constant too, so the documented
+    /// request and the real one cannot drift apart.
+    /// </summary>
+    public const int MaxAnswerTokens = 8192;
+
     public int MaxIterations { get; } = maxIterations;
     public int BytesSpent { get; private set; }
     public int BytesRemaining => Math.Max(0, maxBytes - BytesSpent);

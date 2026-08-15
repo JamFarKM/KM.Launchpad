@@ -88,7 +88,7 @@ public class AgentConversation(RepoTools tools)
                            provenance badge floating over no text, which tells the reviewer nothing and
                            looks like the agent said something unreadable. As a typed error it says
                            what happened and offers Retry, which is what §6 asks for everywhere else. */
-                        if (c.Answer.Segments.Count == 0 || c.Answer.IsEmpty)
+                        if (c.Answer.IsEmpty)
                         {
                             yield return new ConversationEvent.Failed(new AgentError(
                                 AgentErrorCode.Upstream,

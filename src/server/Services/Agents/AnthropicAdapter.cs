@@ -39,13 +39,6 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
     private const string ToolName = "record_pr_answer";
 
-    /// <summary>
-    /// Ceiling on one answer. 2048 was cutting long ones off mid-segment: a truncated tool-input JSON
-    /// never closes its element, so the parser drops the segment that was in flight and the answer
-    /// simply ends early rather than saying it was cut.
-    /// </summary>
-    private const int MaxTokens = 8192;
-
     public string Provider => ConnectorProviders.Anthropic;
 
     private static string BaseOf(AgentTarget target) =>
@@ -147,13 +140,15 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             sendFailure = AgentErrorMapper.FromTransport(ex, new Uri(BaseOf(target)).Host);
         }
 
-        if (sendFailure is not null)
+        // `resp is null` cannot coexist with a null sendFailure, but the compiler can't see across
+        // the try/catch split — folding it into this guard is what lets `resp` below drop the `!`.
+        if (sendFailure is not null || resp is null)
         {
-            yield return new AgentEvent.Failed(sendFailure);
+            yield return new AgentEvent.Failed(sendFailure ?? new AgentError(AgentErrorCode.Upstream));
             yield break;
         }
 
-        using (resp!)
+        using (resp)
         {
             if (!resp.IsSuccessStatusCode)
             {
@@ -248,7 +243,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         return new JsonObject
         {
             ["model"] = request.Model,
-            ["max_tokens"] = MaxTokens,
+            ["max_tokens"] = AgentBudget.MaxAnswerTokens,
             // Top-level, not a message. The one placement difference from §5.A.
             ["system"] = request.SystemPrompt,
             ["messages"] = messages,
@@ -267,13 +262,6 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     /// <summary>
     /// Reads Anthropic's SSE stream and yields Launchpad's own events.
     ///
-    /// The §5.5 budget is enforced here rather than on <see cref="HttpClient.Timeout"/>, which
-    /// applies to the whole operation including the body and would therefore kill a legitimately
-    /// long stream: 20 s to first token, 30 s idle between deltas, 120 s overall.
-    /// </summary>
-    /// <summary>
-    /// Reads Anthropic's SSE stream and yields Launchpad's own events.
-    ///
     /// With repository tools offered, a stream can now end two ways: the answer tool's completed
     /// input, or a request for files. So content blocks are tracked by index and routed by tool name
     /// — the answer tool's `partial_json` fragments feed the segment parser, and everything else
@@ -285,7 +273,9 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     ///
     /// The §5.5 budget is enforced here rather than on <see cref="HttpClient.Timeout"/>, which
     /// applies to the whole operation including the body and would therefore kill a legitimately
-    /// long stream: 20 s to first token, 30 s idle between deltas, 120 s overall.
+    /// long stream. The budgets live in <see cref="AgentTimeouts"/> — FirstToken to the first
+    /// byte, IdleBetweenDeltas between fragments, WholeCompletion overall — and the figures are
+    /// deliberately not restated here, where an earlier copy of them had already gone stale.
     /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
         HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)

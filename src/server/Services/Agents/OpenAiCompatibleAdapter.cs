@@ -34,10 +34,6 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
     public string Provider { get; }
 
-    /// <summary>Ceiling on one answer. Kept level with the Anthropic adapter's, so the same question
-    /// does not get a shorter answer purely because of which connector holds the capability.</summary>
-    private const int MaxCompletionTokens = 8192;
-
     /// <summary>The function the model calls to record its answer when tools are in play.</summary>
     private const string AnswerToolName = "record_pr_answer";
 
@@ -130,13 +126,15 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             sendFailure = AgentErrorMapper.FromTransport(ex, host);
         }
 
-        if (sendFailure is not null)
+        // `resp is null` cannot coexist with a null sendFailure, but the compiler can't see across
+        // the try/catch split — folding it into this guard is what lets `resp` below drop the `!`.
+        if (sendFailure is not null || resp is null)
         {
-            yield return new AgentEvent.Failed(sendFailure);
+            yield return new AgentEvent.Failed(sendFailure ?? new AgentError(AgentErrorCode.Upstream));
             yield break;
         }
 
-        using (resp!)
+        using (resp)
         {
             if (!resp.IsSuccessStatusCode)
             {
@@ -216,7 +214,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             ["stream"] = request.Stream,
             // max_completion_tokens, not max_tokens: the latter is deprecated in Chat Completions
             // and rejected outright by some endpoints (§5.A).
-            ["max_completion_tokens"] = MaxCompletionTokens,
+            ["max_completion_tokens"] = AgentBudget.MaxAnswerTokens,
             ["messages"] = messages,
         };
 

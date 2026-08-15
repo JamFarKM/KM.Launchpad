@@ -72,7 +72,7 @@ make it cheap and make it *not* touch the Claude API.
 {
   "model": "claude-opus-4",
   "stream": true,
-  "max_completion_tokens": 2048,
+  "max_completion_tokens": 8192,
   "messages": [
     { "role": "system", "content": "…the task prompt, see 3.5…" },
     { "role": "user", "content": "<pull-request-context>…</pull-request-context>\n\nWhat does this PR change?" },

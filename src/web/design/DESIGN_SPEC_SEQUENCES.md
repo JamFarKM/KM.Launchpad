@@ -191,3 +191,10 @@ The view export/import schema will need to round-trip step display names. Check 
 - **Is the usage warning too loud for the common case?** It's `--status-warn`-tinted even when a sequence is used by one view, which is most of them. Consider neutral styling at `N = 1` and the warning tint only at `N > 1`. Worth judging against the mockup before deciding.
 - **Reorder mechanics.** Drag grips are present but not wired in the mockup. Decide whether reordering remaps binding indices automatically (and flags newly-invalid ones) or refuses a move that would invalidate a binding. The former is friendlier and matches the live-validation approach in §6.
 - **Step output names.** The mockup hardcodes `imageTag` / `packageVersion` / `runId`. Real output names have to come from the pipeline definition; if that isn't queryable, the picker may need to accept a free-text output name with a caution.
+
+**Decided (2026-08-15):**
+
+- *Sequence-level display name* — yes: an explicit short `Alias` on the sequence, exactly as steps already have, replacing prefix-stripping. Not yet implemented.
+- *Usage warning loudness* — resolved by implementation: neutral at `N = 1`, warning tint only at `N > 1`.
+- *Reorder mechanics* — resolved by implementation: reordering remaps binding indices (`remapAfterReorder`) and flags newly-invalid ones, per §6's live-validation approach.
+- *Step output names* — resolved by implementation: a fixed set (`runId` / `buildNumber` / `tag` / `branch`, `StepOutputs.All`) rather than querying pipeline definitions; `tag` composes `<branch last segment>.<buildNumber>`.

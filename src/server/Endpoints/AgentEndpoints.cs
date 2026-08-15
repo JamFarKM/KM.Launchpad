@@ -121,7 +121,9 @@ public static class AgentEndpoints
                 return;
             }
 
-            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, ct);
+            // Scoped to this route's PR as well as to the user: an id from another pull request
+            // would otherwise be answered against this diff and appended to that PR's thread.
+            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, project, repoId, prId, ct);
             if (annotation is null)
             {
                 http.Response.StatusCode = 404;
@@ -142,9 +144,13 @@ public static class AgentEndpoints
             if (!ctx.IsAuthenticated) return Results.Unauthorized();
 
             var annotations = await threads.AnnotationsAsync(ctx.UserId!, project, repoId, prId, ct);
-            var dtos = new List<AnnotationDto>(annotations.Count);
-            foreach (var a in annotations)
-                dtos.Add(ToAnnotationDto(a, await threads.TurnsAsync(a.Id, ct)));
+
+            // One query for every annotation's turns, not one per annotation — this list refetches
+            // after every answer and every resolve, so an N+1 here was paid constantly.
+            var turnsByThread = await threads.TurnsByThreadAsync(annotations.Select(a => a.Id).ToList(), ct);
+            var dtos = annotations
+                .Select(a => ToAnnotationDto(a, turnsByThread.GetValueOrDefault(a.Id) ?? []))
+                .ToList();
 
             return Results.Ok(dtos);
         });
@@ -169,12 +175,12 @@ public static class AgentEndpoints
         // Resolve, or reopen. Never deletes: same "a record of what was asked survives" principle as
         // §7.5, and `Show resolved` brings a dimmed marker back into rotation.
         api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/annotations/{annotationId}/status", async (
-            string annotationId, AnnotationStatusRequest body,
+            string project, string repoId, int prId, string annotationId, AnnotationStatusRequest body,
             AdoContext ctx, ThreadStore threads, CancellationToken ct) =>
         {
             if (!ctx.IsAuthenticated) return Results.Unauthorized();
 
-            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, ct);
+            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, project, repoId, prId, ct);
             if (annotation is null) return Results.NotFound();
 
             await threads.SetStatusAsync(annotation, body.Status, ct);

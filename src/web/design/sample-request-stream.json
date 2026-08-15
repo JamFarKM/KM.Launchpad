@@ -1,7 +1,7 @@
 {
   "model": "claude-opus-4",
   "stream": true,
-  "max_completion_tokens": 2048,
+  "max_completion_tokens": 8192,
   "messages": [
     {
       "role": "system",

@@ -713,7 +713,7 @@ OpenAI needed no dedicated mockup state (§3.0). Everything below applies to bot
 {
   "model": "claude-opus-4",
   "stream": true,
-  "max_completion_tokens": 2048,
+  "max_completion_tokens": 8192,
   "messages": [
     { "role": "system", "content": "<the canonical task prompt — §5.3>" },
     { "role": "user",   "content": "<pull-request-context>…</pull-request-context>\n\nWhat does this PR change?" },

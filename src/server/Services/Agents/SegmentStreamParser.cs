@@ -72,10 +72,6 @@ public sealed class SegmentStreamParser
     /// </summary>
     public CanonicalAnswer Finish(string? fallbackProse = null)
     {
-        // A non-streaming adapter, or one whose fragments never resolved: try the whole buffer once
-        // more, since Scan only ever sees what arrived through Feed.
-        if (_segments.Count == 0) Scan();
-
         if (_segments.Count == 0)
         {
             var prose = (fallbackProse ?? _raw.ToString()).Trim();
@@ -145,13 +141,21 @@ public sealed class SegmentStreamParser
 
             if (_elementStart < 0)
             {
-                // Between elements: only an opening brace or the array's close mean anything here.
-                if (ch == '{')
+                /* Between elements, strings are tracked exactly as they are inside one. The schema
+                   says every element is an object, but a degraded payload can put a bare string
+                   here — and a ']' or '{' inside it must not read as the array closing or an
+                   element opening, or every real segment after it is thrown away. */
+                if (_inString)
+                {
+                    if (_escaped) _escaped = false;
+                    else if (ch == '\\') _escaped = true;
+                    else if (ch == '"') _inString = false;
+                }
+                else if (ch == '"') _inString = true;
+                else if (ch == '{')
                 {
                     _elementStart = _cursor;
                     _depth = 1;
-                    _inString = false;
-                    _escaped = false;
                 }
                 else if (ch == ']')
                 {

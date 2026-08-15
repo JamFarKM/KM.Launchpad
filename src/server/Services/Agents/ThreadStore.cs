@@ -67,9 +67,33 @@ public class ThreadStore(AppDbContext db)
             .OrderBy(t => t.Path).ThenBy(t => t.Line)
             .ToListAsync(ct);
 
-    public async Task<AgentThread?> FindAnnotationAsync(string userId, string id, CancellationToken ct) =>
+    /// <summary>
+    /// One annotation, scoped to its owner <em>and</em> to the pull request the route names. The id
+    /// alone would accept an annotation the same user created on a different PR — and then answer it
+    /// against this route's diff and append the turn to the other PR's thread. A mismatch reads as
+    /// not-found rather than bad-request: within this scope, that id genuinely doesn't exist, and a
+    /// 404 doesn't confirm it exists anywhere else.
+    /// </summary>
+    public async Task<AgentThread?> FindAnnotationAsync(
+        string userId, string id, string project, string repoId, int prId, CancellationToken ct) =>
         await db.AgentThreads.FirstOrDefaultAsync(t =>
-            t.Id == id && t.UserId == userId && t.Kind == AgentThreadKinds.Annotation, ct);
+            t.Id == id && t.UserId == userId && t.Kind == AgentThreadKinds.Annotation
+            && t.Project == project && t.RepoId == repoId && t.PullRequestId == prId, ct);
+
+    /// <summary>
+    /// Turns for a whole set of threads in one query. The annotations list renders every annotation
+    /// with its turns and refetches after every answer and every resolve — fetching per thread made
+    /// that 1+N round-trips, paid constantly.
+    /// </summary>
+    public async Task<Dictionary<string, List<AgentThreadTurn>>> TurnsByThreadAsync(
+        IReadOnlyCollection<string> threadIds, CancellationToken ct)
+    {
+        var turns = await db.AgentThreadTurns
+            .Where(t => threadIds.Contains(t.ThreadId))
+            .OrderBy(t => t.Ordinal)
+            .ToListAsync(ct);
+        return turns.GroupBy(t => t.ThreadId).ToDictionary(g => g.Key, g => g.ToList());
+    }
 
     /// <summary>
     /// The annotation for a cited line, created on first open.

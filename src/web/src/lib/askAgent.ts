@@ -49,7 +49,9 @@ export async function askAgent(
 ): Promise<void> {
   const base = `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}`
     + `/pulls/${prId}`;
-  const url = annotationId ? `${base}/annotations/${annotationId}/ask` : `${base}/ask`;
+  const url = annotationId
+    ? `${base}/annotations/${encodeURIComponent(annotationId)}/ask`
+    : `${base}/ask`;
 
   const resp = await fetch(url, {
     method: "POST",
