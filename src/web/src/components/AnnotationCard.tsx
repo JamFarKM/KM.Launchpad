@@ -74,6 +74,15 @@ export function AnnotationCard({
   const abort = useRef<AbortController | null>(null);
   const body = useRef<HTMLDivElement>(null);
 
+  /* How far the reviewer has slid the card sideways to read the code underneath. Horizontal only,
+     deliberately: the vertical position is the anchor — the pointer and the scrim tie the card to
+     its line — while the horizontal position carries no meaning at all, so it is the reviewer's to
+     take. Same principle as the rail and dock sizes: which thing deserves the space changes by the
+     minute, and it is theirs to decide rather than ours to fix at one number. */
+  const card = useRef<HTMLDivElement>(null);
+  const [slide, setSlide] = useState(0);
+  const drag = useRef<{ pointerId: number; startX: number; startSlide: number; min: number; max: number } | null>(null);
+
   const key = `${stop.path}:${stop.line}`;
 
   // Reset everything when the card moves to another line — a part-typed follow-up about line 22 must
@@ -84,6 +93,9 @@ export function AnnotationCard({
     setStreamedSegments([]);
     setStreamed("");
     setFailure(null);
+    // A slide is a peek at one line's surroundings, not a layout preference — it doesn't follow
+    // the card to the next stop.
+    setSlide(0);
   }, [key]);
 
   useEffect(() => { setTurns(stop.annotation?.turns ?? []); }, [stop.annotation?.turns]);
@@ -153,6 +165,49 @@ export function AnnotationCard({
     }
   }
 
+  /* The header is the drag handle, mirroring RailResizer's pointer handling: capture so the drag
+     survives crossing the diff, a body-level cursor class so the pointer doesn't flicker, and
+     clamping measured at drag start so the card can't leave the diff plane. Keyboard users aren't
+     locked out of the content underneath — Esc closes the card and the marker reopens it — so the
+     slide itself is pointer-only rather than growing a nonstandard key scheme. */
+  function onSlideStart(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    // Never from the header's own controls.
+    if ((e.target as HTMLElement).closest("button")) return;
+    const el = card.current;
+    const plane = el?.offsetParent as HTMLElement | null;
+    if (!el || !plane) return;
+
+    const r = el.getBoundingClientRect();
+    const p = plane.getBoundingClientRect();
+    drag.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startSlide: slide,
+      // The whole card stays on the plane, with a hair of margin either side.
+      min: slide + (p.left + 8) - r.left,
+      max: slide + (p.right - 8) - r.right,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    document.body.classList.add("is-card-sliding");
+    e.preventDefault();
+  }
+
+  function onSlideMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const next = Math.min(d.max, Math.max(d.min, d.startSlide + (e.clientX - d.startX)));
+    // Within a few pixels of home counts as home, so bringing the scrim back isn't a pixel-hunt.
+    setSlide(Math.abs(next) < 4 ? 0 : next);
+  }
+
+  function onSlideEnd(e: React.PointerEvent<HTMLDivElement>) {
+    if (!drag.current || e.pointerId !== drag.current.pointerId) return;
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    document.body.classList.remove("is-card-sliding");
+  }
+
   async function setStatus(status: string) {
     setBusy(true);
     try {
@@ -167,13 +222,28 @@ export function AnnotationCard({
   return (
     <>
       {/* Dims the lines the card covers, so they read as deliberately obscured rather than as a
-          rendering fault. */}
-      <div className="diff-scrim" style={{ top: top - 4 }} />
+          rendering fault — and gone while the card is slid aside, because dimming the very lines
+          the reviewer moved the card to read would defeat the gesture. */}
+      {slide === 0 && <div className="diff-scrim" style={{ top: top - 4 }} />}
 
       {/* Same geometry as the PR comment composer: `left` is the anchored pane's offset plus a gutter
-          allowance, so side by side the card sits over the modified pane rather than the original. */}
-      <div className="ann-card" data-sev={stop.severity} style={{ top: top + 6, left: left + 52 }}>
-        <div className="ann-head">
+          allowance, so side by side the card sits over the modified pane rather than the original.
+          The slide rides on a transform so the anchored position stays the single source of truth. */}
+      <div
+        ref={card}
+        className="ann-card"
+        data-sev={stop.severity}
+        style={{ top: top + 6, left: left + 52, transform: slide ? `translateX(${slide}px)` : undefined }}
+      >
+        <div
+          className="ann-head"
+          title="Drag to slide the card aside; double-click to bring it home"
+          onPointerDown={onSlideStart}
+          onPointerMove={onSlideMove}
+          onPointerUp={onSlideEnd}
+          onPointerCancel={onSlideEnd}
+          onDoubleClick={() => setSlide(0)}
+        >
           {/* Never mistakable for a live comment: this is the whole reason for the dashed border. */}
           <span className="ann-tag">Not posted</span>
           <span className="ann-where">line {stop.line}</span>

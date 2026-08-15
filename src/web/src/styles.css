@@ -3720,6 +3720,8 @@ a {
   transform: rotate(45deg);
 }
 
+/* Also the card's drag handle — horizontal only, since the vertical position is the anchor. The
+   grab cursor is the affordance; the header's own buttons keep their pointer on top of it. */
 .ann-head {
   display: flex;
   align-items: center;
@@ -3727,6 +3729,8 @@ a {
   flex-shrink: 0;
   padding: 9px 12px;
   border-bottom: 1px solid var(--border-hairline);
+  cursor: grab;
+  user-select: none;
 }
 
 /* The tag that stops this being mistaken for a posted comment. Stated in a word, not implied by the
@@ -5984,10 +5988,14 @@ a {
 
 .ag-mini:hover { background: var(--hover-wash); color: var(--ink-primary); }
 
+/* Margin, not padding: standing alone in the dock this needs space below it, but inside
+   .ag-pending's centered flex row a padding would inflate the text's box downward and push the
+   words off the spinner's axis — the row centers boxes, not glyphs. The .ag-pending override
+   zeroes margins; padding would have slipped past it, and did. */
 .ag-thinking {
   font-size: 11.5px;
   color: var(--ink-muted);
-  padding-bottom: 8px;
+  margin-bottom: 8px;
 }
 
 /* ---------- composer ---------- */
@@ -6113,6 +6121,11 @@ a {
    pointer flickers between cursors as it crosses the diff and the answer text highlights. */
 body.is-col-resizing { cursor: col-resize; user-select: none; }
 body.is-col-resizing * { cursor: col-resize !important; }
+
+/* Sliding the annotation card aside. Same body-level treatment as the column resizers, and for the
+   same reason: without it the pointer flickers between cursors as it crosses the diff mid-drag. */
+body.is-card-sliding { cursor: grabbing; user-select: none; }
+body.is-card-sliding * { cursor: grabbing !important; }
 
 /* The grid animates its columns, which is right for the collapse toggles and wrong for a drag —
    a 160ms transition on every pointermove lags behind the cursor. */
