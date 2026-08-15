@@ -413,9 +413,58 @@ export interface AgentTurn {
   createdAt: string;
 }
 
+/** One changed file cited as a group's evidence (DESIGN_SPEC_CHANGE_MAP.md §2). */
+export interface ChangeMapFile {
+  path: string;
+  added: number;
+  removed: number;
+}
+
+/**
+ * One area of the change. `depth` is 0 at the innermost layer and increases outward — arithmetic
+ * the sheet uses to draw the dependency-rule overlay (§5), not a display order.
+ */
+export interface ChangeMapGroup {
+  id: string;
+  name: string;
+  depth: number;
+  summary: string;
+  files: ChangeMapFile[];
+  /** Review findings (warning/error segments) citing a file in this group, on the map's own commit. */
+  findingCount: number;
+}
+
+/** `from` depends on / calls `to` — the direction of the dependency, not of the diagram. */
+export interface ChangeMapEdge {
+  from: string;
+  to: string;
+  label: string;
+}
+
+export interface ChangeMapFlowStep {
+  step: number;
+  group: string;
+  action: string;
+}
+
+/**
+ * The whole map (§2). `style` is clean | layers | modules | pipeline | unknown; `styleBasis` is
+ * structure | inferred — the same badge vocabulary as a segment's provenance, since a reviewer who
+ * has learned one has learned both.
+ */
+export interface ChangeMap {
+  style: string;
+  styleBasis: string;
+  groups: ChangeMapGroup[];
+  edges: ChangeMapEdge[];
+  flow: ChangeMapFlowStep[];
+  commitSha?: string | null;
+}
+
 export interface AgentThread {
   id?: string | null;
   turns: AgentTurn[];
+  map?: ChangeMap | null;
 }
 
 /**

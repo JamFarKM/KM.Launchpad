@@ -200,9 +200,41 @@ public static class AgentEndpoints
                 return Results.Ok(new ThreadDto(null, []));
 
             var turns = await threads.TurnsAsync(thread.Id, ct);
-            return Results.Ok(new ThreadDto(thread.Id, turns.Select(ToTurnDto).ToList()));
+            return Results.Ok(new ThreadDto(thread.Id, turns.Select(ToTurnDto).ToList(), ThreadStore.Map(thread, turns)));
+        });
+
+        // §4.1: one button, one stream, both halves. A fixed review question runs through the exact
+        // same path as a typed one — same turn shape, same "Post as comment…" — and only once that
+        // has something to show does the map phase run, sharing the connector and the diff context
+        // rather than asking the reviewer to spend twice to get one picture.
+        api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/review", async (
+            string project, string repoId, int prId,
+            HttpContext http, AdoContext ctx, AppDbContext db,
+            AgentRegistry registry, AdoService ado, PrContextService contexts,
+            ThreadStore threads, AgentConversation conversation, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) { http.Response.StatusCode = 401; return; }
+
+            var thread = await threads.GetOrCreateAsync(ctx.UserId!, project, repoId, prId, ct);
+
+            var reviewed = await RunAskAsync(project, repoId, prId, ReviewQuestion, thread,
+                http, ctx, db, registry, ado, contexts, threads, conversation, ct);
+
+            // RunAskAsync already sent the appropriate error (a missing connector, an unreachable
+            // one, a pull request Azure DevOps couldn't produce) and the response is what it is —
+            // spending a second call on a map for a review that didn't happen would just repeat
+            // the same failure a second time.
+            if (!reviewed) return;
+
+            await RunMapAsync(project, repoId, prId, thread,
+                http, ctx, db, registry, ado, contexts, threads, conversation, ct);
         });
     }
+
+    /// <summary>The fixed question behind the Review button's first half (§4.1).</summary>
+    private const string ReviewQuestion =
+        "Review this pull request. Identify concrete problems, risks and notable design decisions — "
+        + "cite specific lines. If nothing stands out, say so plainly.";
 
     /// <summary>
     /// One question, streamed, against one thread — the dock's conversation or an annotation's.
@@ -211,7 +243,13 @@ public static class AgentEndpoints
     /// stopped answer and the rule that nothing reaches the pull request by itself all live here once;
     /// a second copy for annotations would be four places for those to drift apart.
     /// </summary>
-    private static async Task RunAskAsync(
+    /// <returns>
+    /// Whether the review-and-map endpoint (§4.1) should proceed to the map phase: true only when a
+    /// real answer came back, never on a missing connector, a build failure, an Azure DevOps error,
+    /// a Stop, or a §4 failure. Spending a second call on a map for a review that didn't happen would
+    /// just repeat the same failure a second time.
+    /// </returns>
+    private static async Task<bool> RunAskAsync(
         string project, string repoId, int prId, string question, Data.AgentThread thread,
         HttpContext http, AdoContext ctx, AppDbContext db,
         AgentRegistry registry, AdoService ado, PrContextService contexts,
@@ -231,7 +269,7 @@ public static class AgentEndpoints
                 // with nothing assigned is a client bug, so it says so plainly.
                 http.Response.StatusCode = 409;
                 await http.Response.WriteAsJsonAsync(new { error = "No connector is assigned to answer PR questions." }, ct);
-                return;
+                return false;
             }
 
             var adapter = registry.For(connector.Provider);
@@ -248,7 +286,7 @@ public static class AgentEndpoints
                         ? $"No adapter is built for {connector.Provider} yet."
                         : "The stored credential could not be read. Press Replace and paste it again.",
                 }, ct);
-                return;
+                return false;
             }
 
             // Building the context needs several ADO calls; a failure there is Launchpad's, not the
@@ -261,14 +299,14 @@ public static class AgentEndpoints
                 if (pr is null)
                 {
                     await Send(http, "error", new { code = "upstream", detail = "That pull request could not be read from Azure DevOps." }, ct);
-                    return;
+                    return false;
                 }
                 context = await contexts.BuildAsync(project, repoId, pr, question, ct);
             }
             catch (AdoService.AdoException ex)
             {
                 await Send(http, "error", new { code = "upstream", detail = $"Azure DevOps: {ex.Message}" }, ct);
-                return;
+                return false;
             }
 
             await Send(http, "context", new
@@ -408,7 +446,107 @@ public static class AgentEndpoints
             if (failure is null && !stopped) connector.LastOkAt = DateTime.UtcNow;
             if (failure is not null) connector.LastErrorAt = DateTime.UtcNow;
             await db.SaveChangesAsync(stopped ? CancellationToken.None : ct);
+
+            return failure is null && !stopped && answer is not null;
         }
+    }
+
+    /// <summary>
+    /// The map phase of §4.1's Review button — run only after <see cref="RunAskAsync"/> has produced
+    /// a real review turn on the same stream.
+    ///
+    /// Resolves its own connector and rebuilds context rather than threading them through from the
+    /// review phase: both are a handful of lines and a couple of cheap ADO calls, and reusing them
+    /// would mean <c>RunAskAsync</c> handing back state it has no other reason to expose. A fresh
+    /// <see cref="AgentBudget"/> too — the map's reading should not start already spent by whatever
+    /// the review needed to look at.
+    /// </summary>
+    private static async Task RunMapAsync(
+        string project, string repoId, int prId, Data.AgentThread thread,
+        HttpContext http, AdoContext ctx, AppDbContext db,
+        AgentRegistry registry, AdoService ado, PrContextService contexts,
+        ThreadStore threads, AgentConversation conversation, CancellationToken ct)
+    {
+        var holder = await db.ConnectorCapabilities
+            .FirstOrDefaultAsync(c => c.UserId == ctx.UserId && c.Capability == ConnectorProviders.PrQuestions, ct);
+        var connector = holder is null ? null
+            : await db.Connectors.FirstOrDefaultAsync(c => c.Id == holder.ConnectorId, ct);
+        if (connector is null) return;
+
+        var adapter = registry.For(connector.Provider);
+        var target = registry.TargetFor(connector);
+        if (adapter is null || target is null) return;
+
+        PullRequestDto? pr;
+        PrContext context;
+        try
+        {
+            pr = await ado.GetPullRequestAsync(project, repoId, prId, ct);
+            if (pr is null) { await Send(http, "map_error", new { detail = "That pull request could not be re-read from Azure DevOps." }, ct); return; }
+            // No reviewer-typed question to prioritise truncation by — the map wants the whole
+            // shape, not whatever the last question happened to be about.
+            context = await contexts.BuildAsync(project, repoId, pr, null, ct);
+        }
+        catch (AdoService.AdoException ex)
+        {
+            await Send(http, "map_error", new { detail = $"Azure DevOps: {ex.Message}" }, ct);
+            return;
+        }
+
+        var request = new CanonicalRequest(
+            SystemPrompt: TaskPrompt.Map(context.Truncated),
+            Context: context.Xml,
+            History: [],
+            Question: "Produce the change map.",
+            Model: connector.Model ?? "",
+            Stream: true,
+            Tools: RepoTools.Definitions,
+            ResponseKind: ResponseKind.ChangeMap);
+
+        var budget = new AgentBudget();
+        var scope = new RepoScope(project, repoId, pr.SourceCommit ?? "");
+        ChangeMap? map = null;
+        AgentError? failure = null;
+
+        try
+        {
+            await foreach (var ev in conversation.RunAsync(adapter, target, request, scope, budget, context.Paths, ct))
+            {
+                switch (ev)
+                {
+                    case ConversationEvent.Reading r:
+                        await Send(http, "reading", new { tool = r.Tool, detail = r.Detail }, ct);
+                        break;
+                    case ConversationEvent.MapComplete m:
+                        map = m.Map;
+                        break;
+                    case ConversationEvent.Failed f:
+                        failure = f.Error;
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopping mid-map leaves whatever review already landed untouched; there is simply no
+            // map this time, which "no Map button yet" already represents honestly.
+            return;
+        }
+
+        if (map is null)
+        {
+            await Send(http, "map_error", new
+            {
+                detail = failure?.Detail ?? "The change map could not be produced. Re-review to try again.",
+            }, ct);
+            return;
+        }
+
+        await threads.SaveMapAsync(thread, map, pr.SourceCommit, ct);
+        var turns = await threads.TurnsAsync(thread.Id, ct);
+        // Read back through the same path a reload uses, rather than constructing the DTO twice —
+        // and it cannot be null here, since SaveMapAsync just wrote what Map is about to parse.
+        await Send(http, "map", ThreadStore.Map(thread, turns)!, ct);
     }
 
     /// <summary>One annotation and its conversation (§7.6).</summary>

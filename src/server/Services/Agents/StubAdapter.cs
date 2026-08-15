@@ -37,6 +37,26 @@ public sealed class StubAdapter : IAgentAdapter
     {
         var script = ScriptOf(target.Credential);
 
+        if (request.ResponseKind == ResponseKind.ChangeMap)
+        {
+            var path = FirstPath(request.Context) ?? "unknown.sql";
+            var json = JsonSerializer.Serialize(new
+            {
+                style = "unknown",
+                style_basis = "inferred",
+                groups = new[] { new { id = "g1", name = "Changed area", depth = 0, summary = "Everything changed here.", files = new[] { new { path, added = 1, removed = 0 } } } },
+                edges = Array.Empty<object>(),
+                flow = Array.Empty<object>(),
+            });
+            foreach (var chunk in Chunk(json, 17))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (_delay > TimeSpan.Zero) await Task.Delay(_delay, ct);
+            }
+            yield return new AgentEvent.MapComplete(json);
+            yield break;
+        }
+
         if (script == Script.Prose)
         {
             // Mode 3: no JSON at all. The parser has to reach "unverified" on its own rather than

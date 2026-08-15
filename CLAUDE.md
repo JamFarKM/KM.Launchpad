@@ -64,7 +64,7 @@ Specs live in `src/web/design/`. Read the relevant one **before** changing any U
 | `DESIGN_SPEC_CONFIG_LABELS.md` | Configurations: one row per key, labels stacked in the detail pane — addendum |
 | `DESIGN_SPEC_POLISH.md` | Truncation, iconography, motion, focus, empty states — addendum |
 | `DESIGN_SPEC_CONNECTORS.md` | Settings › Connectors, the provider/adapter architecture, the wire contract, error taxonomy |
-| `DESIGN_SPEC_CHANGE_MAP.md` | The change map: architecture-grouped PR visualisation opened from the agent panel. **Proposed** — spec + `change-map-v1.html` mockup only, not built |
+| `DESIGN_SPEC_CHANGE_MAP.md` | The change map: architecture-grouped PR visualisation, opened via the agent panel's Review button. Built — schema/prompt/endpoint in `Canonical.cs`/`TaskPrompt.cs`/`AgentEndpoints.cs`, sheet in `ChangeMapSheet.tsx`. `change-map-v1.html` is the mockup the layout engine was ported from |
 | `BETBOT_INTEGRATION_PLAN.md` | What we asked the BetBot team for — the Custom-adapter (§5.A) half of the contract. Not the whole story: Anthropic and GitHub Copilot are separate adapters with no external counterpart document |
 | `src/lib/truncate.ts` + `components/Truncated.tsx` | Text fitting. Use them; do not hand-roll truncation |
 | `launchpad-tokens.css` | All tokens. Single source of truth for colour, spacing, radii, type |

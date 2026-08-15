@@ -1,4 +1,4 @@
-import type { AgentSegment, AgentTurn } from "../types";
+import type { AgentSegment, AgentTurn, ChangeMap } from "../types";
 
 /**
  * Reads Launchpad's own SSE shape (DESIGN_SPEC_CONNECTORS.md §6).
@@ -7,8 +7,7 @@ import type { AgentSegment, AgentTurn } from "../types";
  * adapter's job on the server, which is why there is nothing provider-specific in this file and
  * nothing here needs to change when a provider is added.
  *
- * `fetch` rather than `EventSource`, because the request is a POST carrying the question and
- * `EventSource` can only GET.
+ * `fetch` rather than `EventSource`, because the request is a POST and `EventSource` can only GET.
  */
 export interface AskHandlers {
   /** Assembled context, before the agent is called — carries the truncation warning (§5.1). */
@@ -32,6 +31,47 @@ export interface AskHandlers {
   onComplete: (turn: AgentTurn) => void;
   /** A typed §4 failure. Terminal. Any prose already delivered stays on screen. */
   onError: (error: { code: string; detail?: string | null; httpStatus?: number | null }) => void;
+}
+
+/**
+ * Reads one SSE response body, dispatching each record to the matching handler. Shared by
+ * {@link askAgent} and {@link askReview} so the two event vocabularies can't drift on the framing
+ * — only on which event names they choose to listen for.
+ */
+async function readSse(
+  resp: Response,
+  onEvent: (event: string, payload: unknown) => void,
+): Promise<void> {
+  if (!resp.body) return;
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE records are separated by a blank line. Anything after the last separator is a partial
+    // record and stays in the buffer — splitting on every newline instead would deliver half a
+    // JSON payload and throw.
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) >= 0) {
+      const record = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+
+      const event = /^event: (.+)$/m.exec(record)?.[1];
+      const data = /^data: (.+)$/m.exec(record)?.[1];
+      if (!event || !data) continue;
+
+      let payload: unknown;
+      try { payload = JSON.parse(data); } catch { continue; }
+
+      onEvent(event, payload);
+    }
+  }
 }
 
 /**
@@ -69,41 +109,73 @@ export async function askAgent(
     return;
   }
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    // SSE records are separated by a blank line. Anything after the last separator is a partial
-    // record and stays in the buffer — splitting on every newline instead would deliver half a
-    // JSON payload and throw.
-    let sep: number;
-    while ((sep = buffer.indexOf("\n\n")) >= 0) {
-      const record = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-
-      const event = /^event: (.+)$/m.exec(record)?.[1];
-      const data = /^data: (.+)$/m.exec(record)?.[1];
-      if (!event || !data) continue;
-
-      let payload: unknown;
-      try { payload = JSON.parse(data); } catch { continue; }
-
-      switch (event) {
-        case "context": handlers.onContext?.(payload as never); break;
-        case "reading": handlers.onReading?.(payload as never); break;
-        case "segment": handlers.onSegment(payload as AgentSegment); break;
-        case "delta": handlers.onDelta((payload as { text: string }).text); break;
-        case "complete": handlers.onComplete(payload as AgentTurn); break;
-        case "error": handlers.onError(payload as never); break;
-        // `turn` carries the thread id and how much history was replayed. Useful for debugging,
-        // not something the panel renders.
-      }
+  await readSse(resp, (event, payload) => {
+    switch (event) {
+      case "context": handlers.onContext?.(payload as never); break;
+      case "reading": handlers.onReading?.(payload as never); break;
+      case "segment": handlers.onSegment(payload as AgentSegment); break;
+      case "delta": handlers.onDelta((payload as { text: string }).text); break;
+      case "complete": handlers.onComplete(payload as AgentTurn); break;
+      case "error": handlers.onError(payload as never); break;
+      // `turn` carries the thread id and how much history was replayed. Useful for debugging,
+      // not something the panel renders.
     }
+  });
+}
+
+export interface ReviewHandlers {
+  onReading?: (info: { tool: string; detail: string }) => void;
+  /** One claim of the review closed — same shape and same meaning as an ordinary answer's. */
+  onSegment: (segment: AgentSegment) => void;
+  /** The review half finished: a normal turn, appended to the thread exactly like a typed question. */
+  onComplete: (turn: AgentTurn) => void;
+  /** The review half failed. Terminal for the whole request — a map is not attempted without one. */
+  onError: (error: { code: string; detail?: string | null; httpStatus?: number | null }) => void;
+  /**
+   * The map half finished (§4.1). Arrives after `onComplete`, on the same stream — one Review
+   * click, one spend, both payloads.
+   */
+  onMap?: (map: ChangeMap) => void;
+  /**
+   * The map half failed. Deliberately not routed through {@link onError}: the review already
+   * succeeded and its turn is already on screen, so this must not read as though the whole
+   * request failed — only the map did.
+   */
+  onMapError?: (detail: string | null) => void;
+}
+
+/**
+ * DESIGN_SPEC_CHANGE_MAP.md §4.1 — one button, one stream, both halves. The server runs the fixed
+ * review question through the exact same path as a typed one, then — only once that produced a
+ * real turn — the map phase, sharing the connector and the diff context rather than asking the
+ * reviewer to spend twice for one picture.
+ */
+export async function askReview(
+  project: string,
+  repoId: string,
+  prId: number,
+  handlers: ReviewHandlers,
+  signal: AbortSignal,
+): Promise<void> {
+  const url = `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}/pulls/${prId}/review`;
+
+  const resp = await fetch(url, { method: "POST", credentials: "same-origin", signal });
+
+  if (!resp.ok || !resp.body) {
+    let detail: string | null = null;
+    try { detail = (await resp.json())?.error ?? null; } catch { /* not json */ }
+    handlers.onError({ code: "upstream", httpStatus: resp.status, detail });
+    return;
   }
+
+  await readSse(resp, (event, payload) => {
+    switch (event) {
+      case "reading": handlers.onReading?.(payload as never); break;
+      case "segment": handlers.onSegment(payload as AgentSegment); break;
+      case "complete": handlers.onComplete(payload as AgentTurn); break;
+      case "error": handlers.onError(payload as never); break;
+      case "map": handlers.onMap?.(payload as ChangeMap); break;
+      case "map_error": handlers.onMapError?.((payload as { detail: string | null }).detail); break;
+    }
+  });
 }

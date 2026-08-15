@@ -439,4 +439,48 @@ public class AnthropicAdapterTests
 
         Assert.Equal("fine", Assert.IsType<AgentEvent.Complete>(events.Last()).Answer.PlainText);
     }
+
+    // ---------- the change map (DESIGN_SPEC_CHANGE_MAP.md §2) ----------
+
+    [Fact]
+    public async Task A_map_request_forces_the_map_tool_not_the_answer_tool()
+    {
+        var handler = new CapturingHandler(_ => Sse("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"));
+        var request = Request() with { ResponseKind = ResponseKind.ChangeMap };
+
+        await Drain(new AnthropicAdapter(new FakeFactory(handler)).CompleteAsync(Target, request, CancellationToken.None));
+
+        var body = JsonNode.Parse(handler.LastBody!)!;
+        var tools = body["tools"]!.AsArray();
+        // Exactly the map tool, offered instead of the answer tool — never both, or the model could
+        // legally record an answer when what was asked for is a graph.
+        Assert.DoesNotContain(tools, t => t!["name"]!.GetValue<string>() == "record_pr_answer");
+        Assert.Contains(tools, t => t!["name"]!.GetValue<string>() == "record_change_map");
+        Assert.Equal("record_change_map", body["tool_choice"]!["name"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_completed_map_tool_call_yields_MapComplete_not_Complete()
+    {
+        var stream = """
+            event: content_block_start
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_1","name":"record_change_map","input":{}}}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"style\":\"clean\",\"style_basis\":\"inferred\",\"groups\":[],\"edges\":[],\"flow\":[]}"}}
+
+            event: message_stop
+            data: {"type":"message_stop"}
+
+            """;
+
+        var handler = new CapturingHandler(_ => Sse(stream));
+        var request = Request() with { ResponseKind = ResponseKind.ChangeMap };
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler)).CompleteAsync(Target, request, CancellationToken.None));
+
+        // Raw JSON, not run through the segment parser — a map has no segments to close.
+        var complete = Assert.IsType<AgentEvent.MapComplete>(Assert.Single(events));
+        Assert.Equal("""{"style":"clean","style_basis":"inferred","groups":[],"edges":[],"flow":[]}""", complete.Json);
+        Assert.Empty(events.OfType<AgentEvent.Segment>());
+    }
 }

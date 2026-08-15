@@ -348,7 +348,37 @@ public record AgentTurnDto(
     DateTime CreatedAt);
 
 /// <param name="Id">Null when the reviewer has never asked anything about this pull request.</param>
-public record ThreadDto(string? Id, List<AgentTurnDto> Turns);
+/// <param name="Map">Null until a Review has produced one, or if it failed to parse (§7).</param>
+public record ThreadDto(string? Id, List<AgentTurnDto> Turns, ChangeMapDto? Map = null);
+
+// ----- the change map (DESIGN_SPEC_CHANGE_MAP.md) -----
+
+public record ChangeMapFileDto(string Path, int Added, int Removed);
+
+/// <param name="Depth">0 is innermost. The client's own arithmetic on this — not anything the
+/// server asserts — decides whether an edge is a dependency-rule violation (§5).</param>
+/// <param name="FindingCount">Segments graded warning/error, from any turn answered against this
+/// map's commit, that cite a file in this group — the map doubling as the review's table of
+/// contents (§4.1). Zero, not omitted, when there are none.</param>
+public record ChangeMapGroupDto(
+    string Id, string Name, int Depth, string Summary, List<ChangeMapFileDto> Files, int FindingCount);
+
+/// <param name="From">The dependent side. <paramref name="From"/> depends on / calls <paramref name="To"/>.</param>
+public record ChangeMapEdgeDto(string From, string To, string Label);
+
+public record ChangeMapFlowStepDto(int Step, string Group, string Action);
+
+/// <param name="Style">clean | layers | modules | pipeline | unknown.</param>
+/// <param name="StyleBasis">structure | inferred — the same badge vocabulary as a segment's provenance.</param>
+/// <param name="CommitSha">What the map was generated against. Compare to the PR's head for the
+/// same staleness note §7.3 gives a turn.</param>
+public record ChangeMapDto(
+    string Style,
+    string StyleBasis,
+    List<ChangeMapGroupDto> Groups,
+    List<ChangeMapEdgeDto> Edges,
+    List<ChangeMapFlowStepDto> Flow,
+    string? CommitSha);
 
 // ----- inline annotations (§7.6) -----
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using PipelineLaunchpad.Server.Data;
+using PipelineLaunchpad.Server.Models;
 
 namespace PipelineLaunchpad.Server.Services.Agents;
 
@@ -136,6 +137,83 @@ public class ThreadStore(AppDbContext db)
         await db.SaveChangesAsync(ct);
         return annotation;
     }
+
+    /// <summary>
+    /// Replaces the thread's change map (§4.1's Re-review). One per thread, not appended — an old
+    /// map answered against a commit that no longer exists is not a record worth keeping the way a
+    /// turn is; it is just stale.
+    /// </summary>
+    public async Task SaveMapAsync(AgentThread thread, ChangeMap map, string? commitSha, CancellationToken ct)
+    {
+        thread.MapJson = JsonSerializer.Serialize(WireMap(map), Json);
+        thread.MapCommitSha = commitSha;
+        thread.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The thread's map, as the panel renders it — or null if none has ever been generated.
+    ///
+    /// <paramref name="turns"/> supplies the finding counts (§4.1): a group's count is how many
+    /// segments graded <c>warning</c> or <c>error</c>, across every turn answered against the map's
+    /// own commit, cite a file inside that group. Computed at read time rather than stored, so it
+    /// stays correct as later questions on the same commit turn up more — or move to a different
+    /// group's files than they did when the map was drawn.
+    /// </summary>
+    public static ChangeMapDto? Map(AgentThread thread, IReadOnlyList<AgentThreadTurn> turns)
+    {
+        if (string.IsNullOrWhiteSpace(thread.MapJson)) return null;
+
+        WireChangeMap? wire;
+        try { wire = JsonSerializer.Deserialize<WireChangeMap>(thread.MapJson, Json); }
+        catch (JsonException) { return null; }
+        if (wire?.Groups is null) return null;
+
+        var findings = new Dictionary<string, int>();
+        if (!string.IsNullOrWhiteSpace(thread.MapCommitSha))
+        {
+            var onCommit = turns.Where(t => t.CommitSha == thread.MapCommitSha);
+            foreach (var group in wire.Groups)
+            {
+                var files = new HashSet<string>(
+                    (group.Files ?? []).Select(f => f.Path?.TrimStart('/') ?? ""), StringComparer.OrdinalIgnoreCase);
+                var count = onCommit
+                    .SelectMany(Segments)
+                    .Count(s => s.Severity != Severity.Info
+                             && s.Citations.Any(c => files.Contains(c.Path.TrimStart('/'))));
+                findings[group.Id ?? ""] = count;
+            }
+        }
+
+        return new ChangeMapDto(
+            wire.Style ?? "unknown",
+            wire.StyleBasis ?? "inferred",
+            wire.Groups.Select(g => new ChangeMapGroupDto(
+                g.Id ?? "", g.Name ?? "", g.Depth,
+                g.Summary ?? "",
+                (g.Files ?? []).Select(f => new ChangeMapFileDto(f.Path ?? "", f.Added, f.Removed)).ToList(),
+                findings.GetValueOrDefault(g.Id ?? "", 0))).ToList(),
+            (wire.Edges ?? []).Select(e => new ChangeMapEdgeDto(e.From ?? "", e.To ?? "", e.Label ?? "")).ToList(),
+            (wire.Flow ?? []).Select(f => new ChangeMapFlowStepDto(f.Step, f.Group ?? "", f.Action ?? "")).ToList(),
+            thread.MapCommitSha);
+    }
+
+    private record WireChangeMapFile(string? Path, int Added, int Removed);
+    private record WireChangeMapGroup(string? Id, string? Name, int Depth, string? Summary, List<WireChangeMapFile>? Files);
+    private record WireChangeMapEdge(string? From, string? To, string? Label);
+    private record WireChangeMapFlowStep(int Step, string? Group, string? Action);
+    private record WireChangeMap(
+        string? Style, string? StyleBasis,
+        List<WireChangeMapGroup>? Groups, List<WireChangeMapEdge>? Edges, List<WireChangeMapFlowStep>? Flow);
+
+    private static WireChangeMap WireMap(ChangeMap map) => new(
+        ArchitectureStyleNames.ToWire(map.Style),
+        StyleBasisNames.ToWire(map.StyleBasis),
+        map.Groups.Select(g => new WireChangeMapGroup(
+            g.Id, g.Name, g.Depth, g.Summary,
+            g.Files.Select(f => new WireChangeMapFile(f.Path, f.Added, f.Removed)).ToList())).ToList(),
+        map.Edges.Select(e => new WireChangeMapEdge(e.From, e.To, e.Label)).ToList(),
+        map.Flow.Select(f => new WireChangeMapFlowStep(f.Step, f.Group, f.Action)).ToList());
 
     public async Task SetStatusAsync(AgentThread thread, string status, CancellationToken ct)
     {

@@ -37,7 +37,12 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     /// <summary>Pinned deliberately. Bumping it is a tested change, not a drive-by edit.</summary>
     private const string AnthropicVersion = "2023-06-01";
 
-    private const string ToolName = "record_pr_answer";
+    private const string AnswerToolName = "record_pr_answer";
+    private const string MapToolName = "record_change_map";
+
+    /// <summary>The tool name that carries this request's response, chosen from its ResponseKind.</summary>
+    private static string ResponseTool(CanonicalRequest request) =>
+        request.ResponseKind == ResponseKind.ChangeMap ? MapToolName : AnswerToolName;
 
     public string Provider => ConnectorProviders.Anthropic;
 
@@ -162,7 +167,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                 yield break;
             }
 
-            await foreach (var ev in ReadStreamAsync(resp, whole, ct))
+            await foreach (var ev in ReadStreamAsync(resp, whole, request.ResponseKind, ResponseTool(request), ct))
                 yield return ev;
         }
     }
@@ -224,13 +229,22 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             });
         }
 
-        var tools = new JsonArray(new JsonObject
-        {
-            ["name"] = ToolName,
-            ["description"] = "Record the answer to the reviewer's question, with where it came from. "
-                            + "Call this once you have everything you need.",
-            ["input_schema"] = CanonicalSchema.Build(),
-        });
+        var responseTool = ResponseTool(request);
+        var tools = new JsonArray(request.ResponseKind == ResponseKind.ChangeMap
+            ? new JsonObject
+            {
+                ["name"] = responseTool,
+                ["description"] = "Record the architecture-grouped map of this pull request's changes. "
+                                + "Call this once you have classified the areas.",
+                ["input_schema"] = ChangeMapSchema.Build(),
+            }
+            : new JsonObject
+            {
+                ["name"] = responseTool,
+                ["description"] = "Record the answer to the reviewer's question, with where it came from. "
+                                + "Call this once you have everything you need.",
+                ["input_schema"] = CanonicalSchema.Build(),
+            });
 
         foreach (var tool in request.Tools ?? [])
             tools.Add(new JsonObject
@@ -254,7 +268,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             // tools we go back to forcing, which keeps the single-shot path exactly as it was.
             ["tool_choice"] = (request.Tools?.Count ?? 0) > 0
                 ? new JsonObject { ["type"] = "any" }
-                : new JsonObject { ["type"] = "tool", ["name"] = ToolName },
+                : new JsonObject { ["type"] = "tool", ["name"] = responseTool },
             ["stream"] = request.Stream,
         };
     }
@@ -278,9 +292,14 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     /// deliberately not restated here, where an earlier copy of them had already gone stale.
     /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
-        HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)
+        HttpResponseMessage resp, CancellationTokenSource whole, ResponseKind responseKind, string responseTool,
+        [EnumeratorCancellation] CancellationToken ct)
     {
+        // Only the answer shape streams element-by-element (§5.2's whole reason for existing). The
+        // map renders once, complete, as a diagram — so its fragments are just accumulated raw and
+        // parsed once at the end, by ChangeMapParser rather than SegmentStreamParser.
         var parser = new SegmentStreamParser();
+        var rawMap = new StringBuilder();
         var prose = new StringBuilder();
         AgentError? failure = null;
         int? promptTokens = null;
@@ -410,10 +429,10 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                                 if (index >= 0 && blocks.TryGetValue(index, out var b))
                                 {
                                     b.Args.Append(fragment);
-                                    // Only the answer tool's input is the canonical response. A file
+                                    // Only the response tool's input is the canonical response. A file
                                     // path being spelled out character by character is not something
                                     // to show the reviewer.
-                                    if (b.Name == ToolName) answerFragment = fragment;
+                                    if (b.Name == responseTool) answerFragment = fragment;
                                 }
                                 else if (isToolInput)
                                 {
@@ -456,8 +475,15 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             if (!string.IsNullOrEmpty(answerFragment))
             {
-                foreach (var segment in parser.Feed(answerFragment))
-                    yield return new AgentEvent.Segment(segment);
+                if (responseKind == ResponseKind.ChangeMap)
+                {
+                    rawMap.Append(answerFragment);
+                }
+                else
+                {
+                    foreach (var segment in parser.Feed(answerFragment))
+                        yield return new AgentEvent.Segment(segment);
+                }
             }
 
             if (!string.IsNullOrEmpty(proseFragment))
@@ -482,13 +508,19 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         // Files requested rather than an answer given. Terminal for this exchange only — the
         // orchestrator services these and asks again.
         var toolCalls = blocks.Values
-            .Where(b => b.Name != ToolName && b.Name.Length > 0)
+            .Where(b => b.Name != responseTool && b.Name.Length > 0)
             .Select(b => new AgentToolCall(b.Id, b.Name, b.Args.ToString()))
             .ToList();
 
         if (toolCalls.Count > 0)
         {
             yield return new AgentEvent.ToolCalls(toolCalls, usage);
+            yield break;
+        }
+
+        if (responseKind == ResponseKind.ChangeMap)
+        {
+            yield return new AgentEvent.MapComplete(rawMap.ToString(), usage);
             yield break;
         }
 

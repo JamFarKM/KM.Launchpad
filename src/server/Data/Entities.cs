@@ -258,6 +258,19 @@ public class AgentThread
     /// </summary>
     public string Status { get; set; } = AgentThreadStatus.Open;
 
+    /// <summary>
+    /// Main threads only: the change map (DESIGN_SPEC_CHANGE_MAP.md), as the wire shape rather than
+    /// the CLR one — same reasoning as <see cref="AgentThreadTurn.SegmentsJson"/>.
+    ///
+    /// Lives on the thread rather than as a turn, because a map isn't a question and an answer: it
+    /// has no <c>Question</c>, doesn't participate in replay, and re-running it replaces the map
+    /// rather than adding a new one to a list. One thread has at most one current map.
+    /// </summary>
+    public string? MapJson { get; set; }
+
+    /// <summary>The commit the map was generated against — drives the same staleness note as §7.3.</summary>
+    public string? MapCommitSha { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

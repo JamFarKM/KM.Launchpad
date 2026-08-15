@@ -262,6 +262,11 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("AgentThreads", "Seed", "TEXT NULL");
     AddColumnIfMissing("AgentThreads", "Status", "TEXT NOT NULL DEFAULT 'open'");
 
+    // The change map (DESIGN_SPEC_CHANGE_MAP.md): one per main thread, replaced on re-review rather
+    // than accumulated, which is why it lives on the thread and not as a turn.
+    AddColumnIfMissing("AgentThreads", "MapJson", "TEXT NULL");
+    AddColumnIfMissing("AgentThreads", "MapCommitSha", "TEXT NULL");
+
     void AddColumnIfMissing(string table, string column, string declaration)
     {
         var conn = db.Database.GetDbConnection();

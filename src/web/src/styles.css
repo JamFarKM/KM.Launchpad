@@ -5575,6 +5575,10 @@ a {
 
 .ag-id { flex: 1; min-width: 0; }
 
+/* §4.1's Review/Map controls. .ag-id already claims flex:1, so this sits flush right without its
+   own positioning. */
+.ag-headctl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
 .ag-name {
   display: flex;
   align-items: center;
@@ -6138,3 +6142,159 @@ body.is-card-sliding * { cursor: grabbing !important; }
   padding-bottom: 6px;
   font-variant-numeric: tabular-nums;
 }
+
+/* ============================================================================================
+   The change map (DESIGN_SPEC_CHANGE_MAP.md). Geometry ported from change-map-v1.html, where the
+   routing, the crossing-minimising order and the label placement were worked out and verified
+   against real data shapes — see ChangeMapSheet.tsx for the layout engine these classes render.
+   ============================================================================================ */
+
+.map-overlay {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklab, black 45%, transparent);
+  padding: 24px;
+}
+
+.map-sheet {
+  width: 100%; max-width: 1120px; max-height: 88vh;
+  background: var(--bg-surface); border: 1px solid var(--border-hairline);
+  border-radius: 12px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+.map-sheet-head {
+  display: flex; align-items: center; gap: 9px; padding: 10px 14px;
+  border-bottom: 1px solid var(--border-hairline); flex-shrink: 0;
+}
+
+.map-sheet-title { font-size: 13px; font-weight: 700; }
+
+/* Same badge vocabulary as a segment's provenance (§5.2.1) — a reviewer who has learned one has
+   learned both. Aqua for a stated fact, slate for a read of convention. */
+.map-pill {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 100px; white-space: nowrap; cursor: help;
+}
+.map-pill.structure { background: color-mix(in oklab, var(--hue-aqua) 15%, transparent); color: var(--hue-aqua); }
+.map-pill.inferred { background: color-mix(in oklab, var(--hue-slate) 16%, transparent); color: var(--hue-slate); }
+
+.map-commit { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--ink-muted); }
+
+.map-sheet-main { display: flex; min-height: 0; flex: 1; }
+@media (max-width: 899px) { .map-sheet-main { flex-direction: column; overflow-y: auto; } }
+
+/* ---------- diagram ---------- */
+
+.map-diagram {
+  flex: 1; min-width: 0; min-height: 320px; position: relative;
+  padding: 14px 44px 10px 20px; overflow: auto;
+}
+
+.map-axis {
+  position: absolute; left: 1px; top: 22px; bottom: 18px; width: 13px;
+  color: var(--ink-muted); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg);
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--border-hairline);
+}
+
+/* Row header in its own column, not a caption inside the diagram — the space below it is where
+   edges route, and a label sitting in that space would compete with them for the same pixels. */
+.map-band {
+  display: grid; grid-template-columns: 82px 1fr; column-gap: 14px; align-items: start;
+  padding: 10px 0 42px;
+}
+.map-band + .map-band { border-top: 1px dashed var(--border-hairline); }
+
+.map-band-label {
+  text-align: right; padding-top: 9px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* stretch (the flex default) keeps every card in a row the same height, so all edges leaving a row
+   leave from one baseline. The wide gap is deliberate: a same-band edge lives in it. */
+.map-nodes { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: stretch; }
+
+.map-node {
+  text-align: left; background: var(--bg-surface-2); border: 1px solid var(--border-hairline);
+  border-radius: 9px; padding: 8px 10px; cursor: pointer; color: inherit;
+  font: inherit; width: 168px; position: relative;
+}
+.map-node:hover { border-color: var(--hue-slate); }
+.map-node[aria-pressed="true"] { border-color: var(--hue-violet); box-shadow: 0 0 0 1px var(--hue-violet); }
+
+.map-node-name { font-size: 12px; font-weight: 650; }
+.map-node-meta { display: flex; gap: 8px; margin-top: 3px; font-size: 10.5px; color: var(--ink-muted); white-space: nowrap; }
+.map-node-meta .add { color: var(--hue-aqua); }
+.map-node-meta .del { color: var(--status-bad); }
+
+/* Review findings citing lines in this area — the map doubling as the review's table of contents
+   (§4.1). Neutral ink: the count is navigation, and severity is already carried by the findings
+   themselves back in the thread. */
+.map-node-find { margin-top: 4px; font-size: 10.5px; font-weight: 600; color: var(--ink-secondary); }
+
+.map-step {
+  position: absolute; top: -9px; left: -9px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--ink-primary); color: var(--bg-surface); font-size: 10.5px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* dimming: selection and flow mode share one mechanism */
+.map-diagram[data-mode] .map-node, .map-diagram[data-mode] .map-edge { opacity: 0.28; }
+.map-diagram[data-mode] .map-node.lit, .map-diagram[data-mode] .map-node[aria-pressed="true"],
+.map-diagram[data-mode] .map-edge.lit { opacity: 1; }
+
+.map-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.map-edge path.line { fill: none; stroke: var(--hue-slate); stroke-width: 1.4; opacity: 0.75; pointer-events: none; }
+.map-edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+
+/* A verb appears on the edge being pointed at, one at a time — never before. The violation label is
+   the one exception: it never waits to be asked. */
+.map-edge text {
+  display: none;
+  font: 600 9.5px system-ui, sans-serif; fill: var(--ink-muted);
+  paint-order: stroke; stroke: var(--bg-surface); stroke-width: 3px;
+}
+.map-edge:hover text, .map-edge.viol text, .map-edge.flowarrow text { display: revert; }
+.map-edge text.mid { text-anchor: middle; }
+.map-edge text.side { text-anchor: end; }
+
+.map-edge.viol path.line { stroke: var(--status-warn); stroke-dasharray: 5 4; stroke-width: 1.7; opacity: 1; }
+.map-edge.viol text { fill: var(--status-warn); }
+.map-edge.flowarrow path.line { stroke: var(--ink-primary); stroke-width: 1.8; opacity: 0.9; }
+
+/* ---------- detail rail ---------- */
+
+.map-rail {
+  width: 300px; flex-shrink: 0; border-left: 1px solid var(--border-hairline);
+  padding: 12px 14px; overflow-y: auto;
+}
+@media (max-width: 899px) { .map-rail { width: auto; border-left: 0; border-top: 1px solid var(--border-hairline); } }
+
+.map-rail h3 { margin: 0 0 4px; font-size: 12.5px; }
+.map-rail-sum { margin: 0 0 10px; font-size: 12px; color: var(--ink-secondary); }
+.map-rail-hint { font-size: 10.5px; color: var(--ink-muted); }
+
+.map-file {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  background: transparent; border: 1px solid var(--border-hairline); border-radius: 6px;
+  padding: 5px 8px; margin-bottom: 6px; cursor: pointer; color: var(--ink-secondary);
+  font: 10.5px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.map-file:hover { border-color: var(--hue-violet); color: var(--hue-violet); }
+.map-file-counts { margin-left: auto; }
+.map-file-counts .add { color: var(--hue-aqua); }
+.map-file-counts .del { color: var(--status-bad); }
+
+.map-flow-sentence {
+  padding: 0 16px 10px 20px; font-size: 11.5px; color: var(--ink-secondary); flex-shrink: 0;
+}
+.map-flow-sentence b { color: var(--ink-primary); }
+
+.map-sheet-foot {
+  padding: 8px 14px; font-size: 10.5px; color: var(--ink-muted);
+  border-top: 1px solid var(--border-hairline); flex-shrink: 0;
+}
+.map-sheet-foot b { color: var(--ink-secondary); font-weight: 600; }

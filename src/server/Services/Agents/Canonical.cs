@@ -171,6 +171,15 @@ public record AgentToolExchange(AgentToolCall Call, AgentToolResult Result);
 /// its provider's native shape so the model can see what it already asked for and got — without
 /// which it asks for the same file repeatedly.
 /// </param>
+/// <summary>
+/// Which schema a completion is being asked to fill (DESIGN_SPEC_CHANGE_MAP.md §2).
+///
+/// Not a provider concept. An adapter picks its tool name and schema from this instead of always
+/// reaching for the answer shape, which is what lets the change map share every adapter, every
+/// timeout and the whole tool loop rather than duplicating them for a second request shape.
+/// </summary>
+public enum ResponseKind { Answer, ChangeMap }
+
 public record CanonicalRequest(
     string SystemPrompt,
     string Context,
@@ -179,7 +188,8 @@ public record CanonicalRequest(
     string Model,
     bool Stream = true,
     IReadOnlyList<AgentToolDefinition>? Tools = null,
-    IReadOnlyList<AgentToolExchange>? ToolExchanges = null);
+    IReadOnlyList<AgentToolExchange>? ToolExchanges = null,
+    ResponseKind ResponseKind = ResponseKind.Answer);
 
 /// <summary>
 /// The §4 taxonomy, as an enum so a failure cannot reach the UI as free text.
@@ -363,6 +373,16 @@ public abstract record AgentEvent
     /// why adding a third provider does not mean rewriting any of that.
     /// </summary>
     public sealed record ToolCalls(IReadOnlyList<AgentToolCall> Calls, AgentUsage? Usage = null) : AgentEvent;
+
+    /// <summary>
+    /// The change map's completed tool input, unparsed (DESIGN_SPEC_CHANGE_MAP.md §2). Terminal.
+    ///
+    /// Raw rather than a typed <c>ChangeMap</c> here, on purpose: an adapter's job stops at handing
+    /// back what the provider said. Validating it against the paths the agent actually had in front
+    /// of it needs <see cref="AgentConversation"/>'s view of the tool loop, which an adapter has no
+    /// visibility into — the same reason citation resolution isn't done here either.
+    /// </summary>
+    public sealed record MapComplete(string Json, AgentUsage? Usage = null) : AgentEvent;
 }
 
 /// <summary>
@@ -559,4 +579,311 @@ public static class SeverityNames
         Severity.Error => "error",
         _ => "info",
     };
+}
+
+// ============================================================================================
+// The change map (DESIGN_SPEC_CHANGE_MAP.md). A second, smaller schema beside the answer's: the
+// model emits a typed graph — groups, edges, an optional flow — in a closed vocabulary, and every
+// honesty rule §5.2 puts on a claim applies here too. Geometry belongs to the client; nothing here
+// says where a box goes on screen.
+// ============================================================================================
+
+/// <summary>
+/// Which architectural style the agent read the repository as (§2). <c>Unknown</c> is a real answer,
+/// not an absence — a map that cannot be classified still groups by area, just without a depth axis.
+/// </summary>
+public enum ArchitectureStyle { Clean, Layers, Modules, Pipeline, Unknown }
+
+/// <summary>Wire names for <see cref="ArchitectureStyle"/>, kept next to the schema that declares them.</summary>
+public static class ArchitectureStyleNames
+{
+    public static ArchitectureStyle Parse(string? value) => value switch
+    {
+        "clean" => ArchitectureStyle.Clean,
+        "layers" => ArchitectureStyle.Layers,
+        "modules" => ArchitectureStyle.Modules,
+        "pipeline" => ArchitectureStyle.Pipeline,
+        _ => ArchitectureStyle.Unknown,
+    };
+
+    public static string ToWire(ArchitectureStyle s) => s switch
+    {
+        ArchitectureStyle.Clean => "clean",
+        ArchitectureStyle.Layers => "layers",
+        ArchitectureStyle.Modules => "modules",
+        ArchitectureStyle.Pipeline => "pipeline",
+        _ => "unknown",
+    };
+}
+
+/// <summary>
+/// Where the classification came from (§3) — the same <c>FROM STRUCTURE</c> / <c>INFERRED</c> pill
+/// vocabulary as <see cref="Provenance"/>, because a reviewer who has learned one has learned both.
+/// </summary>
+public enum StyleBasis { Structure, Inferred }
+
+/// <summary>Wire names for <see cref="StyleBasis"/>, kept next to the schema that declares them.</summary>
+public static class StyleBasisNames
+{
+    /// <summary>Missing or unrecognised becomes <see cref="StyleBasis.Inferred"/> — the same
+    /// direction <see cref="SeverityNames"/> defaults in, and for the same reason: the badge that
+    /// claims a fact is the one that needs asserting, not the one that admits a guess.</summary>
+    public static StyleBasis Parse(string? value) => value == "structure" ? StyleBasis.Structure : StyleBasis.Inferred;
+
+    public static string ToWire(StyleBasis b) => b == StyleBasis.Structure ? "structure" : "inferred";
+}
+
+/// <summary>One changed file cited as part of a group's evidence.</summary>
+public record ChangeMapFile(string Path, int Added, int Removed);
+
+/// <summary>
+/// One area of the change (§2). <paramref name="Depth"/> is 0 at the innermost (domain) layer and
+/// increases outward — arithmetic the client uses to draw the dependency-rule overlay (§5), not a
+/// display order.
+/// </summary>
+public record ChangeMapGroup(string Id, string Name, int Depth, string Summary, List<ChangeMapFile> Files);
+
+/// <summary>
+/// A dependency between two groups, in the direction of the call: <paramref name="From"/> depends on
+/// or calls <paramref name="To"/>. The client's own arithmetic — not the model's — decides whether
+/// that direction is a violation under the declared <see cref="ArchitectureStyle"/> (§5).
+/// </summary>
+public record ChangeMapEdge(string From, string To, string Label);
+
+/// <summary>One step of the user-facing flow this change serves, if it has one (§2). Optional: a
+/// pure refactor or a schema-only change may have no single request/response path to narrate.</summary>
+public record ChangeMapFlowStep(int Step, string Group, string Action);
+
+/// <summary>
+/// The whole map, validated and capped (§2, §7). Never partially valid on the wire: a group survives
+/// entire or is dropped entire, and a map with zero surviving groups is a parser failure, not an
+/// empty diagram — see <see cref="ChangeMapParser"/>.
+/// </summary>
+public record ChangeMap(
+    ArchitectureStyle Style,
+    StyleBasis StyleBasis,
+    List<ChangeMapGroup> Groups,
+    List<ChangeMapEdge> Edges,
+    List<ChangeMapFlowStep> Flow);
+
+/// <summary>
+/// The change-map schema (§2), built once so the prompt, the forced tool call and the fixture all
+/// quote the same caps.
+///
+/// Same two constraints as <see cref="CanonicalSchema"/> and for the same reason: every property is
+/// in <c>required</c> because strict structured output has no optional properties, and there is no
+/// <c>maxItems</c> because several strict implementations reject it outright — the caps below are
+/// enforced by <see cref="ChangeMapParser"/> instead, which trims rather than failing the whole
+/// response.
+/// </summary>
+public static class ChangeMapSchema
+{
+    public const string Name = "pr_change_map";
+
+    /// <summary>A map with forty nodes is the diff again, with worse typography (§2).</summary>
+    public const int MaxGroups = 8;
+    public const int MaxEdges = 14;
+    public const int MaxFlowSteps = 6;
+
+    public static JsonObject Build() => new()
+    {
+        ["type"] = "object",
+        ["additionalProperties"] = false,
+        ["required"] = new JsonArray("style", "style_basis", "groups", "edges", "flow"),
+        ["properties"] = new JsonObject
+        {
+            ["style"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JsonArray("clean", "layers", "modules", "pipeline", "unknown"),
+            },
+            ["style_basis"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JsonArray("structure", "inferred"),
+                ["description"] = "structure = the folders, projects or a checked-in doc say so outright. "
+                                + "inferred = you are reading the shape from convention, not from something stated.",
+            },
+            ["groups"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["items"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["required"] = new JsonArray("id", "name", "depth", "summary", "files"),
+                    ["properties"] = new JsonObject
+                    {
+                        ["id"] = new JsonObject { ["type"] = "string", ["description"] = "Short, stable, referenced by edges and flow." },
+                        ["name"] = new JsonObject { ["type"] = "string" },
+                        ["depth"] = new JsonObject
+                        {
+                            ["type"] = "integer",
+                            ["description"] = "0 = innermost/domain layer. Increases outward, toward infrastructure and edges.",
+                        },
+                        ["summary"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["description"] = "One sentence: what changed here and why it matters.",
+                        },
+                        ["files"] = new JsonObject
+                        {
+                            ["type"] = "array",
+                            ["items"] = new JsonObject
+                            {
+                                ["type"] = "object",
+                                ["additionalProperties"] = false,
+                                ["required"] = new JsonArray("path", "added", "removed"),
+                                ["properties"] = new JsonObject
+                                {
+                                    ["path"] = new JsonObject { ["type"] = "string" },
+                                    ["added"] = new JsonObject { ["type"] = "integer" },
+                                    ["removed"] = new JsonObject { ["type"] = "integer" },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            ["edges"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["items"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["required"] = new JsonArray("from", "to", "label"),
+                    ["properties"] = new JsonObject
+                    {
+                        ["from"] = new JsonObject { ["type"] = "string", ["description"] = "A group id. The dependent side." },
+                        ["to"] = new JsonObject { ["type"] = "string", ["description"] = "A group id. The depended-on side." },
+                        ["label"] = new JsonObject { ["type"] = "string", ["description"] = "A short verb phrase: \"builds\", \"calls\", \"reads\"." },
+                    },
+                },
+            },
+            ["flow"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["items"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["required"] = new JsonArray("step", "group", "action"),
+                    ["properties"] = new JsonObject
+                    {
+                        ["step"] = new JsonObject { ["type"] = "integer" },
+                        ["group"] = new JsonObject { ["type"] = "string", ["description"] = "A group id." },
+                        ["action"] = new JsonObject { ["type"] = "string" },
+                    },
+                },
+                ["description"] = "Empty when this change has no single user-facing request/response path to "
+                                + "narrate — a pure refactor or a schema-only change, for instance.",
+            },
+        },
+    };
+}
+
+/// <summary>
+/// Validates and caps a change map against what the agent actually had in front of it.
+///
+/// <b>No partial diagram, ever (§7).</b> A group whose every file fails validation is dropped whole,
+/// never rendered with an empty file list; a map with zero surviving groups is reported as a parse
+/// failure so the panel offers Retry, rather than an empty sheet that looks like a real answer with
+/// nothing in it. This is the same reasoning <see cref="AgentConversation"/> applies to an empty
+/// answer, applied to a graph instead of a list of segments.
+/// </summary>
+public static class ChangeMapParser
+{
+    public static ChangeMap? Parse(string json, IReadOnlyCollection<string> knownPaths)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(json); }
+        catch (JsonException) { return null; }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var style = ArchitectureStyleNames.Parse(Str(root, "style"));
+            var basis = StyleBasisNames.Parse(Str(root, "style_basis"));
+
+            var known = new HashSet<string>(knownPaths.Select(Normalise), StringComparer.OrdinalIgnoreCase);
+
+            var groups = new List<ChangeMapGroup>();
+            if (root.TryGetProperty("groups", out var gs) && gs.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var g in gs.EnumerateArray())
+                {
+                    if (groups.Count >= ChangeMapSchema.MaxGroups) break;
+                    if (g.ValueKind != JsonValueKind.Object) continue;
+
+                    var id = Str(g, "id");
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+
+                    var files = new List<ChangeMapFile>();
+                    if (g.TryGetProperty("files", out var fs) && fs.ValueKind == JsonValueKind.Array)
+                        foreach (var f in fs.EnumerateArray())
+                        {
+                            if (f.ValueKind != JsonValueKind.Object) continue;
+                            var path = Str(f, "path");
+                            // The one hard rule: a citation to a file nobody showed the agent is
+                            // invented, same as a citation on an answer segment (§5.2).
+                            if (string.IsNullOrWhiteSpace(path) || !known.Contains(Normalise(path))) continue;
+                            files.Add(new ChangeMapFile(path, Int(f, "added"), Int(f, "removed")));
+                        }
+
+                    // Every path failed validation: this group is not evidence of anything the
+                    // agent could actually show, so it is dropped whole rather than rendered empty.
+                    if (files.Count == 0) continue;
+
+                    groups.Add(new ChangeMapGroup(id, Str(g, "name") ?? id, Int(g, "depth"), Str(g, "summary") ?? "", files));
+                }
+            }
+
+            if (groups.Count == 0) return null;
+
+            var groupIds = new HashSet<string>(groups.Select(g => g.Id), StringComparer.Ordinal);
+
+            var edges = new List<ChangeMapEdge>();
+            if (root.TryGetProperty("edges", out var es) && es.ValueKind == JsonValueKind.Array)
+                foreach (var e in es.EnumerateArray())
+                {
+                    if (edges.Count >= ChangeMapSchema.MaxEdges) break;
+                    if (e.ValueKind != JsonValueKind.Object) continue;
+                    var from = Str(e, "from");
+                    var to = Str(e, "to");
+                    // Both ends have to survive group validation, or the edge points at a box that
+                    // no longer exists on the map.
+                    if (string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(to)) continue;
+                    if (!groupIds.Contains(from) || !groupIds.Contains(to)) continue;
+                    edges.Add(new ChangeMapEdge(from, to, Str(e, "label") ?? ""));
+                }
+
+            // Renumbered to array order rather than trusting the model's own step numbers, which are
+            // free-form integers in the schema and not guaranteed to be sequential or unique.
+            var flow = new List<ChangeMapFlowStep>();
+            if (root.TryGetProperty("flow", out var fls) && fls.ValueKind == JsonValueKind.Array)
+                foreach (var fl in fls.EnumerateArray())
+                {
+                    if (flow.Count >= ChangeMapSchema.MaxFlowSteps) break;
+                    if (fl.ValueKind != JsonValueKind.Object) continue;
+                    var group = Str(fl, "group");
+                    if (string.IsNullOrWhiteSpace(group) || !groupIds.Contains(group)) continue;
+                    flow.Add(new ChangeMapFlowStep(flow.Count + 1, group, Str(fl, "action") ?? ""));
+                }
+
+            return new ChangeMap(style, basis, groups, edges, flow);
+        }
+    }
+
+    private static string Normalise(string path) => path.TrimStart('/');
+
+    private static string? Str(JsonElement obj, string prop) =>
+        obj.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static int Int(JsonElement obj, string prop) =>
+        obj.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : 0;
 }

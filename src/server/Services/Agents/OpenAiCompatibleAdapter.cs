@@ -36,6 +36,11 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
     /// <summary>The function the model calls to record its answer when tools are in play.</summary>
     private const string AnswerToolName = "record_pr_answer";
+    private const string MapToolName = "record_change_map";
+
+    /// <summary>The tool/schema name that carries this request's response, chosen from its ResponseKind.</summary>
+    private static string ResponseTool(CanonicalRequest request) =>
+        request.ResponseKind == ResponseKind.ChangeMap ? MapToolName : AnswerToolName;
 
     private static string BaseOf(AgentTarget target) => (target.BaseUrl ?? "").TrimEnd('/');
 
@@ -148,7 +153,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                 yield break;
             }
 
-            await foreach (var ev in ReadStreamAsync(resp, whole, ct))
+            await foreach (var ev in ReadStreamAsync(resp, whole, request.ResponseKind, ResponseTool(request), ct))
                 yield return ev;
         }
     }
@@ -218,6 +223,11 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             ["messages"] = messages,
         };
 
+        var responseTool = ResponseTool(request);
+        var isMap = request.ResponseKind == ResponseKind.ChangeMap;
+        var responseSchema = isMap ? ChangeMapSchema.Build() : CanonicalSchema.Build();
+        var responseSchemaName = isMap ? ChangeMapSchema.Name : CanonicalSchema.Name;
+
         var repoTools = request.Tools ?? [];
         if (repoTools.Count == 0)
         {
@@ -227,9 +237,9 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                 ["type"] = "json_schema",
                 ["json_schema"] = new JsonObject
                 {
-                    ["name"] = CanonicalSchema.Name,
+                    ["name"] = responseSchemaName,
                     ["strict"] = true,
-                    ["schema"] = CanonicalSchema.Build(),
+                    ["schema"] = responseSchema,
                 },
             };
             return body;
@@ -246,10 +256,13 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
             ["type"] = "function",
             ["function"] = new JsonObject
             {
-                ["name"] = AnswerToolName,
-                ["description"] = "Record the answer to the reviewer's question, with where it came "
-                                + "from. Call this once you have everything you need.",
-                ["parameters"] = CanonicalSchema.Build(),
+                ["name"] = responseTool,
+                ["description"] = isMap
+                    ? "Record the architecture-grouped map of this pull request's changes. Call this "
+                    + "once you have classified the areas."
+                    : "Record the answer to the reviewer's question, with where it came from. Call "
+                    + "this once you have everything you need.",
+                ["parameters"] = responseSchema,
             },
         });
 
@@ -287,9 +300,13 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
     /// before showing anything would make mode 3 look like a hang.
     /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
-        HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)
+        HttpResponseMessage resp, CancellationTokenSource whole, ResponseKind responseKind, string responseTool,
+        [EnumeratorCancellation] CancellationToken ct)
     {
+        // Only the answer shape streams element-by-element (§5.2). The map renders once, complete,
+        // as a diagram, so its fragments are accumulated raw and parsed once at the end.
         var parser = new SegmentStreamParser();
+        var rawMap = new StringBuilder();
         var prose = new StringBuilder();
         bool? contentIsJson = null;
         AgentError? failure = null;
@@ -404,9 +421,9 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                                 {
                                     progressed = true;
                                     entry.Args.Append(args);
-                                    // The answer function's arguments *are* the canonical response,
+                                    // The response function's arguments *are* the canonical response,
                                     // so they render progressively just as content would.
-                                    if (entry.Name == AnswerToolName) answerFragment = args;
+                                    if (entry.Name == responseTool) answerFragment = args;
                                 }
                             }
                         }
@@ -465,8 +482,15 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
             if (!string.IsNullOrEmpty(answerFragment))
             {
-                foreach (var segment in parser.Feed(answerFragment))
-                    yield return new AgentEvent.Segment(segment);
+                if (responseKind == ResponseKind.ChangeMap)
+                {
+                    rawMap.Append(answerFragment);
+                }
+                else
+                {
+                    foreach (var segment in parser.Feed(answerFragment))
+                        yield return new AgentEvent.Segment(segment);
+                }
             }
 
             // Last, so this frame's content is delivered before the answer is called incomplete.
@@ -482,13 +506,19 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
         }
 
         var repoCalls = calls.Values
-            .Where(c => c.Name != AnswerToolName && c.Name.Length > 0)
+            .Where(c => c.Name != responseTool && c.Name.Length > 0)
             .Select(c => new AgentToolCall(c.Id, c.Name, c.Args.ToString()))
             .ToList();
 
         if (repoCalls.Count > 0)
         {
             yield return new AgentEvent.ToolCalls(repoCalls, usage);
+            yield break;
+        }
+
+        if (responseKind == ResponseKind.ChangeMap)
+        {
+            yield return new AgentEvent.MapComplete(rawMap.ToString(), usage);
             yield break;
         }
 

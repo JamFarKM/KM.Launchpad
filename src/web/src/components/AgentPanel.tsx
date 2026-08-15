@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { askAgent } from "../lib/askAgent";
+import { askAgent, askReview } from "../lib/askAgent";
+import { ChangeMapSheet } from "./ChangeMapSheet";
 import type {
-  AgentCitation, AgentSegment, AgentTurn, Connector, ConnectorProvider, PullRequest,
+  AgentCitation, AgentSegment, AgentTurn, ChangeMap, Connector, ConnectorProvider, PullRequest,
 } from "../types";
 
 const PR_QUESTIONS = "pr.questions";
+
+/** Must match AgentEndpoints.ReviewQuestion server-side — how a review turn is told apart from an
+    ordinary typed question, since nothing else marks one as such once it's stored. */
+const REVIEW_QUESTION = "Review this pull request. Identify concrete problems, risks and notable "
+  + "design decisions — cite specific lines. If nothing stands out, say so plainly.";
 
 /*
  * These are answerable now. "Is anything here not covered by tests?" shipped in the previous step
@@ -73,12 +79,28 @@ export function AgentPanel({
   /* What is being drafted for the pull request: one specific claim, not a whole turn (§7.4). */
   const [posting, setPosting] = useState<{ segment: AgentSegment; connectorName?: string | null } | null>(null);
 
+  /* §4.1's Review button. Separate from the ask() state above rather than reusing it: a Review can
+     run while the composer is untouched, and conflating the two would mean a typed question and a
+     Review fighting over one "streaming" flag. */
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewSegments, setReviewSegments] = useState<AgentSegment[]>([]);
+  const [reviewReading, setReviewReading] = useState<string | null>(null);
+  const [reviewFailure, setReviewFailure] = useState<{ code: string; detail?: string | null } | null>(null);
+  /* True only across the map phase, which starts after the review turn has already landed — so the
+     review's own segments are showing normally by the time this is the only spinner left. */
+  const [mapping, setMapping] = useState(false);
+  const [map, setMap] = useState<ChangeMap | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
+  const reviewAbort = useRef<AbortController | null>(null);
+
   const abort = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
   // Server-recorded turns are the source of truth; local state mirrors them so a stream can render
   // before the query refetches.
   useEffect(() => { if (threadQ.data) setTurns(threadQ.data.turns); }, [threadQ.data]);
+  useEffect(() => { if (threadQ.data) setMap(threadQ.data.map ?? null); }, [threadQ.data]);
 
   useEffect(() => {
     if (prefill) { setQuestion(prefill); onPrefillConsumed?.(); }
@@ -148,9 +170,56 @@ export function AgentPanel({
     }
   }
 
+  /**
+   * §4.1: one button, one request, both halves. `reviewing` covers the whole thing so a second
+   * click can't overlap the first; `mapping` narrows to just the second half once the review turn
+   * has landed, since by then the review's own segments are rendering normally and the map is the
+   * only thing left waiting.
+   */
+  async function runReview() {
+    if (reviewing || !connector) return;
+
+    setReviewSegments([]);
+    setReviewReading(null);
+    setReviewFailure(null);
+    setMapError(null);
+    setReviewing(true);
+
+    const controller = new AbortController();
+    reviewAbort.current = controller;
+
+    try {
+      await askReview(project, repoId, pr.id, {
+        onReading: (info) => setReviewReading(info.detail || info.tool),
+        onSegment: (segment) => setReviewSegments((s) => [...s, segment]),
+        onComplete: (turn) => {
+          // The review is a normal turn the moment it lands — same rendering, same "Post as
+          // comment…", same replay — so it joins the thread exactly like a typed question would.
+          setTurns((t) => [...t, turn]);
+          setReviewSegments([]);
+          setReviewReading(null);
+          setMapping(true);
+        },
+        onError: (e) => setReviewFailure(e),
+        onMap: (m) => { setMap(m); setMapping(false); },
+        onMapError: (detail) => { setMapError(detail ?? "The change map could not be produced."); setMapping(false); },
+      }, controller.signal);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setReviewFailure({ code: "upstream", detail: "The request could not be completed." });
+      }
+    } finally {
+      setReviewing(false);
+      setMapping(false);
+      reviewAbort.current = null;
+      threadQ.refetch();
+    }
+  }
+
   const name = connector?.name ?? "Agent";
   const unreachable = connector?.status === "unreachable";
   const missing = !connectorsQ.isLoading && !connector;
+  const hasReviewed = turns.some((t) => t.question === REVIEW_QUESTION) || map !== null;
 
   /* The panel's header: who is answering, on what model, and whether it is reachable. The status is
      a dot plus a word, and the shape differs per state (A4), so hue is never the only signal. */
@@ -168,6 +237,27 @@ export function AgentPanel({
           {missing ? "Settings › Connectors" : unreachable ? "Unreachable on the last attempt" : connector?.model ?? ""}
         </div>
       </div>
+
+      {/* §4.1: one button runs both a review and the change map it indexes. Map appears only once
+          one exists — a control offering a diagram before there is anything to show it against
+          would ask the reviewer to want it before they know what it contains. */}
+      {!missing && (
+        <div className="ag-headctl">
+          {map && (
+            <button className="ag-mini" onClick={() => setMapOpen(true)} disabled={reviewing}>
+              Map
+            </button>
+          )}
+          <button
+            className="ag-mini"
+            onClick={runReview}
+            disabled={reviewing || unreachable}
+            title={hasReviewed ? "Run again on the current commit" : "Ask for problems, risks and a map of what changed"}
+          >
+            {reviewing ? (mapping ? "Mapping…" : "Reviewing…") : hasReviewed ? "Re-review" : "Review"}
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -290,6 +380,53 @@ export function AgentPanel({
           </div>
         )}
 
+        {/* The review's own claims stream exactly like an ordinary answer's — same card, same
+            badges — because it is one: turn.question just happens to be fixed rather than typed.
+            Hidden once mapping starts, since by then this turn has already joined `turns` above. */}
+        {reviewing && !mapping && (
+          <div className="ag-turn">
+            <div className="ag-you"><div className="ag-bubble">Review this pull request</div></div>
+            <div className="ag-answer">
+              <div className="ag-ahead"><span className="ag-who">{name.toUpperCase()}</span></div>
+
+              {reviewSegments.map((s, i) => <Segment key={i} segment={s} onCite={onCite} />)}
+
+              <div className="ag-pending">
+                <span className="ag-prov pending" title="The source is stated when this part lands.">
+                  CHECKING SOURCES
+                </span>
+                {reviewReading
+                  ? <span className="ag-thinking">reading <code>{reviewReading}</code>…</span>
+                  : reviewSegments.length === 0
+                    ? <span className="ag-thinking">reading the diff and the description…</span>
+                    : null}
+              </div>
+
+              <div className="ag-afoot">
+                <button className="ag-mini" onClick={() => reviewAbort.current?.abort()}>Stop</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* The map phase: the review turn above is already finished and on screen, so this is the
+            only thing still working. No Stop here — the review it's attached to already landed, and
+            stopping midway would leave neither a map nor a clear reason why not. */}
+        {mapping && (
+          <div className="ag-pending" style={{ padding: "4px 0 10px" }}>
+            <span className="spin" aria-hidden="true" />
+            <span className="ag-thinking">
+              {reviewReading ? <>mapping — reading <code>{reviewReading}</code>…</> : "drawing the change map…"}
+            </span>
+          </div>
+        )}
+
+        {mapError && (
+          <div className="ag-banner ag-note">
+            <div><b>The change map didn't come back.</b> {mapError}</div>
+          </div>
+        )}
+
         {truncation && (
           <div className="ag-banner ag-note">
             <div>
@@ -301,7 +438,12 @@ export function AgentPanel({
         )}
 
         {failure && <FailureRow failure={failure} name={name} />}
+        {reviewFailure && <FailureRow failure={reviewFailure} name={name} />}
       </div>
+
+      {mapOpen && map && (
+        <ChangeMapSheet map={map} connectorName={name} onCite={onCite} onClose={() => setMapOpen(false)} />
+      )}
 
       <div className="ag-composer">
         <textarea
