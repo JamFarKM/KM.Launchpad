@@ -5918,6 +5918,12 @@ a {
 
 .ag-pending .ag-thinking { margin: 0; }
 
+/* The wizard working. `.ag-pending` carries no horizontal padding because it normally sits inside
+   `.ag-answer`, which supplies the indent from its own rail — this one is a direct child of the
+   scroller, where that left it flush against the panel edge, further left than every other row. The
+   12px matches `.ag-chips` and `.ag-slabel`, which is what the eye lines it up against. */
+.ag-mapping { padding: 6px 12px 10px; }
+
 /* ---------- citations ---------- */
 
 .ag-cites {

@@ -268,7 +268,14 @@ export function AgentPanel({
       </div>
 
       {/* Two actions, two spends, and each label says what pressing it costs. Review reads the diff
-          and reports problems; Wizard maps the change and walks it. Neither pays for the other. */}
+          and reports problems; Wizard maps the change and walks it. Neither pays for the other.
+
+          The glyphs are chosen against the palette, not just for meaning. A1 reserves blue for run
+          buttons and list selection, and §7.1 reserves violet for "this connector is answering right
+          now" — so 🔍 (blue rim), 🩺 and 🧙 (blue) all put a reserved signal on a secondary control,
+          and 👣 / 🔮 (violet) do the same to the other one. 🧐 and 🧭 are warm, which is exactly the
+          band the design system leaves free. The compass also says the truer thing about the wizard:
+          it is being guided somewhere, not conjuring. */}
       {!missing && (
         <div className="ag-headctl">
           <button
@@ -277,7 +284,7 @@ export function AgentPanel({
             disabled={reviewing || mapping || unreachable}
             title={hasReviewed ? "Review again on the current commit" : "Ask for problems, risks and notable decisions"}
           >
-            {reviewing ? "Reviewing…" : hasReviewed ? "🔍 Re-review" : "🔍 Review"}
+            {reviewing ? "Reviewing…" : hasReviewed ? "🧐 Re-review" : "🧐 Review"}
           </button>
           <button
             className="ag-mini"
@@ -287,7 +294,7 @@ export function AgentPanel({
               ? "Open the walkthrough — already generated, costs nothing"
               : "Map this change and walk through it step by step"}
           >
-            {mapping ? "Mapping…" : map ? "🪄 Show walkthrough" : "🪄 Wizard"}
+            {mapping ? "Mapping…" : map ? "🧭 Show walkthrough" : "🧭 Wizard"}
           </button>
         </div>
       )}
@@ -446,7 +453,7 @@ export function AgentPanel({
             rather than the tail of a review whose turn had already landed, so abandoning it leaves
             nothing half-recorded. */}
         {mapping && (
-          <div className="ag-pending" style={{ padding: "4px 0 10px" }}>
+          <div className="ag-pending ag-mapping">
             <span className="spin" aria-hidden="true" />
             <span className="ag-thinking">
               {reviewReading
