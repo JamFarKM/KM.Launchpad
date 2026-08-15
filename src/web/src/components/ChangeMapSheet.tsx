@@ -114,6 +114,23 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
   );
 
   const group = selected ? byId.get(selected) : null;
+
+  /* File names in the rail, shortened to the basename — except where two files in the selected group
+     share one. A test project and its stub folder can both hold a `StubVoucherClient.cs`, and the
+     list rendered them as two identical rows with different line counts and no way to tell which was
+     which. Those get their parent directory back. The full path is on the tooltip either way. */
+  const label = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const f of group?.files ?? []) {
+      const base = f.path.split("/").pop() ?? f.path;
+      seen.set(base, (seen.get(base) ?? 0) + 1);
+    }
+    return (path: string) => {
+      const parts = path.split("/");
+      const base = parts.pop() ?? path;
+      return (seen.get(base) ?? 0) > 1 && parts.length ? `${parts[parts.length - 1]}/${base}` : base;
+    };
+  }, [group]);
   /* Every step number a group holds, not just one.
      This was a Map<group, step>, which silently kept only a group's *last* step: a flow that comes
      back to the orchestrator at 3 and 5, or enters and leaves through the edge layer at 1 and 6,
@@ -228,23 +245,27 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
 
           <div className="map-rail">
             {!group ? (
-              <>
+              <div className="map-rail-head">
                 <h3>{map.groups.length} area{map.groups.length === 1 ? "" : "s"} changed</h3>
                 <p className="map-rail-sum">Select an area to see its files and the agent's read of what changed there.</p>
-              </>
+              </div>
             ) : (
               <>
-                <h3>{group.name}</h3>
-                <p className="map-rail-sum">{group.summary}</p>
-                {group.files.map((f) => (
-                  <button key={f.path} className="map-file" onClick={() => onCite(f.path, 1)}>
-                    {f.path.split("/").pop()}
-                    <span className="map-file-counts">
-                      {f.added > 0 && <span className="add">+{f.added}</span>}{" "}
-                      {f.removed > 0 && <span className="del">−{f.removed}</span>}
-                    </span>
-                  </button>
-                ))}
+                <div className="map-rail-head">
+                  <h3>{group.name}</h3>
+                  <p className="map-rail-sum">{group.summary}</p>
+                </div>
+                <div className="map-rail-files">
+                  {group.files.map((f) => (
+                    <button key={f.path} className="map-file" title={f.path} onClick={() => onCite(f.path, 1)}>
+                      {label(f.path)}
+                      <span className="map-file-counts">
+                        {f.added > 0 && <span className="add">+{f.added}</span>}{" "}
+                        {f.removed > 0 && <span className="del">−{f.removed}</span>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
                 <p className="map-rail-hint">Jumps the diff to that file and closes the map.</p>
               </>
             )}
