@@ -1,12 +1,15 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
-import { RailResizer, useRailWidth } from "../components/RailResizer";
+import { AnnotationCard, type CycleStop } from "../components/AnnotationCard";
+import { LeftResizer, RailResizer, useLeftWidth, useRailWidth } from "../components/RailResizer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import type { DiffStats } from "../components/MonacoDiff";
-import type { Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite } from "../types";
+import type {
+  Annotation, Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite,
+} from "../types";
 
 /** ADO's vote scale, as review actions. */
 /* Approve is the only solid fill: "approve" genuinely is a good/bad axis and it's a single
@@ -263,15 +266,22 @@ export function ReviewPage() {
 
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 
-  // Which rail tab is showing, and the citation the diff should reveal.
-  const [rail, setRail] = useState<"files" | "agent">("files");
+  // The citation the diff should reveal.
   const [cite, setCite] = useState<{ line: number; nonce: number } | null>(null);
   const [agentPrefill, setAgentPrefill] = useState<string | null>(null);
 
-  /* The rail's width, dragged by the reviewer and persisted. A long answer beside a wide diff is a
-     genuine tension, and which one deserves the space changes by the minute — so it is theirs to
-     decide rather than ours to fix at one number. */
+  /* The rail's width and the dock's height, dragged by the reviewer and persisted. A long answer
+     beside a wide diff is a genuine tension, and which one deserves the space changes by the minute
+     — so it is theirs to decide rather than ours to fix at one number. */
   const [railWidth, setRailWidth] = useRailWidth();
+  const [leftWidth, setLeftWidth] = useLeftWidth();
+
+  /* Which of the left panel's two tabs is showing. The conversation replaces the pull request list
+     rather than sitting beside it, on the reasoning DESIGN_SPEC_REVIEW.md §5 already gives for why
+     the agent does not belong in the right rail: you pick a pull request, then you are done with that
+     list, whereas the file tree is needed constantly alongside an answer. So the list is the one
+     surface the conversation can take over without costing anything. */
+  const [leftTab, setLeftTab] = useState<"prs" | "agent">("prs");
 
   /**
    * The tab is named by whichever connector holds the capability — never a literal (§7.1). With
@@ -280,6 +290,216 @@ export function ReviewPage() {
   const connectorsQ = useQuery<Connector[]>({ queryKey: ["connectors"], queryFn: api.connectors });
   const agentTabLabel =
     connectorsQ.data?.find((c) => c.capabilities.includes("pr.questions"))?.name ?? "Agent";
+
+  /**
+   * Reveal a cited line, switching file first if the citation points elsewhere.
+   *
+   * Resolved against the real file list rather than trusting the two strings to match: the context
+   * block declares paths without a leading slash and Azure DevOps hands them back with one, so a
+   * plain equality check set a path that matched no file and the chip silently scrolled nowhere —
+   * which §5.2 calls out as worse than having no chip.
+   */
+  const revealCitation = useCallback((citedPath: string, line: number) => {
+    const norm = (p: string) => p.replace(/^\//, "");
+    const match = changes.find((c) => norm(c.path) === norm(citedPath));
+    if (!match) return;
+    if (match.path !== path) setPath(match.path);
+    // The nonce makes a repeat click on the same chip a fresh instruction.
+    setCite({ line, nonce: Date.now() });
+  }, [changes, path]);
+
+  /* ---- inline annotations (DESIGN_SPEC_CONNECTORS.md §7.6) ---- */
+
+  const annotationsQ = useQuery<Annotation[]>({
+    queryKey: ["pr-annotations", project, repoId, prId],
+    queryFn: () => api.annotations(project, repoId, prId!),
+    enabled: !!project && !!repoId && !!prId,
+  });
+
+  const annotations = useMemo(() => annotationsQ.data ?? [], [annotationsQ.data]);
+
+  /* The conversation, read here as well as in the panel. Same query key, so TanStack serves both from
+     one cache and one request — and the page needs it because a gutter marker comes from a *citation*,
+     not from an annotation: the marker is what the reviewer clicks to create the annotation. */
+  const agentThreadQ = useQuery({
+    queryKey: ["agent-thread", project, repoId, prId],
+    queryFn: () => api.agentThread(project, repoId, prId!),
+    enabled: !!project && !!repoId && !!prId,
+  });
+
+  const citedSegments = useMemo(
+    () => (agentThreadQ.data?.turns ?? [])
+      .flatMap((t) => t.segments)
+      .filter((s) => s.citations.length > 0),
+    [agentThreadQ.data],
+  );
+  const refreshAnnotations = useCallback(
+    () => { qc.invalidateQueries({ queryKey: ["pr-annotations", project, repoId, prId] }); },
+    [qc, project, repoId, prId]);
+
+  /** Whether resolved markers are in the cycle and shown at full strength (§7.6). */
+  const [showResolved, setShowResolved] = useState(false);
+
+  const norm = (p: string) => p.replace(/^\//, "");
+
+  /**
+   * The gutter markers for the file on screen.
+   *
+   * <b>A marker comes from a citation, not from an annotation.</b> Every cited line gets one as soon as
+   * the answer lands — no extra request, because the citation data is already here — and the annotation
+   * is what clicking one creates. Lines that already have an annotation carry its state, so a resolved
+   * one dims and drops out of the list until `Show resolved`.
+   */
+  const fileAnnotations = useMemo(() => {
+    const current = shown ? norm(shown.path) : null;
+    if (current === null) return [];
+
+    type Marker = { line: number; resolved: boolean; hasReplies: boolean; severity: string };
+    const byLine = new Map<number, Marker>();
+
+    // Worst wins where several claims cite one line. A margin reporting the mildest thing said about
+    // a line is worse than no margin at all, because it reads as an all-clear.
+    const rank: Record<string, number> = { info: 0, warning: 1, error: 2 };
+
+    for (const s of citedSegments) {
+      const severity = s.severity ?? "info";
+      for (const c of s.citations) {
+        if (norm(c.path) !== current) continue;
+        const seen = byLine.get(c.line);
+        if (seen && (rank[seen.severity] ?? 0) >= (rank[severity] ?? 0)) continue;
+        byLine.set(c.line, { line: c.line, resolved: false, hasReplies: false, severity });
+      }
+    }
+
+    for (const a of annotations) {
+      if (norm(a.path) !== current) continue;
+      const resolved = a.status === "resolved";
+      if (resolved && !showResolved) { byLine.delete(a.line); continue; }
+      // An annotation whose citation has scrolled out of the replayed history still gets a marker: the
+      // reviewer started a conversation about that line, and losing the way back to it loses the thread.
+      byLine.set(a.line, {
+        line: a.line,
+        resolved,
+        hasReplies: a.turns.length > 0,
+        severity: byLine.get(a.line)?.severity ?? "info",
+      });
+    }
+
+    return [...byLine.values()];
+  }, [citedSegments, annotations, shown, showResolved]);
+
+  /**
+   * Every point the agent made, across the whole pull request, in file order.
+   *
+   * <b>This counts citations, not conversations.</b> It first counted only annotations the reviewer had
+   * replied to, on the reading that §7.6's "open annotations" meant threads worth returning to. That is
+   * the wrong tool: a reviewer wants to walk everything the agent flagged, including — especially — the
+   * points they have not looked at yet. Resolving is how you take one out of the rotation, which is
+   * what `Show resolved` is the other half of.
+   *
+   * Errors and warnings sort to the front. On a long answer the reviewer's first ‹ › press should land
+   * on the thing that might block the merge, not on whichever file happens to sort first alphabetically.
+   */
+  const cycle = useMemo(() => {
+    const rank: Record<string, number> = { info: 0, warning: 1, error: 2 };
+    const byKey = new Map<string, CycleStop>();
+
+    for (const s of citedSegments) {
+      const severity = s.severity ?? "info";
+      for (const c of s.citations) {
+        const key = `${norm(c.path)}:${c.line}`;
+        const seen = byKey.get(key);
+        if (seen && (rank[seen.severity] ?? 0) >= (rank[severity] ?? 0)) continue;
+        byKey.set(key, {
+          path: norm(c.path), line: c.line, severity,
+          // Whichever claim cited the line opens its card, so stepping onto a stop always has
+          // something to show even before the reviewer has said anything.
+          seed: s.text, annotation: null,
+        });
+      }
+    }
+
+    for (const a of annotations) {
+      const key = `${norm(a.path)}:${a.line}`;
+      const seen = byKey.get(key);
+      byKey.set(key, {
+        path: norm(a.path), line: a.line,
+        severity: seen?.severity ?? "info",
+        seed: a.seed ?? seen?.seed ?? null,
+        annotation: a,
+      });
+    }
+
+    return [...byKey.values()]
+      .filter((s) => showResolved || s.annotation?.status !== "resolved")
+      .sort((a, b) =>
+        (rank[b.severity] ?? 0) - (rank[a.severity] ?? 0)
+        || a.path.localeCompare(b.path)
+        || a.line - b.line);
+  }, [citedSegments, annotations, showResolved]);
+
+  /** Which stop is showing, as a `path:line` key — stops exist before annotations do. */
+  const [openStop, setOpenStop] = useState<string | null>(null);
+  const cycleIndex = cycle.findIndex((s) => `${s.path}:${s.line}` === openStop);
+
+  /* The card only renders for the file on screen. A card anchored to a line in another file would
+     point at whatever happens to be on that line here, which is worse than no card. */
+  const openCard = useMemo(() => {
+    if (!openStop || !shown) return null;
+    const stop = cycle.find((s) => `${s.path}:${s.line}` === openStop);
+    return stop && stop.path === norm(shown.path) ? stop : null;
+  }, [cycle, openStop, shown]);
+
+  /**
+   * Go to a stop: switch file if it is elsewhere, reveal the line, open its card.
+   *
+   * <b>No row is written just for looking.</b> A stop's card renders from the citation alone, and the
+   * annotation is only persisted when the reviewer actually says or resolves something — otherwise
+   * paging through twenty citations would leave twenty empty conversations behind, and the count of
+   * "annotations" would stop meaning anything.
+   */
+  const openAt = useCallback((stop: CycleStop | undefined) => {
+    if (!stop) return;
+    const match = changes.find((c) => norm(c.path) === stop.path);
+    if (match && match.path !== path) setPath(match.path);
+    setOpenStop(`${stop.path}:${stop.line}`);
+    setCite({ line: stop.line, nonce: Date.now() });
+  }, [changes, path]);
+
+  const step = useCallback((delta: number) => {
+    if (cycle.length === 0) return;
+    // Wraps, because stepping past the last one and finding nothing happens reads as broken.
+    const from = cycleIndex < 0 ? (delta > 0 ? -1 : 0) : cycleIndex;
+    openAt(cycle[(from + delta + cycle.length) % cycle.length]);
+  }, [cycle, cycleIndex, openAt]);
+
+  /** Clicking a gutter marker: the same thing as stepping onto that stop. */
+  const openAnnotationAt = useCallback((line: number) => {
+    if (!shown) return;
+    setOpenStop(`${norm(shown.path)}:${line}`);
+  }, [shown]);
+
+  /**
+   * Persist the open stop's annotation, if it isn't one yet, and return its id.
+   *
+   * Called by the card immediately before its first write — a reply, or a resolve. Seeded with the
+   * claim that cited the line: the agent's own words, copied rather than referenced, so a later
+   * re-ask replacing that turn can't silently change what the card says it is about.
+   */
+  const ensureAnnotation = useCallback(async (): Promise<string | null> => {
+    if (!openCard || !prId) return null;
+    if (openCard.annotation) return openCard.annotation.id;
+
+    const created = await api.createAnnotation(project, repoId, prId, {
+      path: openCard.path,
+      line: openCard.line,
+      commitSha: pr?.sourceCommit ?? null,
+      seed: openCard.seed,
+    });
+    refreshAnnotations();
+    return created.id;
+  }, [openCard, prId, project, repoId, pr?.sourceCommit, refreshAnnotations]);
+
   const [viewed, setViewed] = useState<Set<string>>(new Set());
 
   // Reload viewed state whenever the PR or its head commit changes.
@@ -436,23 +656,58 @@ export function ReviewPage() {
         className="review"
         data-left={leftOpen ? "on" : "off"}
         data-right={prId && rightOpen ? "on" : "off"}
-        style={{ "--w-right": `${railWidth}px` } as React.CSSProperties}
+        style={{
+          "--w-left": `${leftWidth}px`,
+          "--w-right": `${railWidth}px`,
+        } as React.CSSProperties}
       >
-        {/* ---------- pull requests ---------- */}
-        <div className="cfg-col">
-          {/* An active repo can carry dozens of PRs; scanning for "the one about sport ids"
-              shouldn't mean scrolling. Matches id, title or author (§8). */}
-          <div className="cfg-head">
-            <input
-              className="input pr-search"
-              type="search"
-              placeholder="Filter pull requests…"
-              value={prFilter}
-              onChange={(e) => setPrFilter(e.target.value)}
-            />
+        {/* ---------- pull requests, or the conversation ---------- */}
+        <div className="cfg-col prlist">
+          {/* On this panel's right edge, so the handle sits on the boundary it moves. Hidden when the
+              panel is collapsed — there is no edge to drag then. */}
+          {leftOpen && <LeftResizer width={leftWidth} onWidth={setLeftWidth} />}
+
+          {/* Two tabs, one column. The agent tab is named by whichever connector holds the
+              capability, never by a literal (§7.1) — a connector called "BetBot" that happens to be
+              Anthropic underneath reads as BetBot here and everywhere else. */}
+          <div className="ag-tabs">
+            <button
+              className={`ag-tab ${leftTab === "prs" ? "on" : ""}`}
+              aria-pressed={leftTab === "prs"}
+              onClick={() => setLeftTab("prs")}
+            >
+              Pull requests <span className="ag-tabn">{prs.length}</span>
+            </button>
+            <button
+              className={`ag-tab bot ${leftTab === "agent" ? "on" : ""}`}
+              aria-pressed={leftTab === "agent"}
+              // Disabled with no PR open rather than hidden: a tab that appears and disappears as you
+              // click around is harder to find than one that is visibly waiting for something.
+              disabled={!pr}
+              title={pr ? undefined : "Open a pull request to ask about it"}
+              onClick={() => setLeftTab("agent")}
+            >
+              {agentTabLabel}
+            </button>
           </div>
 
-          <div className="cfg-scroll">
+          {/* Both panes stay mounted and are hidden with `display`, not unmounted. The PR list keeps
+              its scroll position and its filter, and the conversation keeps a part-typed question,
+              across any number of tab switches. */}
+          <div className="left-pane" style={{ display: leftTab === "prs" ? undefined : "none" }}>
+            {/* An active repo can carry dozens of PRs; scanning for "the one about sport ids"
+                shouldn't mean scrolling. Matches id, title or author (§8). */}
+            <div className="cfg-head">
+              <input
+                className="input pr-search"
+                type="search"
+                placeholder="Filter pull requests…"
+                value={prFilter}
+                onChange={(e) => setPrFilter(e.target.value)}
+              />
+            </div>
+
+            <div className="cfg-scroll">
             {(prsQ.isLoading || reposQ.isLoading) && <div className="center-note"><span className="spin" /> loading…</div>}
             {prsQ.error && (
               <div className="error cfg-note">
@@ -486,29 +741,32 @@ export function ReviewPage() {
                 </div>
               </button>
             ))}
+            </div>
           </div>
+
+          {/* The conversation. Mounted only once a PR is open — it is about a pull request, and there
+              is nothing for it to be about before then. */}
+          {pr && (
+            <div className="left-pane" style={{ display: leftTab === "agent" ? undefined : "none" }}>
+              <AgentPanel
+                project={project}
+                repoId={repoId}
+                pr={pr}
+                prefill={agentPrefill}
+                onPrefillConsumed={() => setAgentPrefill(null)}
+                onCite={revealCitation}
+              />
+            </div>
+          )}
         </div>
 
         {/* ---------- changed files (right-hand rail, so the diff stays centred) ---------- */}
-        <div className="cfg-col review-files" style={{ order: 3 }}>
+        <div className="cfg-col review-files">
           {/* On the rail's left edge, so it sits on the boundary it moves. Hidden when the rail is
               collapsed — there is no edge to drag then. */}
           {prId && rightOpen && <RailResizer width={railWidth} onWidth={setRailWidth} />}
-          {/* A tab on the existing rail, not a fourth column: you never need the file tree and an
-              answer at once, and the diff stays centred — which matters, because answers cite lines
-              in it. The tab is named by the connector, never by a literal (§7.1). */}
-          {pr && (
-            <div className="ag-tabs">
-              <button className={`ag-tab ${rail === "files" ? "on" : ""}`} onClick={() => setRail("files")}>
-                Files <span className="ag-tabn">{changes.length}</span>
-              </button>
-              <button className={`ag-tab bot ${rail === "agent" ? "on" : ""}`} onClick={() => setRail("agent")}>
-                {agentTabLabel}
-              </button>
-            </div>
-          )}
 
-          <div className="keys-head rail-head" style={{ display: rail === "files" ? undefined : "none" }}>
+          <div className="keys-head rail-head">
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="keys-title">{pr ? `!${pr.id}` : "Files"}</div>
               <div className="keys-sub">
@@ -524,35 +782,7 @@ export function ReviewPage() {
               )}
             </div>
           </div>
-          {/* The agent pane is a sibling rather than a wrapper, so the file tree's own scroll
-              position survives switching tabs and coming back. */}
-          {pr && rail === "agent" && (
-            <div className="ag-pane">
-              <AgentPanel
-                project={project}
-                repoId={repoId}
-                pr={pr}
-                prefill={agentPrefill}
-                onPrefillConsumed={() => setAgentPrefill(null)}
-                onCite={(citedPath, line) => {
-                  /* Resolve against the real file list rather than trusting the two strings to
-                     match. The context block declares paths without a leading slash and Azure
-                     DevOps hands them back with one, so a plain equality check set a path that
-                     matched no file and the chip silently scrolled nowhere — which §5.2 calls out
-                     as worse than having no chip. Compared on the normalised form, so a citation in
-                     either shape resolves to the file the page actually keys on. */
-                  const norm = (p: string) => p.replace(/^\//, "");
-                  const match = changes.find((c) => norm(c.path) === norm(citedPath));
-                  if (!match) return;
-                  if (match.path !== path) setPath(match.path);
-                  // The nonce makes a repeat click on the same chip a fresh instruction.
-                  setCite({ line, nonce: Date.now() });
-                }}
-              />
-            </div>
-          )}
-
-          <div className="cfg-scroll" style={{ display: rail === "files" ? undefined : "none" }}>
+          <div className="cfg-scroll">
             {changesQ.isLoading && <div className="center-note"><span className="spin" /> loading…</div>}
             {fileGroups.map(([dir, files]) => {
               const collapsed = collapsedDirs.has(dir);
@@ -606,7 +836,7 @@ export function ReviewPage() {
         </div>
 
         {/* ---------- diff ---------- */}
-        <div className="cfg-col review-diff" style={{ order: 2 }}>
+        <div className="cfg-col review-diff">
           {/* §9: the toolbar is hidden entirely when there's no PR, so the empty state below is
               the only message on screen. */}
           {pr && (
@@ -661,6 +891,33 @@ export function ReviewPage() {
               </button>
             </div>
 
+            {/* Stepping through annotations (§7.6). Open ones only: there is no obligation to work
+                through every citation the agent ever made, only the ones worth a thread — so a raw
+                marker nobody engaged with is not counted. Rendered only once there is something to
+                step through, rather than sitting at "0 of 0". */}
+            {cycle.length > 0 && (
+              <div className="ann-cycle">
+                <button className="iconbtn" title="Previous annotation" onClick={() => step(-1)}>‹</button>
+                <span className="ann-count" title="Annotations you've opened or replied to">
+                  {cycleIndex >= 0 ? cycleIndex + 1 : "–"} of {cycle.length}
+                </span>
+                <button className="iconbtn" title="Next annotation" onClick={() => step(1)}>›</button>
+                <button
+                  className={`iconbtn ${showResolved ? "on" : ""}`}
+                  aria-pressed={showResolved}
+                  title={showResolved
+                    ? "Hide resolved annotations"
+                    : "Show resolved annotations — resolving dims a marker, it never deletes it"}
+                  onClick={() => setShowResolved((v) => !v)}
+                >
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
+                    strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 8.5l3 3 7-7" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             {/* View options: wrap and code size. Long lines clipped with no indication that
                 anything was missing, which is what wrap fixes (§5). */}
             <div className="menu-anchor">
@@ -705,6 +962,7 @@ export function ReviewPage() {
                 <path d="M10 2.5v11" />
               </svg>
             </button>
+
           </div>
           )}
 
@@ -750,11 +1008,31 @@ export function ReviewPage() {
                   onReply={onReply}
                   onSetStatus={onSetStatus}
                   onNewThread={onNewThread}
+                  annotations={fileAnnotations}
+                  onOpenAnnotation={openAnnotationAt}
+                  anchorLine={openCard?.line ?? null}
+                  renderAnchored={openCard ? ({ top, left }) => (
+                    <AnnotationCard
+                      stop={openCard}
+                      project={project}
+                      repoId={repoId}
+                      prId={prId!}
+                      headCommit={pr?.sourceCommit}
+                      connectorName={agentTabLabel}
+                      ensure={ensureAnnotation}
+                      top={top}
+                      left={left}
+                      onClose={() => setOpenStop(null)}
+                      onChanged={refreshAnnotations}
+                      onCite={revealCitation}
+                    />
+                  ) : undefined}
                 />
               </Suspense>
             )}
           </div>
         </div>
+
       </div>
     </div>
   );

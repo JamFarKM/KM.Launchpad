@@ -211,6 +211,13 @@ public class ConnectorCapability
 /// interchangeable, and it is why a thread survives swapping the provider underneath it —
 /// mid-conversation if need be.
 /// </summary>
+/// <remarks>
+/// <b>An inline annotation (§7.6) is a thread too.</b> The spec asks for a shape "deliberately close
+/// to §7.5's conversation rather than a parallel model", and this is what that means in practice: an
+/// annotation is a thread with <see cref="Kind"/> = <c>annotation</c> and an anchor, so it inherits
+/// the whole turn machinery — replay, appending, postability, attribution surviving the connector's
+/// removal. The alternative was a second table and a second copy of all of it.
+/// </remarks>
 public class AgentThread
 {
     public string Id { get; set; } = default!;
@@ -218,8 +225,53 @@ public class AgentThread
     public string Project { get; set; } = "";
     public string RepoId { get; set; } = "";
     public int PullRequestId { get; set; }
+
+    /// <summary><c>main</c> for the dock's conversation, <c>annotation</c> for one anchored to a line.</summary>
+    public string Kind { get; set; } = AgentThreadKinds.Main;
+
+    /// <summary>Annotations only: the cited file and line the card is anchored to.</summary>
+    public string? Path { get; set; }
+    public int? Line { get; set; }
+    public int? EndLine { get; set; }
+
+    /// <summary>
+    /// Annotations only: the commit the citation was made against.
+    ///
+    /// Drives the "based on an earlier commit" note the same way §7.3's banner does — the cited line
+    /// may have moved or stopped existing, and pointing confidently at the wrong line is worse than
+    /// saying the anchor is old.
+    /// </summary>
+    public string? CommitSha { get; set; }
+
+    /// <summary>
+    /// Annotations only: the segment text that opened it — the card's first turn.
+    ///
+    /// Copied rather than referenced. The agent already said it; a link back to a turn that a later
+    /// re-ask could replace would let the card silently change what it claims to be about.
+    /// </summary>
+    public string? Seed { get; set; }
+
+    /// <summary>
+    /// Annotations only: <c>open</c> or <c>resolved</c>. Resolving dims the marker and drops it from
+    /// the cycle count — it never deletes, on the same "never destroy a record of what was asked"
+    /// principle as §7.5.
+    /// </summary>
+    public string Status { get; set; } = AgentThreadStatus.Open;
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+public static class AgentThreadKinds
+{
+    public const string Main = "main";
+    public const string Annotation = "annotation";
+}
+
+public static class AgentThreadStatus
+{
+    public const string Open = "open";
+    public const string Resolved = "resolved";
 }
 
 /// <summary>
@@ -241,15 +293,33 @@ public class AgentThreadTurn
 
     public string Question { get; set; } = "";
 
-    /// <summary>The prose only. Replayed verbatim; never the JSON envelope around it.</summary>
+    /// <summary>
+    /// The segments' prose, joined. Replayed verbatim; never the JSON envelope around it.
+    ///
+    /// Its own column rather than derived on read, because replay and the reviewer's "Copy all" both
+    /// want exactly this — and because it is all a turn written before the segment shape existed has.
+    /// </summary>
     public string Answer { get; set; } = "";
 
-    /// <summary>code | doc | inferred, or null when the agent asserted nothing (§5.4 mode 3).</summary>
+    /// <summary>
+    /// JSON array of the canonical segment shape (§5.2) — the answer as the panel renders it.
+    ///
+    /// Null on turns written before provenance and citations moved into each segment. Those are read
+    /// back as one synthesised segment from the three legacy columns below, so an existing thread
+    /// stays readable instead of being migrated or dropped.
+    /// </summary>
+    public string? SegmentsJson { get; set; }
+
+    /// <summary>
+    /// Legacy: the whole answer's provenance, from before it moved into each segment. No longer
+    /// written; still read, for turns that predate the change.
+    /// </summary>
     public string? Provenance { get; set; }
 
-    /// <summary>JSON array of the canonical citation shape.</summary>
+    /// <summary>Legacy: the answer's pooled citations. Same treatment as <see cref="Provenance"/>.</summary>
     public string CitationsJson { get; set; } = "[]";
 
+    /// <summary>Legacy: the whole answer's hedge. Same treatment as <see cref="Provenance"/>.</summary>
     public string? InferenceNote { get; set; }
 
     /// <summary>structured | fencedjson | unverified — decides whether this is postable (§7.4).</summary>
@@ -275,6 +345,21 @@ public class AgentThreadTurn
 
     /// <summary>Stopped by the reviewer. Kept in the thread, but not postable (§5.5).</summary>
     public bool Stopped { get; set; }
+
+    /// <summary>
+    /// What the §4 code doesn't say on its own.
+    ///
+    /// <c>upstream</c> is the taxonomy's catch-all — a 5xx, a mid-stream error envelope, an empty
+    /// answer — and every one of those arrives carrying a sentence explaining which. That sentence
+    /// used to exist only on the live SSE event, so the moment the panel refetched, "the agent
+    /// returned an empty answer" collapsed into the word "upstream" and the reviewer was left with a
+    /// code and no next step. §4 asks for copy *and* a next step per failure; the code alone is
+    /// neither.
+    ///
+    /// Only values §4 permits showing — a host, a status, a duration, our own wording. Never a raw
+    /// exception and never a credential.
+    /// </summary>
+    public string? ErrorDetail { get; set; }
 
     /// <summary>A §4 code when the answer failed or was cut short. Never a raw exception.</summary>
     public string? ErrorCode { get; set; }

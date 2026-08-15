@@ -132,6 +132,36 @@ Both side panels collapse, driven by `data-left` / `data-right` on the grid cont
 
 Put both toggles **in the diff toolbar** — left-most and right-most — so they're always reachable regardless of which panel is hidden. They take the `.iconbtn.on` accent-tint state while their panel is visible. Collapsing both is the intended way to read a wide side-by-side diff; the mockup's collapsed state is the best demonstration of why this matters.
 
+### Where the agent panel lives — the left column's second tab
+
+**Amended after building the dock this section used to describe.** `DESIGN_SPEC_CONNECTORS.md` describes *what* lives in the connector panel; this is *where* it lives, and it has now been wrong twice, so the reasoning matters more than the conclusion.
+
+The reasoning has been stable throughout. Two of the three panes are not equally dispensable:
+
+- The **PR list** genuinely is never needed at the same time as the agent. You pick a pull request, then you are done with that list.
+- The **file tree** is needed *constantly* alongside the agent, because a citation or a follow-up routinely points at a file other than the one currently open.
+
+The first design put the chat in a second tab on the **right rail**, sharing space with the file tree — which broke exactly the combination that matters. The second design moved it to a **bottom dock** spanning the diff and the file tree. That fixed the simultaneity problem, and introduced two others: the conversation and the diff then compete for *height*, which is the axis a diff can least afford to lose, and a full-width dock gives a chat column far more width than prose can use while the diff gets less height than code can use.
+
+**The current design applies the same reasoning to the pane that was always the dispensable one.** The left column carries two tabs — `Pull requests` and the connector's name — and the conversation replaces the list when selected. Three columns, one row:
+
+```css
+.review {
+  display: grid;
+  grid-template-columns: var(--w-left,340px) minmax(0,1fr) var(--w-right,380px);
+  grid-template-areas: "prlist diff files";
+}
+.review[data-left="off"]  { --w-left: 0px !important; }
+.review[data-right="off"] { --w-right: 0px !important; }
+```
+
+- **The file tree keeps its own column**, which is the requirement that ruled out the rail tab and is now satisfied without costing the diff any height.
+- **Horizontally resizable**, with a drag handle on the left panel's right edge. Wider bounds than the file rail's (280–900px against 320–900): a PR list is legible at 340px and a conversation is cramped there, so the reviewer has to be able to push it well past the width the list alone would want. Persisted across sessions, not just the session — how much of the window goes to conversation is a preference, not a per-visit accident.
+- **Both tab bodies stay mounted**, hidden with `display`. The PR list keeps its scroll position and its filter, and the conversation keeps a part-typed question, across any number of switches.
+- **The agent tab is disabled, not hidden, with no pull request open.** A tab that appears and disappears as you click around is harder to find than one that is visibly waiting for something.
+- **No third toolbar toggle.** The existing left-panel toggle already hides the whole column, tabs included, which is the "read a wide diff uninterrupted" move — and there is no separate collapsed state to design, because switching back to `Pull requests` is the way you stop looking at the conversation.
+- **The 44px identity strip is gone with the dock**, and with it the argument for it: the outage banner and the `CACHED` tag now live inside the panel, where the conversation they qualify is. The cost is real and worth stating — with the `Pull requests` tab selected, an outage is not visible until you switch. If that turns out to matter, the fix is a marker on the tab itself, not a permanently-visible strip.
+
 ### Context bar
 
 Merge the `STARRED` row into the project/repository picker row — it currently spends a full row on one chip. Order: `[Proj ▾] [Repo ▾] [★] │ STARRED  chip  chip`.
@@ -168,6 +198,10 @@ Confirmed decision: **the composer stays an overlay.** Inserting a row would ref
 
 ## 7. Right rail — file tree
 
+The right rail is file-tree only — it does not host a tab for the connector panel. That is the left column's second
+tab (§5, "Where the agent panel lives") specifically so the tree stays visible while the connector is in use; see
+`DESIGN_SPEC_CONNECTORS.md` §7 for what the panel itself contains.
+
 - **Group by folder.** Collapsible group per directory, path on the folder row in monospace, allowed to wrap to two lines, with a file count. This is what disambiguates the two `001_CreateDB.sql` files — they now sit under visibly different headers — and it means filenames rarely need truncating at all.
 - **Truncation by role:** folder paths truncate at the *start* (the tail is what distinguishes them), filenames at the *end*. That asymmetry is correct, not an inconsistency.
 - **Viewed checkboxes** per file, plus `n of m viewed` and a thin progress bar in the rail header. Viewed rows dim to 45%. This is the main mechanism for keeping your place in a seven-file review. Persist per (PR, file, source commit) so it resets when the author pushes.
@@ -196,6 +230,9 @@ All of these come off the existing Azure DevOps PR payload (`reviewers`, `isDraf
 6. **Chrome** (§5) — context bar merge, vote hierarchy.
 7. **Composer** (§6) and **empty state** (§9) — independent, can land any time.
 8. **PR list** (§8) — last, because it depends on confirming which API fields are already available.
+9. **The agent panel's placement** (§5) — the left column's tabs and its resize handle belong here and can land
+   independently of any connector being wired up; what fills the panel is `DESIGN_SPEC_CONNECTORS.md`'s own
+   implementation order (§8 there), not this one.
 
 Word-level diff can follow step 2 as its own change; it's the only part needing a diff algorithm rather than styling.
 
@@ -217,6 +254,10 @@ Word-level diff can follow step 2 as its own change; it's the only part needing 
 - [ ] Composer: covered code is visibly dimmed, the pointer aims at the right line, Comment does not look disabled, Esc dismisses.
 - [ ] No PR selected: exactly one empty message on screen.
 - [ ] Greyscale the diff (devtools → Rendering → emulate achromatopsia): additions and deletions are still distinguishable — the `+`/`−` sign column is the fallback, so confirm it's present in both view modes.
+- [ ] Switching the left panel to the agent tab and back preserves the PR list's scroll position and filter, and a part-typed question survives the round trip.
+- [ ] Dragging the left panel wider takes width from the diff and leaves the file tree's column untouched; the width survives a reload.
+- [ ] The file tree stays visible and interactive with the agent tab selected, at both 1280px and 1680px — this is the specific gap that ruled out putting the agent in the right rail, so it's worth checking directly rather than assuming the grid math works.
+- [ ] With no pull request open, the agent tab is present and disabled rather than missing.
 
 ---
 
@@ -225,4 +266,5 @@ Word-level diff can follow step 2 as its own change; it's the only part needing 
 - **Word-level diff algorithm.** The mockup fakes it with a marked substring. Real implementation needs a token-level LCS per line pair; check whether the existing diff already returns character ranges from the Azure DevOps API before writing one.
 - **Viewed-state persistence key.** Should include the source commit SHA so it clears on a new push. Confirm the API exposes it on the file entry.
 - **Syntax highlighting engine.** The mockup uses a throwaway regex highlighter for C# and SQL only. If the real page already uses a library, re-theme it against §2 rather than replacing it — the requirement is only that the theme contains no green and no red.
-- **Minimap.** Kept as-is but recoloured to `--diff-*-stripe` at 55% and now shows deletions too. Worth deciding whether it should also mark comment threads (the mockup has a `.cmt` class in accent blue, unused).
+- **Minimap.** Kept as-is but recoloured to `--diff-*-stripe` at 55% and now shows deletions too. Worth deciding whether it should also mark comment threads (the mockup has a `.cmt` class in accent blue, unused) — and, now that inline agent annotations exist (`DESIGN_SPEC_CONNECTORS.md` §7.6), whether it should mark those too.
+- **Dock height persistence.** Remembered "for the session" is the minimum bar. Worth deciding whether it should persist across sessions (a per-user preference, like the model `<select>` in Settings) or reset each time — leaning toward persisting, but confirm before building storage for it.

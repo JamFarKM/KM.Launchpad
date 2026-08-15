@@ -13,6 +13,29 @@ namespace PipelineLaunchpad.Server.Services.Agents;
 /// </summary>
 public enum Provenance { Code, Doc, Inferred }
 
+/// <summary>
+/// How much a claim should worry the reviewer — a separate axis from where it came from.
+///
+/// <b>Provenance and severity answer different questions and neither implies the other.</b> "This
+/// adds five procedures" is grounded in the diff and entirely harmless; "this will deadlock under
+/// load" may be an educated guess and still the most important thing on the page. Collapsing them
+/// into one label would force the badge to lie about one of the two.
+///
+/// Three levels, and no more, for the reason <c>BETBOT_INTEGRATION_PLAN.md</c> §4 gives for its two:
+/// each needs a glyph that survives 12px, and a five-level scale does not have five such glyphs.
+/// </summary>
+public enum Severity
+{
+    /// <summary>Describing what the change does. The default, and most claims.</summary>
+    Info,
+
+    /// <summary>Worth checking before approving — a risk, or something that may be wrong.</summary>
+    Warning,
+
+    /// <summary>Wrong, and should be fixed before this merges.</summary>
+    Error,
+}
+
 /// <summary>A line range in a file the agent says its answer rests on.</summary>
 /// <param name="EndLine">
 /// Nullable, and <em>required</em>. Strict structured output has no optional properties, so the
@@ -22,24 +45,61 @@ public enum Provenance { Code, Doc, Inferred }
 public record Citation(string Path, int Line, int? EndLine);
 
 /// <summary>
-/// The only answer shape the Review panel, the provenance badge and "Post as comment…" ever see,
-/// whichever provider produced it (§5.2).
+/// One claim, with its own sources attached (§5.2).
+///
+/// <b>A citation belongs to a claim, not to an answer.</b> The first version of this shape had one
+/// <c>answer</c> string and a flat citation list at the end, and with several claims in one answer
+/// there was no way to tell which citation backed which sentence — no amount of layout invents that
+/// link if the model doesn't state it. So the model states it: one segment per claim, carrying its
+/// own citations <em>and</em> its own provenance. One answer can honestly hold a segment grounded in
+/// the diff next to a segment that is a guess, which a single badge for the whole turn was already
+/// lying about.
 /// </summary>
+/// <param name="Text">
+/// Markdown, restricted to paragraphs, unordered lists, bold and inline code — typically a sentence
+/// or two, not the whole answer.
+/// </param>
 /// <param name="InferenceNote">
-/// Required when <paramref name="Provenance"/> is <see cref="Provenance.Inferred"/>, null
-/// otherwise. Rendered in a dashed box, and the reason the `inferred` badge is honest rather than
-/// a shrug.
+/// Required when this segment's <paramref name="Provenance"/> is <see cref="Provenance.Inferred"/>,
+/// null otherwise. Rendered in a dashed box under this segment, and the reason the `inferred` badge
+/// is honest rather than a shrug.
 /// </param>
-/// <param name="Mode">
-/// Which rung of the §5.4 ladder produced this. Mode 3 answers carry no asserted provenance and
-/// are not postable as a PR comment (§7.4), so the panel needs to know.
+/// <param name="Severity">
+/// How much this claim should worry the reviewer. Defaults to <see cref="Severity.Info"/>, which is
+/// also what an unrecognised or missing value becomes — a claim nobody graded is not thereby urgent.
 /// </param>
-public record CanonicalAnswer(
-    string Answer,
+public record AnswerSegment(
+    string Text,
     Provenance? Provenance,
     List<Citation> Citations,
     string? InferenceNote,
-    StructuredMode Mode = StructuredMode.Structured);
+    Severity Severity = Severity.Info);
+
+/// <summary>
+/// The only answer shape the Review panel, the provenance badge and "Post as comment…" ever see,
+/// whichever provider produced it (§5.2).
+/// </summary>
+/// <param name="Mode">
+/// Which rung of the §5.4 ladder produced this. Mode 3 carries exactly one synthetic segment with no
+/// asserted provenance, and is not postable as a PR comment (§7.4) — so the panel needs to know, but
+/// the renderer never needs an "unstructured" branch.
+/// </param>
+public record CanonicalAnswer(
+    List<AnswerSegment> Segments,
+    StructuredMode Mode = StructuredMode.Structured)
+{
+    /// <summary>
+    /// The segments' prose, joined the way §5.A asks a replayed assistant turn to be joined.
+    ///
+    /// This is the one place an answer is allowed to become a single string, and both its uses are
+    /// deliberate: replaying history to the model, and the reviewer's own "Copy all". Nothing renders
+    /// from it — rendering is per segment, or the badge and the citations go back to being pooled.
+    /// </summary>
+    public string PlainText => string.Join("\n\n", Segments.Select(s => s.Text).Where(t => t.Length > 0));
+
+    /// <summary>True when nothing usable came back, whatever the mode claims.</summary>
+    public bool IsEmpty => Segments.All(s => s.Text.Trim().Length == 0);
+}
 
 /// <summary>
 /// The rungs of the fallback ladder in §5.4. Modes 2 and 3 are real degradations and must look
@@ -54,7 +114,7 @@ public enum StructuredMode
     FencedJson,
 
     /// <summary>
-    /// Prose only, no asserted provenance. Badge reads UNVERIFIED SOURCE, citation strip hidden,
+    /// Prose only, no asserted provenance. Badge reads SOURCE NOT STATED, citation strip hidden,
     /// and the answer cannot be posted to the pull request.
     /// </summary>
     Unverified,
@@ -157,13 +217,42 @@ public record AgentUsage(int? PromptTokens, int? CompletionTokens);
 /// <summary>
 /// The §5.5 budget. Uniform across adapters on purpose: an adapter that cannot meet these has a
 /// problem the timeout is correctly surfacing, not a reason for its own numbers.
+///
+/// <b>Raised from the spec's table, because the spec's table predates two things it was written
+/// without.</b> §5.5 assumed one question was one call with a short prompt. It is now a loop of up to
+/// five exchanges, each carrying a diff that can run to hundreds of kilobytes — and a large prompt
+/// genuinely takes a long time to produce a first token, because the model reads it all before saying
+/// anything. Timing that out reported "the agent didn't answer" for an agent that was working
+/// correctly, which is the failure mode a timeout exists to distinguish from.
+///
+/// <see cref="ConnectionTest"/> is deliberately unchanged. It is a model-list call on the diagnostic
+/// path — the thing a reviewer hits when something looks broken — and it must stay fast enough that
+/// waiting on it is never itself the problem.
 /// </summary>
 public static class AgentTimeouts
 {
     public static readonly TimeSpan ConnectionTest = TimeSpan.FromSeconds(10);
-    public static readonly TimeSpan FirstToken = TimeSpan.FromSeconds(20);
-    public static readonly TimeSpan WholeCompletion = TimeSpan.FromSeconds(120);
-    public static readonly TimeSpan IdleBetweenDeltas = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Two minutes to the first token. Long, and it has to be: with a 700 KB diff the model reads the
+    /// whole thing before it emits a character, and 20 seconds was killing perfectly good answers.
+    /// </summary>
+    public static readonly TimeSpan FirstToken = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Per exchange, not per question. Five exchanges of a tool loop can legitimately exceed any single
+    /// figure here, which is why the loop is bounded by its iteration count and its byte budget rather
+    /// than by a wall clock: a cap that cannot tell "reading five files" from "hung" would have to be
+    /// set high enough to be useless as either.
+    /// </summary>
+    public static readonly TimeSpan WholeCompletion = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Silence between deltas. Raised less than the others: once tokens are flowing, a two-minute gap
+    /// really is a hang, and this is the timeout that catches a stalled stream while the answer still
+    /// looks like it is coming.
+    /// </summary>
+    public static readonly TimeSpan IdleBetweenDeltas = TimeSpan.FromSeconds(60);
 }
 
 /// <summary>
@@ -205,7 +294,23 @@ public record AgentTarget(string Provider, string? BaseUrl, string Credential);
 /// </summary>
 public abstract record AgentEvent
 {
-    /// <summary>More prose. Fragments concatenate; each is already-decoded text, not JSON.</summary>
+    /// <summary>
+    /// One segment closed and validated — the streaming unit (§5.2).
+    ///
+    /// Emitted as each array element completes, so the panel renders a whole claim with its badge and
+    /// its citations rather than growing a string. An adapter that cannot detect element boundaries
+    /// simply emits none of these and the finished list renders in one go from
+    /// <see cref="Complete"/>; degrading is allowed, blocking is not.
+    /// </summary>
+    public sealed record Segment(AnswerSegment Value) : AgentEvent;
+
+    /// <summary>
+    /// Raw prose, for a connector with no structure at all (§5.4 mode 3). Fragments concatenate.
+    ///
+    /// Kept distinct from <see cref="Segment"/> because these two mean different things: a segment is
+    /// a claim the agent labelled, this is text nobody vouched for. Conflating them is how an
+    /// unverified answer would end up wearing a provenance badge.
+    /// </summary>
     public sealed record Delta(string Text) : AgentEvent;
 
     /// <summary>The answer closed and validated. Terminal.</summary>
@@ -244,7 +349,15 @@ public abstract record AgentEvent
 /// </summary>
 public sealed class AgentBudget(int maxBytes = AgentBudget.DefaultMaxBytes, int maxIterations = AgentBudget.DefaultMaxIterations)
 {
-    public const int DefaultMaxBytes = 200 * 1024;
+    /// <summary>
+    /// Cumulative reading budget for one question, on top of the diff already sent.
+    ///
+    /// Raised alongside <see cref="PrContextBuilder.MaxDiffBytes"/>: a question that reads five files
+    /// to answer "is this called anywhere" was hitting the old 200 KB before it had looked at enough
+    /// to answer, and an agent that runs out of budget mid-search reports what it could not check —
+    /// correct, but useless when the cause was a cap set for a smaller diff.
+    /// </summary>
+    public const int DefaultMaxBytes = 400 * 1024;
     public const int DefaultMaxIterations = 5;
 
     /// <summary>Per single read. A generated migration should not consume the whole question.</summary>
@@ -283,54 +396,88 @@ public sealed class AgentBudget(int maxBytes = AgentBudget.DefaultMaxBytes, int 
 /// </item>
 /// </list>
 ///
-/// <c>answer</c> is first deliberately: under streaming the object arrives as fragments, so a
-/// provider emitting keys in schema order lets prose render while the trailing metadata is still
-/// being produced. That is a request, never a guarantee — see the parser's degradation path.
+/// The streaming unit is a closed <em>segment</em>, not a character. Each array element is a
+/// complete object, so segment <i>N</i> renders — text, badge and citations together — the moment it
+/// closes, while <i>N+1</i> shows a placeholder. That reads like a person adding one thought at a
+/// time rather than watching a document type itself, and it removes the old parser's whole
+/// escape-decoding problem: nothing is emitted until it is valid JSON.
 /// </summary>
 public static class CanonicalSchema
 {
     public const string Name = "pr_answer";
 
-    /// <summary>Maximum citations kept. Enforced here rather than in the schema, per above.</summary>
-    public const int MaxCitations = 8;
+    /// <summary>
+    /// Per segment, not per answer. Enforced here rather than in the schema, per above — and 4 rather
+    /// than the old flat shape's 8, because a citation now sits with the one claim it supports and a
+    /// claim resting on nine lines is not a claim.
+    /// </summary>
+    public const int MaxCitations = 4;
+
+    /// <summary>
+    /// Extra segments are dropped with a trace, not silently: unlike a citation, a whole missing
+    /// claim is not a safe thing to lose without saying so (§5.2).
+    /// </summary>
+    public const int MaxSegments = 6;
 
     public static JsonObject Build() => new()
     {
         ["type"] = "object",
         ["additionalProperties"] = false,
-        ["required"] = new JsonArray("answer", "provenance", "citations", "inference_note"),
+        ["required"] = new JsonArray("segments"),
         ["properties"] = new JsonObject
         {
-            ["answer"] = new JsonObject
-            {
-                ["type"] = "string",
-                ["description"] = "Markdown. Restricted subset: paragraphs, unordered lists, bold, inline code.",
-            },
-            ["provenance"] = new JsonObject
-            {
-                ["type"] = "string",
-                ["enum"] = new JsonArray("code", "doc", "inferred"),
-            },
-            ["citations"] = new JsonObject
+            ["segments"] = new JsonObject
             {
                 ["type"] = "array",
                 ["items"] = new JsonObject
                 {
                     ["type"] = "object",
                     ["additionalProperties"] = false,
-                    ["required"] = new JsonArray("path", "line", "end_line"),
+                    ["required"] = new JsonArray("text", "provenance", "severity", "citations", "inference_note"),
                     ["properties"] = new JsonObject
                     {
-                        ["path"] = new JsonObject { ["type"] = "string" },
-                        ["line"] = new JsonObject { ["type"] = "integer" },
-                        ["end_line"] = new JsonObject { ["type"] = new JsonArray("integer", "null") },
+                        ["text"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["description"] = "Markdown. Restricted subset: paragraphs, unordered lists, bold, "
+                                            + "inline code. One claim — typically a sentence or two, not the whole answer.",
+                        },
+                        ["provenance"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["enum"] = new JsonArray("code", "doc", "inferred"),
+                        },
+                        ["severity"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["enum"] = new JsonArray("info", "warning", "error"),
+                            ["description"] = "info = describing what the change does, and most claims are this. "
+                                            + "warning = worth checking before approving. "
+                                            + "error = wrong, and should be fixed before merging.",
+                        },
+                        ["citations"] = new JsonObject
+                        {
+                            ["type"] = "array",
+                            ["items"] = new JsonObject
+                            {
+                                ["type"] = "object",
+                                ["additionalProperties"] = false,
+                                ["required"] = new JsonArray("path", "line", "end_line"),
+                                ["properties"] = new JsonObject
+                                {
+                                    ["path"] = new JsonObject { ["type"] = "string" },
+                                    ["line"] = new JsonObject { ["type"] = "integer" },
+                                    ["end_line"] = new JsonObject { ["type"] = new JsonArray("integer", "null") },
+                                },
+                            },
+                        },
+                        ["inference_note"] = new JsonObject
+                        {
+                            ["type"] = new JsonArray("string", "null"),
+                            ["description"] = "Required when this segment's provenance is 'inferred'; null otherwise.",
+                        },
                     },
                 },
-            },
-            ["inference_note"] = new JsonObject
-            {
-                ["type"] = new JsonArray("string", "null"),
-                ["description"] = "Required when provenance is 'inferred'; null otherwise.",
             },
         },
     };
@@ -354,5 +501,28 @@ public static class ProvenanceNames
         Provenance.Code => "code",
         Provenance.Doc => "doc",
         _ => "inferred",
+    };
+}
+
+/// <summary>Wire names for <see cref="Severity"/>, kept next to the schema that declares them.</summary>
+public static class SeverityNames
+{
+    /// <summary>
+    /// Unrecognised and missing both become <see cref="Severity.Info"/>. A claim nobody graded is not
+    /// thereby urgent, and defaulting the other way would make every schema slip look like a problem
+    /// in the code being reviewed.
+    /// </summary>
+    public static Severity Parse(string? value) => value switch
+    {
+        "warning" => Severity.Warning,
+        "error" => Severity.Error,
+        _ => Severity.Info,
+    };
+
+    public static string ToWire(Severity s) => s switch
+    {
+        Severity.Warning => "warning",
+        Severity.Error => "error",
+        _ => "info",
     };
 }

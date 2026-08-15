@@ -159,6 +159,55 @@ export interface DiffStats {
   removed: number;
 }
 
+interface Anchor { top: number; left: number; }
+
+/**
+ * Where an overlay anchored to one line should sit, kept in step with scrolling and relayout.
+ *
+ * Both overlays on this editor — the PR comment composer and an annotation card — are overlays rather
+ * than view zones (DESIGN_SPEC_REVIEW.md §6, confirmed): inserting a row into a long diff reflows
+ * everything below it and reads as the page jumping. Keeping one pinned takes three subscriptions and
+ * an off-screen check, so it is written once here rather than twice at the call sites.
+ *
+ * Returns null when the line is scrolled out of view — dropping the overlay rather than pinning it to
+ * an edge, where it would point confidently at a line that isn't there.
+ */
+function useLineAnchor(
+  line: number | null,
+  editorRef: React.RefObject<monaco.editor.IStandaloneDiffEditor | null>,
+  hostRef: React.RefObject<HTMLDivElement | null>,
+  relayout: string,
+): Anchor | null {
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || line == null) { setAnchor(null); return; }
+    const right = editor.getModifiedEditor();
+
+    const sync = () => {
+      const height = right.getLayoutInfo().height;
+      const top = right.getTopForLineNumber(line) - right.getScrollTop() + right.getOption(
+        monaco.editor.EditorOption.lineHeight,
+      );
+      if (top < 0 || top > height - 40) { setAnchor(null); return; }
+
+      /* Both anchor to the modified side, so the card has to sit over that pane. Side by side, a fixed
+         left offset put it over the original pane instead — pointing at a line in the pane it wasn't
+         covering. Inline, the modified editor fills the host and this resolves to zero. */
+      const hostBox = hostRef.current?.getBoundingClientRect();
+      const paneBox = right.getContainerDomNode().getBoundingClientRect();
+      setAnchor({ top, left: hostBox ? Math.max(0, paneBox.left - hostBox.left) : 0 });
+    };
+
+    sync();
+    const subs = [right.onDidScrollChange(sync), right.onDidLayoutChange(sync), right.onDidContentSizeChange(sync)];
+    return () => subs.forEach((s) => s.dispose());
+  }, [line, relayout, editorRef, hostRef]);
+
+  return anchor;
+}
+
 interface Props {
   path: string;
   before: string;
@@ -185,11 +234,31 @@ interface Props {
   onReply?: (threadId: number, content: string) => Promise<void>;
   onSetStatus?: (threadId: number, status: string) => Promise<void>;
   onNewThread?: (line: number, content: string) => Promise<void>;
+
+  /**
+   * Lines in this file the agent has cited (DESIGN_SPEC_CONNECTORS.md §7.6). Each gets a persistent
+   * gutter marker — cheap, and needing no extra request, because the citation data already exists.
+   */
+  annotations?: { line: number; resolved: boolean; hasReplies: boolean; severity: string }[];
+
+  /** Clicking an annotation marker. Distinct from clicking the gutter to start a new PR comment. */
+  onOpenAnnotation?: (line: number) => void;
+
+  /**
+   * A line to anchor an overlay to, and what to draw there.
+   *
+   * A render prop rather than a child, because the geometry lives here — the scroll, layout and
+   * content-size listeners that keep an overlay pinned to a line are already in this component, and
+   * duplicating them in the page would be a second thing to get wrong every time Monaco relaid out.
+   */
+  anchorLine?: number | null;
+  renderAnchored?: (geometry: { top: number; left: number }) => React.ReactNode;
 }
 
 export function MonacoDiff({
   path, before, after, inline, stale, wrap, fontSize, onStats,
   cite, threads, onReply, onSetStatus, onNewThread,
+  annotations, onOpenAnnotation, anchorLine, renderAnchored,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -203,10 +272,6 @@ export function MonacoDiff({
   const [composerLine, setComposerLine] = useState<number | null>(null);
   /** Line under the pointer, so the gutter can offer a "+" to comment on it. */
   const [hoverLine, setHoverLine] = useState<number | null>(null);
-  /** Pixel offset of the composer's anchor line within the editor viewport; null = off-screen. */
-  const [anchorTop, setAnchorTop] = useState<number | null>(null);
-  /** Left edge of the modified pane, so the card sits over the side it's anchored to. */
-  const [anchorLeft, setAnchorLeft] = useState(0);
 
   // Create once; the models and options are updated in place afterwards.
   useEffect(() => {
@@ -287,8 +352,6 @@ export function MonacoDiff({
     });
   }, [inline, wrap, fontSize]);
 
-  const citeDecorations = useRef<string[]>([]);
-
   // Swap models when the selected file changes. Old models must be disposed explicitly —
   // Monaco keeps them alive otherwise and the memory adds up over a review session.
   useEffect(() => {
@@ -305,40 +368,48 @@ export function MonacoDiff({
     modelsRef.current = { original, modified };
     previous?.original.dispose();
     previous?.modified.dispose();
-
-    // Decoration ids belong to the model that issued them. Carrying them across a swap and handing
-    // them to deltaDecorations as the "old" set means asking a fresh model to remove ids it has
-    // never heard of, and the add is lost with them — so the citation mark silently never appeared.
-    citeDecorations.current = [];
   }, [path, before, after]);
 
   /**
    * Reveal and mark a cited line (§5.2.1).
    *
-   * Declared *after* the model swap, and depending on the model's identity rather than just on
-   * `cite`: a citation for another file changes `path` and `cite` in the same render, and a
-   * decoration applied before the swap lands on a model that is about to be disposed. Ordering the
-   * effects this way is the difference between the chip working and the chip silently doing
-   * nothing.
+   * <b>This used a raw `deltaDecorations` id set and silently painted nothing.</b> The id-set form
+   * does not survive the diff editor's own decoration pass, which re-runs on every `onDidUpdateDiff`
+   * — and a citation click is very often followed by exactly that, because it swaps the file and the
+   * diff recomputes a frame later. The decoration was applied and then reconciled away, which is why
+   * it left no trace and no error: nothing failed, it was simply overwritten.
+   *
+   * A decorations collection re-applies itself across those passes. The evidence was two effects
+   * below the whole time — the thread markers and the hover glyph use a collection and have always
+   * worked, in the same editor, in the same component.
    *
    * Violet, deliberately distinct from the diff's add/remove greens and reds, so a citation can
-   * never be mistaken for a change.
+   * never be mistaken for a change. It marks the margin as well as the row, because on an added line
+   * the row is already tinted and a wash over a wash is not a signal.
    */
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor) return;
+    if (!editor || !cite) return;
     const right = editor.getModifiedEditor();
 
-    if (!cite) {
-      citeDecorations.current = right.deltaDecorations(citeDecorations.current, []);
-      return;
-    }
-
-    right.revealLineInCenter(cite.line);
-    citeDecorations.current = right.deltaDecorations(citeDecorations.current, [{
+    const dec = right.createDecorationsCollection([{
       range: new monaco.Range(cite.line, 1, cite.line, 1),
-      options: { isWholeLine: true, className: "agent-cited-line" },
+      options: {
+        isWholeLine: true,
+        className: "agent-cited-line",
+        linesDecorationsClassName: "agent-cited-margin",
+        overviewRuler: {
+          color: "#8a7bea",
+          position: monaco.editor.OverviewRulerLane.Right,
+        },
+      },
     }]);
+
+    // Revealed after the decoration exists, so the line is already marked when it arrives on screen
+    // rather than being highlighted a frame after the scroll settles.
+    right.revealLineInCenter(cite.line);
+
+    return () => dec.clear();
   }, [cite, path, before, after]);
 
   // ---- comment threads, rendered inline as view zones on the modified (right) side ----
@@ -353,7 +424,17 @@ export function MonacoDiff({
     const down = right.onMouseDown((e) => {
       if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
       const line = e.target.position?.lineNumber;
-      if (line) setComposerLine((cur) => (cur === line ? null : line));
+      if (!line) return;
+
+      /* An annotated line's marker opens its annotation; any other line starts a new PR comment.
+         Two different actions sharing one gutter, which is why the marker's own hover message says
+         which one you are about to get. */
+      if (onOpenAnnotation && annotationLines.current.has(line)) {
+        onOpenAnnotation(line);
+        return;
+      }
+
+      setComposerLine((cur) => (cur === line ? null : line));
     });
 
     const GUTTER = new Set<number>([
@@ -370,7 +451,48 @@ export function MonacoDiff({
     const leave = right.onMouseLeave(() => setHoverLine(null));
 
     return () => { down.dispose(); move.dispose(); leave.dispose(); };
-  }, [onNewThread]);
+  }, [onNewThread, onOpenAnnotation]);
+
+  /* Which lines carry an annotation, in a ref rather than in the handler's closure. The mouse-down
+     subscription is deliberately not re-created when the annotation list changes — re-subscribing on
+     every refetch would drop a click that landed mid-flight. */
+  const annotationLines = useRef<Set<number>>(new Set());
+  annotationLines.current = new Set((annotations ?? []).map((a) => a.line));
+
+  /**
+   * The persistent gutter markers (§7.6).
+   *
+   * Violet, matching the citation chips and the cited-line highlight, so a marker reads as "the agent
+   * said something here" rather than as a diff change or a human comment. Resolved ones dim instead of
+   * disappearing — the record survives, and `Show resolved` brings them back into the cycle.
+   */
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const right = editor.getModifiedEditor();
+
+    const dec = right.createDecorationsCollection(
+      (annotations ?? []).map((a) => ({
+        range: new monaco.Range(a.line, 1, a.line, 1),
+        options: {
+          glyphMarginClassName: `diff-glyph-annotation sev-${a.severity}`
+            + (a.resolved ? " is-resolved" : "")
+            + (a.hasReplies ? " has-replies" : ""),
+          glyphMarginHoverMessage: {
+            value: a.severity === "error"
+              ? "The agent thinks something here is wrong — click to open"
+              : a.severity === "warning"
+                ? "The agent flagged this line to check — click to open"
+                : a.hasReplies
+                  ? "Open this annotation — you've asked about this line"
+                  : "Open this annotation — the agent cited this line",
+          },
+        },
+      })),
+    );
+
+    return () => dec.clear();
+  }, [annotations, path, before, after]);
 
   // Kept in its own collection so hovering doesn't churn the thread markers or view zones.
   useEffect(() => {
@@ -465,40 +587,21 @@ export function MonacoDiff({
     };
   }, [threads, path, onReply, onSetStatus, onNewThread]);
 
-  /* The composer is an overlay, not a view zone (§6, confirmed): inserting a row into a long
-     diff reflows everything below it and reads as the page jumping. Its top is Monaco's own
-     pixel offset for the anchor line, kept in step with scrolling and layout — including the
-     collapsed unchanged regions, which getTopForLineNumber already accounts for. */
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || composerLine == null) { setAnchorTop(null); return; }
-    const right = editor.getModifiedEditor();
-    const sync = () => {
-      const height = right.getLayoutInfo().height;
-      const top = right.getTopForLineNumber(composerLine) - right.getScrollTop() + right.getOption(
-        monaco.editor.EditorOption.lineHeight,
-      );
-      // Scrolled out of view: drop the overlay rather than pinning it to an edge, where it
-      // would point at a line that isn't there.
-      setAnchorTop(top < 0 || top > height - 40 ? null : top);
-
-      /* Comments anchor to the modified side, so the card has to sit over that pane. Side by
-         side, a fixed left offset put it over the original pane instead — pointing at a line
-         in the pane it wasn't covering. Inline, the modified editor fills the host and this
-         resolves to zero, which is the old behaviour. */
-      const hostBox = hostRef.current?.getBoundingClientRect();
-      const paneBox = right.getContainerDomNode().getBoundingClientRect();
-      setAnchorLeft(hostBox ? Math.max(0, paneBox.left - hostBox.left) : 0);
-    };
-    sync();
-    const subs = [right.onDidScrollChange(sync), right.onDidLayoutChange(sync), right.onDidContentSizeChange(sync)];
-    return () => subs.forEach((s) => s.dispose());
-  }, [composerLine, inline, wrap, fontSize, path, threads]);
+  /* Both overlays — the comment composer and an annotation card — are overlays rather than view
+     zones (§6, confirmed): inserting a row into a long diff reflows everything below it and reads as
+     the page jumping. The geometry is computed here for the same reason: keeping an overlay pinned to
+     a line through scrolling, relayout and the collapsed unchanged regions takes three subscriptions,
+     and a second copy in the page would be a second thing to get wrong. */
+  // `relayout` is every input that can move a line under the cursor. Bundled into one value so the
+  // hook has a stable dependency list rather than one that grows every time a prop is added.
+  const relayout = `${path}|${inline}|${wrap}|${fontSize}|${threads?.length}|${annotations?.length}`;
+  const composerAnchor = useLineAnchor(composerLine, editorRef, hostRef, relayout);
+  const cardAnchor = useLineAnchor(anchorLine ?? null, editorRef, hostRef, relayout);
 
   // Close on file or view change — the anchor line means something different afterwards.
   useEffect(() => { setComposerLine(null); }, [path, inline]);
 
-  const composerOpen = composerLine != null && anchorTop != null && !!onNewThread;
+  const composerOpen = composerLine != null && composerAnchor != null && !!onNewThread;
 
   return (
     <div className="monaco-shell">
@@ -507,16 +610,17 @@ export function MonacoDiff({
         <>
           {/* Dims the lines the card covers, so they read as deliberately obscured rather
               than as a rendering fault. */}
-          <div className="diff-scrim" style={{ top: anchorTop - 4 }} />
+          <div className="diff-scrim" style={{ top: composerAnchor.top - 4 }} />
           <DiffComposer
             line={composerLine}
-            top={anchorTop}
-            left={anchorLeft}
+            top={composerAnchor.top}
+            left={composerAnchor.left}
             onCancel={() => setComposerLine(null)}
             onSubmit={async (content) => { await onNewThread!(composerLine, content); setComposerLine(null); }}
           />
         </>
       )}
+      {anchorLine != null && cardAnchor != null && renderAnchored?.(cardAnchor)}
     </div>
   );
 }

@@ -18,6 +18,17 @@ var dataDir = builder.Configuration["PL_DATA_DIR"]
     ?? Path.Combine(builder.Environment.ContentRootPath, ".pl-data");
 Directory.CreateDirectory(dataDir);
 
+/* Announced at boot, because getting this wrong is silent and total.
+ *
+ * Everything durable lives here — the database and the keys that decrypt every stored PAT and API
+ * key. Point it somewhere unmounted and the app works perfectly, writes to the container's own
+ * filesystem, and loses the lot on the next `docker rm`: the user is simply logged out again with no
+ * error anywhere to explain it. That happened, from a `docker run -e PL_DATA_DIR=/data` issued in Git
+ * Bash, which rewrites a lone `/data` into a Windows path before Docker ever sees it. The Dockerfile
+ * already sets this correctly; the fix is to stop passing it by hand (use `docker compose`), and this
+ * line is so the next occurrence is one `docker logs` away instead of a mystery. */
+Console.WriteLine($"[launchpad] data directory: {Path.GetFullPath(dataDir)}");
+
 // --- persistence ---
 builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseSqlite($"Data Source={Path.Combine(dataDir, "launchpad.db")}"));
@@ -182,6 +193,13 @@ using (var scope = app.Services.CreateScope())
             "Project" TEXT NOT NULL,
             "RepoId" TEXT NOT NULL,
             "PullRequestId" INTEGER NOT NULL,
+            "Kind" TEXT NOT NULL DEFAULT 'main',
+            "Path" TEXT NULL,
+            "Line" INTEGER NULL,
+            "EndLine" INTEGER NULL,
+            "CommitSha" TEXT NULL,
+            "Seed" TEXT NULL,
+            "Status" TEXT NOT NULL DEFAULT 'open',
             "CreatedAt" TEXT NOT NULL,
             "UpdatedAt" TEXT NOT NULL
         );
@@ -200,6 +218,7 @@ using (var scope = app.Services.CreateScope())
             "Ordinal" INTEGER NOT NULL,
             "Question" TEXT NOT NULL,
             "Answer" TEXT NOT NULL,
+            "SegmentsJson" TEXT NULL,
             "Provenance" TEXT NULL,
             "CitationsJson" TEXT NOT NULL DEFAULT '[]',
             "InferenceNote" TEXT NULL,
@@ -212,6 +231,7 @@ using (var scope = app.Services.CreateScope())
             "CompletionTokens" INTEGER NULL,
             "Stopped" INTEGER NOT NULL DEFAULT 0,
             "ErrorCode" TEXT NULL,
+            "ErrorDetail" TEXT NULL,
             "CreatedAt" TEXT NOT NULL,
             CONSTRAINT "FK_AgentThreadTurns_AgentThreads" FOREIGN KEY ("ThreadId")
                 REFERENCES "AgentThreads" ("Id") ON DELETE CASCADE
@@ -219,6 +239,42 @@ using (var scope = app.Services.CreateScope())
         CREATE INDEX IF NOT EXISTS "IX_AgentThreadTurns_ThreadId"
             ON "AgentThreadTurns" ("ThreadId");
         """);
+
+    /* Columns added to a table that already existed. CREATE TABLE IF NOT EXISTS is a no-op on an
+       existing table, so an existing database never sees a new column from the statements above —
+       and SQLite has no ADD COLUMN IF NOT EXISTS, so the check has to be explicit.
+
+       SegmentsJson: the canonical answer became a list of segments rather than one string. Turns
+       written before that keep their Answer/Provenance/CitationsJson and are read back as a single
+       synthesised segment (see ThreadStore.Segments), so an existing thread stays readable rather
+       than being migrated or discarded. */
+    AddColumnIfMissing("AgentThreadTurns", "SegmentsJson", "TEXT NULL");
+    AddColumnIfMissing("AgentThreadTurns", "ErrorDetail", "TEXT NULL");
+
+    /* An inline annotation (§7.6) is a thread with an anchor, so these are columns on the existing
+       table rather than a second one. Every existing row is a main-thread conversation, which is
+       exactly what the defaults say. */
+    AddColumnIfMissing("AgentThreads", "Kind", "TEXT NOT NULL DEFAULT 'main'");
+    AddColumnIfMissing("AgentThreads", "Path", "TEXT NULL");
+    AddColumnIfMissing("AgentThreads", "Line", "INTEGER NULL");
+    AddColumnIfMissing("AgentThreads", "EndLine", "INTEGER NULL");
+    AddColumnIfMissing("AgentThreads", "CommitSha", "TEXT NULL");
+    AddColumnIfMissing("AgentThreads", "Seed", "TEXT NULL");
+    AddColumnIfMissing("AgentThreads", "Status", "TEXT NOT NULL DEFAULT 'open'");
+
+    void AddColumnIfMissing(string table, string column, string declaration)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+
+        using var check = conn.CreateCommand();
+        check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
+        if (Convert.ToInt64(check.ExecuteScalar() ?? 0L) > 0) return;
+
+        using var alter = conn.CreateCommand();
+        alter.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {declaration}";
+        alter.ExecuteNonQuery();
+    }
 
     // Any sequence run still "running" was orphaned by a previous process (restart/crash)
     // and can never resume — fail it so it doesn't hang forever as "in progress".

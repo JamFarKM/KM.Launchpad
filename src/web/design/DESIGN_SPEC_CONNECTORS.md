@@ -23,16 +23,17 @@ Copilot adapters are Launchpad-side only — there is no external team to hand a
 The black harness bar at the top of both mockups — the state switcher and the theme toggle — **is not part of
 the product.**
 
-`sample-request.json`, `sample-request-stream.json` and `injection-fixture.json` are listed above but were not
-supplied with this doc. They are generated from the canonical shapes once §5.2 exists in code, rather than
-hand-authored, so they cannot drift from the schema they are meant to demonstrate.
+The three JSON fixtures are **generated from the canonical shapes by the test suite**, not hand-authored, so they
+cannot drift from the schema they exist to demonstrate. Editing one by hand is a mistake the next test run
+silently reverts; change `CanonicalSchema` instead and the fixtures follow.
 
 ---
 
 ## 0.0 Amendments found while implementing
 
-Four places where this spec and the app it targets disagree. Recorded here rather than silently worked around,
-because each would otherwise be rediscovered.
+Seven places where this spec and the app it targets disagree. Recorded here rather than silently worked around,
+because each would otherwise be rediscovered. Carried forward across this revision of the doc — the code they
+describe has not changed.
 
 1. **§2's data model is written in Postgres types; Launchpad is SQLite.** `uuid`, `bytea`, `timestamptz` and
    `text[]` have no direct equivalents. `capabilities text[]` in particular becomes its own table — which is
@@ -41,7 +42,7 @@ because each would otherwise be rediscovered.
    column. `timestamptz` → ISO-8601 `TEXT`. `bytea` → `TEXT`, not `BLOB`: Data Protection's `Protect()` returns a
    base64url string and every other secret in this app is stored that way, so a BLOB here would be a second
    convention for no gain. There is no migrations framework — tables are raw `CREATE TABLE IF NOT EXISTS` in
-   `Program.cs` — so §2's check constraint is hand-written.
+   `Program.cs` — so §2's check constraint is hand-written. §7.6's annotation store follows the same shape.
 2. **§6's `X-Accel-Buffering: no` is inert in this deployment.** The spec already notes the header is an nginx
    convention; this app has no proxy at all — Kestrel serves `wwwroot` directly. The header costs nothing and is
    kept for the day one is introduced, but what actually prevents buffering here is explicit flushing on the SSE
@@ -55,11 +56,32 @@ because each would otherwise be rediscovered.
 4. **`--prov-doc` and `--bot` are the same violet** (`#6b5bd6` light, `#9085e9` dark). §5.2.1 requires the badge
    hue never to become an identity colour, but violet already *is* the assistant identity — the answer's left
    border, the name, the cursor, the citation hover and the cited diff row all use it. So on a `doc`-grounded
-   answer the badge is the same hue as the chrome around it, and `doc` ends up the least differentiated of the
+   segment the badge is the same hue as the chrome around it, and `doc` ends up the least differentiated of the
    three: it shares its hue with identity *and* its glyph (the check) with `code`. The label still carries the
    meaning, so this is a muddle rather than a defect. Fix by giving `doc` its own glyph rather than by introducing
    a fifth hue — the only unused one is orange, which collides with `--status-warn` on the stale banner two
    elements away.
+5. **Azure DevOps code search is not installed on this organization**, so §5's `search_code` tool returns "not
+   available on this Azure DevOps organization" rather than results. It deliberately returns *that*, not an empty
+   list: conflating "nothing references this" with "I could not check" is the most dangerous wrong answer
+   available to a reviewer deciding whether something is safe to delete. `read_file` and `list_files` work, so the
+   agent locates by listing instead — slower, and it says which parts it could not verify. Installing the Code
+   Search extension turns the tool on with no change here.
+6. **§5.5's timeouts were written for a single call with a short prompt, and they killed working answers.**
+   Raised: first token 20 s → **2 minutes**, whole completion 120 s → **5 minutes per exchange**, idle between
+   deltas 30 s → **60 s**. Two things changed under that table. A question is now a loop of up to five exchanges
+   rather than one call, so a single figure cannot bound it — the loop is bounded by its iteration count and its
+   byte budget instead. And a large prompt genuinely takes a long time to produce a first token, because the model
+   reads all of it before saying anything; timing that out reported "the agent didn't answer" about an agent that
+   was answering, which is precisely the distinction a timeout exists to make. The connection test stays at 10 s:
+   it is the diagnostic path, and waiting on it must never itself be the problem.
+7. **§5.1's 200 KB diff cap truncated real pull requests far short of any model's limit.** Raised to **700 KB**
+   (≈175k tokens of diff, which fits a 200k-token context alongside the prompt, the history and the tool results),
+   and the cumulative tool-reading budget from 200 KB to 400 KB. 200 KB was chosen when the open question was
+   "what will an unknown internal endpoint accept"; against a real PR it meant reviewers were reading answers
+   based on a partial diff for no reason. The truncation machinery is unchanged and still matters — a cap that is
+   never hit is not an argument for having no cap, and the prioritised-partial behaviour is what makes the
+   overflow case a stated partial answer rather than a rejected request.
 
 ---
 
@@ -433,9 +455,9 @@ ladder, timeouts — is written once, against two internal shapes:
 
 - **A canonical request**: the task system prompt (§5.3), the assembled `<pull-request-context>` block (§5.1),
   and the turn history, all provider-agnostic.
-- **A canonical response**: the strict JSON schema in §5.2 — `answer` / `provenance` / `citations` /
-  `inference_note` — the only shape the Review panel, the provenance badge (§5.2.1), and `Post as comment…` ever
-  see.
+- **A canonical response**: the strict JSON schema in §5.2 — a list of `segments`, each bundling its own `text` /
+  `provenance` / `citations` / `inference_note` — the only shape the Review panel, the provenance badge (§5.2.1),
+  and `Post as comment…` ever see.
 
 An adapter's entire job is to sit between those two shapes and one real provider: turn the canonical request into
 that provider's native wire format, send it, and turn whatever comes back — a normal response, a stream, or a
@@ -484,6 +506,14 @@ because the block above is identical either way.
 
 ### 5.2 Canonical response schema
 
+**An answer is a list of segments, not one block of prose with a pile of citations glued to the bottom.** The
+first version of this schema had a single `answer` string plus a flat top-level `citations` array, and the
+review-panel feedback on it was specific and correct: with several claims in one answer and all their citations
+in one strip at the end, there's no way to tell which citation backs which sentence. The fix isn't a UI trick —
+if the model doesn't tell us which citation goes with which claim, no amount of layout invents that link. So the
+model states it directly: each **segment** is one claim, carrying its own citations *and* its own provenance,
+bundled together at the source.
+
 This is the shape every adapter must produce, however it gets there. §5.A produces it natively via
 `response_format: json_schema`. §5.B produces it by forcing a single tool call whose input schema is this same
 object. §5.C produces it if GitHub's Copilot Chat surface turns out to support structured output at all, and
@@ -493,74 +523,105 @@ falls back to the mode 3 in §5.4 — designed for exactly this case — if it d
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["answer", "provenance", "citations", "inference_note"],
+  "required": ["segments"],
   "properties": {
-    "answer":        { "type": "string",
-                       "description": "Markdown. Restricted subset: paragraphs, unordered lists, bold, inline code." },
-    "provenance":    { "type": "string", "enum": ["code", "doc", "inferred"] },
-    "citations":     { "type": "array",
-                       "items": { "type": "object", "additionalProperties": false,
-                                  "required": ["path", "line", "end_line"],
-                                  "properties": { "path": {"type":"string"},
-                                                  "line": {"type":"integer"},
-                                                  "end_line": {"type":["integer","null"]} } } },
-    "inference_note":{ "type": ["string","null"],
-                       "description": "Required when provenance is 'inferred'; null otherwise." }
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "provenance", "citations", "inference_note"],
+        "properties": {
+          "text":        { "type": "string",
+                           "description": "Markdown. Restricted subset: paragraphs, unordered lists, bold, inline code. One claim — typically a sentence or two, not the whole answer." },
+          "provenance":  { "type": "string", "enum": ["code", "doc", "inferred"] },
+          "citations":   { "type": "array",
+                           "items": { "type": "object", "additionalProperties": false,
+                                      "required": ["path", "line", "end_line"],
+                                      "properties": { "path": {"type":"string"},
+                                                      "line": {"type":"integer"},
+                                                      "end_line": {"type":["integer","null"]} } } },
+          "inference_note": { "type": ["string","null"],
+                              "description": "Required when this segment's provenance is 'inferred'; null otherwise." }
+        }
+      }
+    }
   }
 }
 ```
 
-Two `strict: true`-style constraints that are easy to miss and that make the schema **invalid** if missed —
-these apply equally to §5.A's `json_schema` mode and to §5.B's tool-input schema, since Anthropic validates tool
-inputs against the same JSON Schema dialect:
+Provenance and `inference_note` moved from the top level into each segment for the same reason citations did:
+one answer can honestly contain a segment grounded in the diff (`code`) next to a segment that's a guess
+(`inferred`), and a single badge for the whole turn was already lying about whichever segment it didn't describe.
+A framing or connective segment that isn't a specific claim — *"A couple of things worth checking:"* — is legal
+and expected; it simply carries `citations: []` and whichever `provenance` best describes it (usually `doc` or
+`inferred`, since it's rarely citing a specific line).
 
-- **Every property must appear in `required`.** Strict structured output has no optional properties. `end_line`
-  is therefore required, and its optionality is carried by the `["integer","null"]` union — which is why the
-  union is there at all. Same reason `inference_note` is `["string","null"]` rather than simply absent when
-  unused.
-- **No `maxItems`.** Array length keywords are unsupported by strict structured outputs in several
-  implementations, so the cap of 8 citations is **enforced in our parser**, not by the schema. Extra citations are
-  dropped silently rather than failing the response.
+Constraints that are easy to miss and make the schema **invalid** if missed — these apply equally to §5.A's
+`json_schema` mode and to §5.B's tool-input schema, since Anthropic validates tool inputs against the same JSON
+Schema dialect:
 
-**`answer` is first in the schema on purpose.** Under streaming, the object arrives as fragments, so an adapter
-emitting keys in schema order lets the prose render while the trailing metadata is still being produced. Parse
-the partial object tolerantly, render `answer` as it grows, and apply `provenance` / `citations` when the object
-closes. Until it closes, the badge shows `CHECKING SOURCES` (§5.2.1) — the UI must not guess a provenance value
-it has not received. This parsing pipeline lives above the adapter layer and is identical regardless of which
-adapter is feeding it — §5.B's `partial_json` tool-input fragments and §5.A's streamed JSON deltas both arrive at
-the same tolerant parser.
+- **Every property must appear in `required`**, on both the outer object and every segment. Strict structured
+  output has no optional properties. `end_line` and `inference_note` carry their optionality through
+  `["integer","null"]` / `["string","null"]` unions rather than being absent — same reasoning as before, just
+  applied per segment now instead of once per answer. `citations: []` is how a segment says "no citation," not an
+  omitted key.
+- **No `maxItems` or `minItems`.** Array length keywords are unsupported by strict structured outputs in several
+  implementations, so caps are **enforced in our parser**, not by the schema: at most 4 citations per segment, at
+  most 6 segments per answer. Extra citations are dropped silently; a 7th segment is dropped with an
+  `inference_note`-style caveat appended to the 6th rather than silently discarded, since unlike a citation, a
+  whole missing claim is not a safe thing to drop without a trace.
 
-**Key emission order is not a guarantee of any provider's API.** It is a request we make of every adapter, and
-the BetBot plan asks the Custom adapter for it explicitly. Progressive rendering must therefore degrade rather
-than break: if the object closes with no prose having been rendered, show the finished answer in one go. Never
-block rendering on a key order that may never arrive.
+**Segments render, and badge, one at a time as each one closes — this is the new streaming unit.** Previously the
+single `answer` string streamed character by character while the badge waited on the whole object to close. Now
+each array element is its own complete object; render segment *N* — text, badge, and citation chips together —
+the moment it closes, while segment *N+1* shows a lightweight "still thinking" placeholder rather than holding
+the entire turn at `CHECKING SOURCES` (§5.2.1). This reads more like a person adding one thought at a time than
+like watching a document type itself, and it's a strictly better fit for a chat panel than the old approach was.
+This parsing pipeline lives above the adapter layer and is identical regardless of which adapter is feeding it —
+§5.B's `partial_json` tool-input fragments and §5.A's streamed JSON deltas both resolve to the same
+segment-at-a-time render, once each array element's fragments are complete.
+
+**A structured-output failure (§5.4 mode 3) is not a separate rendering path.** It produces exactly one
+synthetic segment — the full prose response as `text`, `citations: []`, and a sentinel provenance the UI renders
+as `SOURCE NOT STATED` instead of a real badge. The segment-card renderer doesn't need a branch for "no
+structure available"; it already knows how to render one segment, and mode 3 is just an answer that happens to
+have exactly one.
+
+**Segment order is not a guarantee of any provider's API.** It is a request we make of every adapter, and the
+BetBot plan asks the Custom adapter for it explicitly. If an adapter can't stream segments incrementally at all,
+render the finished list in one go rather than blocking on an ordering guarantee that may never arrive.
 
 `citations[].path` must match a path in `<files>`. Drop citations that don't — a chip that scrolls nowhere is
 worse than no chip.
 
 ### 5.2.1 The provenance badge
 
-The most important element on the panel, and the only place its rules are written down.
-`betbot-review-v1.html` is the visual ground truth — its `PROVIDERS`/`setProvider()` harness proves this badge
-renders identically no matter which of the three sample connectors is active.
+The most important element on the panel, and the only place its rules are written down. Each **segment** carries
+its own badge now, directly beneath that segment's text and directly above that segment's own citation chips —
+bundled, not pooled at the end of the turn. `betbot-review-v1.html` is the visual ground truth — its
+`PROVIDERS`/`setProvider()` harness proves this badge renders identically no matter which of the three sample
+connectors is active.
 
 | `provenance` | Badge | Hue | Also |
 |---|---|---|---|
 | `code` | `FROM DIFF` | `--prov-code` (aqua) | — |
 | `doc` | `FROM PR DESC` | `--prov-doc` (violet) | — |
-| `inferred` | `INFERRED` | `--prov-infer` (slate) | `inference_note` renders in a dashed box above the citations |
-| *streaming, object not yet closed* | `CHECKING SOURCES` | `--ink-muted` | Rotating glyph, stilled under `prefers-reduced-motion` |
-| *structured output unavailable (§5.4 mode 3)* | `UNVERIFIED SOURCE` | `--ink-muted` | Citation strip hidden entirely |
+| `inferred` | `INFERRED` | `--prov-infer` (slate) | `inference_note` renders in a dashed box directly under this segment, above its own citations |
+| *this segment still streaming* | `CHECKING SOURCES` | `--ink-muted` | Rotating glyph, stilled under `prefers-reduced-motion` — shown only on the segment currently arriving, not on ones already closed |
+| *structured output unavailable (§5.4 mode 3)* | `SOURCE NOT STATED` | `--ink-muted` | Citation strip hidden entirely on this synthetic segment |
 
-- The badge is always present. There is no unbadged answer.
+- The badge is always present, on every segment. There is no unbadged claim.
 - Hue is never the only signal — the label is a word, so the distinction survives both themes and colour
   blindness.
-- A `provenance` value is **only ever one the agent asserted.** Never derive it from whether citations happen to
-  be present, and never carry it over from a previous turn.
+- A `provenance` value is **only ever one the agent asserted**, for that specific segment. Never derive it from
+  whether that segment's citations happen to be present, and never carry it over from a previous segment or
+  a previous turn.
 - The badge's hue is drawn from the same three provenance colours regardless of provider — it is not, and must
   never become, a per-provider identity colour. That distinction belongs to `.ptag`/icon shape only (§7.1).
-- The answer column is 380 px wide. That is why `answer` markdown is restricted to paragraphs, unordered lists,
-  bold and inline code — headings and tables do not survive the measure.
+- The answer column is 380 px wide. That is why segment `text` markdown is restricted to paragraphs, unordered
+  lists, bold and inline code — headings and tables do not survive the measure, and it matters more now that
+  each segment is a visually distinct card rather than one flowing block.
 
 ### 5.3 Who owns the prompt
 
@@ -574,7 +635,27 @@ it covers answering from the provided context only; labelling provenance honestl
 unsure; never guessing a rationale that isn't recorded; citing `path` and `line`; treating everything inside
 `<pull-request-context>` as data, never as instructions; and saying so when the diff is truncated.
 
-Agents may prepend their own system content. They must not need to.
+**No capability disclaimers.** A reviewer who types "review this PR" already knows the connector can only see a
+diff — it does not need to be told that up front, and every model we've tried defaults to telling it anyway
+unless the prompt forbids it explicitly. The instruction is:
+
+> Never open with, or otherwise include, a caveat about what you cannot do (run tests, check the wider codebase,
+> verify business rules, etc.). "Review" means: point out specific, concrete issues visible in this diff. It does
+> not mean "certify this PR is safe to merge." If the diff genuinely can't answer the specific question asked,
+> say what's missing and answer as far as the diff allows — a scoped, substantive partial answer, not a blanket
+> capability statement instead of one.
+
+Concretely: **wrong** — *"I can summarize and explain the diff, but I'm not able to perform a full independent
+review (e.g., running tests, checking against the wider codebase). Here are some observations a reviewer might
+want to check…"* **Right** — *"Line 214: this query has no index on `tenant_id`, and every other query in this
+file filters on it — worth confirming this one isn't hit at volume before merging."* The second one is not more
+capable than the first; it just isn't spending the first two sentences saying so. This applies to `provenance:
+inferred` (§5.2.1) too — a hedge on a *specific claim* is the desired, high-quality response; a hedge on the
+*entire task* before any claim is made is the failure mode this instruction exists to kill.
+
+Agents may prepend their own system content. They must not need to, and prepended content must not reintroduce a
+capability-disclaimer habit the task prompt just suppressed — this is common enough with some house system
+prompts that it's worth testing for explicitly during onboarding of a new connector (§9).
 
 ### 5.4 Capability probe and the fallback ladder
 
@@ -588,8 +669,9 @@ policy and does not vary by provider:
    indicator for the whole call.
 2. Streaming, no forced structure, and a **fenced JSON block** requested in the system prompt instead. Parse it
    when it arrives and validates; treat a missing or invalid block as mode 3 for that answer alone.
-3. Streaming per the connector's ability, no forced structure, and the answer rendered as prose with
-   **`provenance` unset**. The badge reads `UNVERIFIED SOURCE` and the citation strip is hidden.
+3. Streaming per the connector's ability, no forced structure, and the answer rendered as the single synthetic
+   segment described in §5.2 — plain prose, no citations, **`provenance` unset**. The badge reads
+   `SOURCE NOT STATED` and the citation strip is hidden.
 
 Modes 2 and 3 are real degradations and must look like ones. Never infer a provenance value client-side; never show
 `FROM DIFF` for an answer whose source the agent did not assert. The probe result is recorded against the
@@ -635,7 +717,7 @@ OpenAI needed no dedicated mockup state (§3.0). Everything below applies to bot
   "messages": [
     { "role": "system", "content": "<the canonical task prompt — §5.3>" },
     { "role": "user",   "content": "<pull-request-context>…</pull-request-context>\n\nWhat does this PR change?" },
-    { "role": "assistant", "content": "<the previous answer's `answer` field, verbatim>" },
+    { "role": "assistant", "content": "<the previous turn's segments[].text, joined by blank lines>" },
     { "role": "user",   "content": "Why NOLOCK on every join?" }
   ],
   "response_format": {
@@ -649,8 +731,9 @@ OpenAI needed no dedicated mockup state (§3.0). Everything below applies to bot
   by some endpoints. If a connector 400s on it, resend once with `max_tokens` and record the quirk against the
   connector so the fallback isn't re-discovered on every call.
 - The PR context block is attached to the **first user message only**. Subsequent turns are the question alone.
-- Replayed assistant turns carry the `answer` field only — not the JSON envelope. Re-feeding the envelope
-  teaches the model to talk about its own metadata.
+- Replayed assistant turns carry each segment's `text`, concatenated in order with a blank line between them —
+  not `provenance`, not `citations`, not the JSON envelope. Re-feeding the envelope teaches the model to talk
+  about its own metadata instead of the question in front of it.
 - History is capped at the last 12 turns. When turns are dropped, the system prompt says so.
 - Model list for §4's test and for §3.2's `<select>`: `GET {base_url}/models`, expecting
   `{ "data": [ { "id": … } ] }`. A body that doesn't parse that way is `not_openai` (§4).
@@ -674,8 +757,10 @@ bridge:
 - **Streaming shape.** Anthropic's SSE vocabulary — `message_start`, `content_block_start`,
   `content_block_delta` (carrying `partial_json` fragments of the tool's argument string, not a coherent object
   per event), `content_block_stop`, `message_delta`, `message_stop` — is materially different from OpenAI's
-  `chat.completion.chunk`. The adapter's job stops at feeding accumulated `partial_json` into the same tolerant
-  parser described in §5.2; nothing above the adapter boundary should ever see an Anthropic-shaped event.
+  `chat.completion.chunk`. Because the argument object's only property is the `segments` array (§5.2), the
+  adapter's job is to accumulate `partial_json` fragments and detect when each array *element* — not the whole
+  object — is complete enough to parse on its own; that per-element boundary is what feeds the segment-at-a-time
+  renderer in §5.2. Nothing above the adapter boundary should ever see an Anthropic-shaped event.
 - **`max_tokens` is required**, not an optional field with a deprecated sibling — so unlike §5.A there is no
   fallback dance to implement here; there is only one field, and it must be sent every time.
 - **Model list.** `GET https://api.anthropic.com/v1/models` returns IDs directly usable in the request's `model`
@@ -709,7 +794,7 @@ It is written so implementation can start, not so it can be trusted the way §5.
   conflating those would turn a licensing problem into a support ticket that looks like an outage.
 - Until the spike lands, this design assumes the answer is **"no native structured output"** and treats that as
   the expected, supported outcome rather than a failure: the fallback ladder in §5.4 was written with this
-  adapter specifically in mind, and mode 3 — `UNVERIFIED SOURCE`, no citations, plain prose — is an acceptable
+  adapter specifically in mind, and mode 3 — `SOURCE NOT STATED`, no citations, plain prose — is an acceptable
   permanent state for Copilot in v1, not a placeholder for a fix that has to land before ship.
 - No `BETBOT_INTEGRATION_PLAN.md`-equivalent exists for this adapter. There is no external team to send an ask
   to — GitHub's API is what it is, discovered rather than negotiated. The spike's findings should be appended to
@@ -821,17 +906,25 @@ From those:
 
 ### 7.4 Nothing reaches the pull request without a human
 
-The panel is read-only with respect to the PR. `Post as comment…` opens a sheet containing the answer as
-**editable** text, posts under the reviewer's own name, and appends a `— via {connector name}` attribution line
-the reviewer can delete. There is no code path that posts an answer without that sheet being shown first.
+The panel is read-only with respect to the PR. `Post as comment…` opens a sheet containing text as **editable**,
+posts under the reviewer's own name, and appends a `— via {connector name}` attribution line the reviewer can
+delete. There is no code path that posts anything without that sheet being shown first.
 
-Three kinds of answer are **not postable**, and in each case the button is absent rather than
+**Now that an answer is a list of segments (§5.2), each segment card gets its own `Post as comment…`** — posting
+one specific claim, not the whole turn — alongside a `Copy all` action for the rare case a reviewer wants the
+entire answer verbatim. This is a direct benefit of bundling citations at the segment level rather than a new
+mechanism: a segment already names the exact `path`/`line` it's about, so posting it can pre-anchor the Azure
+DevOps comment thread to that line instead of landing as a general PR comment the reviewer has to manually place.
+A segment with no citation posts as a general comment, same as the old whole-answer behaviour did.
+
+Three kinds of segment are **not postable**, and in each case the button is absent rather than
 disabled-with-tooltip, because there is nothing the reviewer can do to make it postable:
 
-- stopped by the reviewer,
-- failed or truncated mid-stream,
-- produced in fallback mode 3 (`UNVERIFIED SOURCE`). An answer whose source the agent never asserted should not
-  become a permanent PR comment carrying the agent's name. The reviewer can still copy it.
+- part of a turn stopped by the reviewer,
+- part of a turn that failed or was truncated mid-stream,
+- the single synthetic segment produced by fallback mode 3 (`SOURCE NOT STATED`). A claim whose source the agent
+  never asserted should not become a permanent PR comment carrying the agent's name. The reviewer can still copy
+  it.
 
 Together with the untrusted-context rule in §5.1, this is the prompt-injection mitigation. Neither half is
 sufficient alone, and both apply identically regardless of which of the three adapters produced the answer.
@@ -842,6 +935,63 @@ Stored by Launchpad against `(user_id, repo, pull_request_id)`, private to the u
 connector is removed or swapped. A thread is a record of what the reviewer asked; it survives the agent that
 answered. Turns record `connector_id`, `model` and `commit_sha` so an answer can always be attributed and the
 stale-commit banner can fire.
+
+### 7.6 Inline annotations — a citation you can turn into a thread
+
+**A citation already *is* a candidate inline comment.** Every segment (§5.2) that cites a line is, structurally,
+the agent saying something about that exact spot in the diff — the only thing missing is a way to leave it there
+instead of letting it scroll past in the flat conversation. That's what this feature is: not a new kind of
+content, but a second, persistent place for content the agent was already producing.
+
+**How a marker becomes a thread.** Any segment with at least one citation gets a small persistent dot in the
+diff gutter at that line the moment the segment closes — cheap, no extra request, since the data already exists.
+Clicking a `.cite` chip inside the agent panel still just jumps and highlights, exactly as it does today; clicking the
+**gutter marker** opens an annotation: an elevated card anchored to that line, reusing the same visual treatment
+as the real PR comment composer in `DESIGN_SPEC_REVIEW.md` §6 — scrim, rotated-square pointer, elevated surface
+— so the interaction feels native to the diff rather than bolted on. The one deliberate visual difference: a
+dashed border and a small `NOT POSTED` tag, so it's never mistaken for a comment that's already live on the pull
+request. The segment's text is the annotation's opening turn. From there, the reviewer can reply, and each reply
+is answered the same way a main-thread question is — same connector, same segment-shaped response, same
+citation/provenance rules — except the history replayed (§5.A) is this annotation's own turns, not the main
+conversation's.
+
+**Cycling.** The agent panel gets a small header control — `‹ 3 of 7 ›` — that steps through **open** annotations only
+(ones with at least one reply, or explicitly kept open by the reviewer), jumping the diff to each in turn and
+opening its card. Raw unopened markers don't clutter this count; there's no obligation to engage with every
+citation the agent ever made, only the ones worth a thread.
+
+**Resolving.** A `Resolve` action on the card dims its gutter marker and drops it from the cycle count, without
+deleting it — same "never destroy a record of what was asked" principle as §7.5's main thread. A `Show resolved`
+toggle in the cycling control brings dimmed markers back into rotation for a re-read.
+
+**Data shape**, kept deliberately close to §7.5's conversation shape rather than inventing a parallel model:
+
+```jsonc
+{
+  "id": "…",
+  "user_id": "…", "repo": "…", "pull_request_id": 80494,
+  "path": "…/054_SalesForce.SearchUsersByEmail_V2.sql", "line": 22, "end_line": null,
+  "commit_sha": "a3f9c21e…",           // the commit the citation was made against
+  "status": "open",                    // | "resolved"
+  "turns": [ /* same segment-turn shape as §7.5, connector_id + model + commit_sha per turn */ ]
+}
+```
+
+Same per-user scope as the main conversation (§0.1) — annotations are **not** shared across reviewers on the
+same PR. That's deliberately out of scope here; it's the shared-context idea parked alongside proposal 4 in this
+round of changes, and mixing the two would reopen the same per-connector isolation question before it's been
+resolved.
+
+**Staleness.** An annotation's `commit_sha` can fall behind the PR's head the same way the automated review's can
+(§7.3) — the cited line may have moved or no longer exist. Treat this the same way: a subtle "based on an earlier
+commit" note on the card rather than silently pointing at the wrong line, but the exact re-anchoring behaviour
+(best-effort line tracking vs. a flat staleness flag) is an open question, not a decision — flagging it rather
+than guessing an answer that hasn't been thought through.
+
+**Promotion.** `Post as comment…` (§7.4) is available directly on an annotation card, same sheet, same
+human-editable gate. Posting from an annotation is the one case where Launchpad *can* pre-fill the Azure DevOps
+comment's own line anchor, since the annotation already carries the exact `path`/`line` — the reviewer still
+sees and can edit the text before it goes anywhere.
 
 ---
 
@@ -863,19 +1013,22 @@ stale-commit banner can fire.
 6. **§5.B, the Anthropic adapter.** A real translation (system field, forced tool call, different SSE shape) but
    a fully specified one — no external dependency and no open questions, so it can be built with the same
    confidence as step 3.
-7. Review page: connector-driven naming and `.ptag` (§7.1), `Not connected` (§7.2), `CHECKING SOURCES`, then the
-   existing answer rendering wired to real responses from whichever of §5.A/§5.B is configured. This is the point
-   at which the panel should be demonstrably provider-agnostic — the harness swap in `betbot-review-v1.html` is
-   the bar to clear.
-8. **A short spike against a real, seated GitHub Copilot account**, per §5.C's caveats — before any Copilot
+7. The agent panel's placement (`DESIGN_SPEC_REVIEW.md` §5) and connector-driven naming and `.ptag` (§7.1),
+   `Not connected` (§7.2), segment-by-segment `CHECKING SOURCES` (§5.2.1), then the existing rendering wired to
+   real responses from whichever of §5.A/§5.B is configured. This is the point at which the panel should be
+   demonstrably provider-agnostic — the harness swap in `betbot-review-v1.html` is the bar to clear.
+8. Inline annotations (§7.6): the persistent gutter marker from a segment's citation, the annotation card and its
+   own reply loop, cycling, resolve. This depends on step 7's panel existing (the cycling control lives there) but
+   not on anything provider-specific — build and test it against whichever of §5.A/§5.B is already wired up.
+9. **A short spike against a real, seated GitHub Copilot account**, per §5.C's caveats — before any Copilot
    adapter code is written. Its job is to answer the open questions in §5.C, not to ship a feature.
-9. **§5.C, the GitHub Copilot adapter**, built from the spike's findings: OAuth device flow (§3.3.1, §4 OAuth
+10. **§5.C, the GitHub Copilot adapter**, built from the spike's findings: OAuth device flow (§3.3.1, §4 OAuth
    codes) with confidence, chat-completion wire format per whatever the spike found, defaulting to fallback
    mode 3 if it found no structured-output support.
-10. The suggestion list from deployment config (§3.4) — Custom only.
+11. The suggestion list from deployment config (§3.4) — Custom only.
 
-Steps 1–5 do not block on any external account and should not wait for GitHub Copilot access to be provisioned;
-steps 8–9 are the only ones that do.
+Steps 1–8 do not block on any external account and should not wait for GitHub Copilot access to be provisioned;
+steps 9–10 are the only ones that do.
 
 ---
 
@@ -907,17 +1060,22 @@ and §5.C once its spike has landed), not just once against whichever provider i
   structure, spacing, and every non-text pixel are unchanged — only `.ptag`, the avatar glyph, the header name,
   the outage copy, and the composer placeholder differ.
 - A connector that can't produce the canonical schema (§5.2) degrades through the §5.4 ladder: mode 1, then
-  mode 2, and mode 2 shows `UNVERIFIED SOURCE` with no citation strip. Verify this for §5.A by rejecting
+  mode 2, and mode 2 shows `SOURCE NOT STATED` with no citation strip. Verify this for §5.A by rejecting
   `json_schema` + `stream`, and for §5.B by rejecting the forced tool call.
 - Anthropic's `auth` failure path (`x-api-key` rejected) renders through the same §4 copy as an OpenAI-compatible
   `auth` failure, with no leftover Bearer-specific wording.
 - All five GitHub Copilot states — `pending`, `connected`, `denied`, `expired`, `no_seat` — render distinctly in
   Settings › Connectors, matching `connectors-settings-v1.html`'s `copilot_pending`/`copilot_connected` states
   plus the three non-mocked-but-designed copy variants in §3.3.1.
-- **The canonical response — `answer` / `provenance` / `citations` / `inference_note` — is byte-identical in
-  shape regardless of which adapter produced it.** Feed the same synthetic PR context through §5.A and §5.B (and
-  §5.C once buildable) and diff the parsed objects the Review panel receives; only the values should differ, never
-  the shape.
+- **The canonical response — a `segments` list, each with its own `text` / `provenance` / `citations` /
+  `inference_note` — is byte-identical in shape regardless of which adapter produced it.** Feed the same
+  synthetic PR context through §5.A and §5.B (and §5.C once buildable) and diff the parsed objects the Review
+  panel receives; only the values should differ, never the shape.
+- **Every citation and every `inference_note` renders attached to its own segment, never pooled at the end of
+  the turn.** With an answer containing at least one `code`-provenance segment and one `inferred`-provenance
+  segment, confirm each segment shows its own badge and its own citations directly beneath its own text — this is
+  the specific defect the segment shape exists to prevent, so it's worth checking directly rather than trusting
+  the schema alone.
 - Kill the connector mid-stream: the panel shows the partial answer *and* a typed error, and the partial is not
   postable as a comment. Check this for a streaming adapter (§5.A/§5.B) and confirm §5.C's mode-3 prose path has
   an equivalent kill-mid-stream behaviour once it's buildable.
@@ -929,9 +1087,25 @@ and §5.C once its spike has landed), not just once against whichever provider i
 - A §5.A connector that 400s on `max_completion_tokens` is retried once with `max_tokens`, and the quirk is
   recorded rather than re-discovered per call. (§5.B has no equivalent case — `max_tokens` is always required and
   always sent — confirm the adapter doesn't carry over a retry path that doesn't apply to it.)
-- A streamed answer whose keys arrive out of schema order still renders — in one go rather than progressively —
-  and does not hang waiting for `answer`.
+- A streamed answer whose segments arrive one at a time renders each segment — text, badge, citations — as soon
+  as that segment's object closes, without waiting for the whole array to finish; a connector that can't stream
+  segments incrementally still renders the full list in one go rather than hanging.
 - Buffering is verified by observation: deltas visibly arrive over time in the network panel, not in one batch,
   for whichever adapter is under test.
+- Ask each connector to "review this PR" / "review this pull request" with no more specific question. No segment
+  — especially not the first one — opens with, or contains, a disclaimer about inability to run tests, check the
+  wider codebase, or verify business rules (§5.3). Run this once per adapter — a house system prompt prepended by
+  one provider is a plausible way for the disclaimer habit to reappear on that provider alone while the others
+  stay clean.
+- With the agent tab selected, the file tree stays visible and clickable, and switching files does not send the
+  left panel back to the pull request list — this is the acceptance test for the whole reason the agent is not in
+  the right rail (`DESIGN_SPEC_REVIEW.md` §5, §11).
+- A segment with a citation produces a gutter marker at that line without an extra request; clicking the marker
+  opens an annotation card seeded with that segment's text, and clicking the `.cite` chip in the panel still just
+  jumps and highlights rather than also opening a card — these are deliberately two different actions (§7.6).
+- Cycling through annotations (`‹ n of m ›`) visits only open ones, skips resolved ones, and `Show resolved`
+  brings them back into rotation. Posting an annotation via `Post as comment…` pre-anchors the Azure DevOps
+  comment to that annotation's `path`/`line`.
 - Both themes, at 1280 px and 1680 px wide, for all seven states of the review mockup (including the Connector
-  harness swap across all three sample providers) and all ten states of the connectors mockup.
+  harness swap across all three sample providers, both left-panel tabs, and at least one open annotation card) and
+  all ten states of the connectors mockup.

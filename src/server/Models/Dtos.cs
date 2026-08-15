@@ -298,6 +298,27 @@ public record AskRequest(string Question);
 
 public record CitationDto(string Path, int Line, int? EndLine);
 
+/// <summary>
+/// One claim, with its own badge and its own citations (§5.2).
+///
+/// <paramref name="Provenance"/> is null only when the agent asserted nothing for this segment — the
+/// badge then reads SOURCE NOT STATED. It is never derived from whether citations are present.
+/// </summary>
+/// <param name="Severity">
+/// info | warning | error. A separate axis from <paramref name="Provenance"/>: one says how much this
+/// should worry the reviewer, the other says how much the agent knows. Neither implies the other.
+/// </param>
+public record AgentSegmentDto(
+    string Text,
+    string? Provenance,
+    string Severity,
+    List<CitationDto> Citations,
+    string? InferenceNote);
+
+/// <param name="Answer">
+/// The segments' prose, joined. For "Copy all" only — nothing renders from it, or the badge and the
+/// citations would go back to being pooled under a whole answer.
+/// </param>
 /// <param name="ConnectorName">
 /// Recorded on the turn rather than looked up, so attribution still renders after the connector
 /// that produced it has been removed (§7.5).
@@ -311,17 +332,52 @@ public record AgentTurnDto(
     int Ordinal,
     string Question,
     string Answer,
-    string? Provenance,
-    List<CitationDto> Citations,
-    string? InferenceNote,
+    List<AgentSegmentDto> Segments,
     string Mode,
     string? ConnectorName,
     string? Model,
     string? CommitSha,
     bool Stopped,
     string? ErrorCode,
+    /// <summary>
+    /// The sentence behind the code. `upstream` is the taxonomy's catch-all, so on its own it tells a
+    /// reviewer nothing and offers no next step — which is exactly what §4 says a failure must not do.
+    /// </summary>
+    string? ErrorDetail,
     bool Postable,
     DateTime CreatedAt);
 
 /// <param name="Id">Null when the reviewer has never asked anything about this pull request.</param>
 public record ThreadDto(string? Id, List<AgentTurnDto> Turns);
+
+// ----- inline annotations (§7.6) -----
+
+/// <summary>
+/// A citation the reviewer left on the diff, plus whatever they went on to ask about it.
+/// </summary>
+/// <param name="Seed">The claim that opened it — the card's first turn, and the agent's own words.</param>
+/// <param name="CommitSha">
+/// The commit the citation was made against. Drives the "based on an earlier commit" note when the PR
+/// head has moved: the cited line may have shifted or stopped existing, and pointing confidently at
+/// the wrong line is worse than admitting the anchor is old.
+/// </param>
+/// <param name="Status">
+/// <c>open</c> or <c>resolved</c>. Resolving dims the marker and drops it from the cycle count; it
+/// never deletes, so `Show resolved` can bring it back.
+/// </param>
+public record AnnotationDto(
+    string Id,
+    string Path,
+    int Line,
+    int? EndLine,
+    string? CommitSha,
+    string? Seed,
+    string Status,
+    List<AgentTurnDto> Turns,
+    DateTime CreatedAt,
+    DateTime UpdatedAt);
+
+public record CreateAnnotationRequest(
+    string Path, int Line, int? EndLine, string? CommitSha, string? Seed);
+
+public record AnnotationStatusRequest(string Status);

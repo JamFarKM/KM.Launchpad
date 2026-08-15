@@ -192,13 +192,16 @@ public class AnthropicAdapterTests
         data: {"type":"ping"}
 
         event: content_block_delta
-        data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"answer\":\"It adds five "}}
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"segments\":[{\"text\":\"It adds five "}}
 
         event: content_block_delta
         data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"procedures.\",\"provenance\":\"code\","}}
 
         event: content_block_delta
-        data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"citations\":[{\"path\":\"a.sql\",\"line\":22,\"end_line\":null}],\"inference_note\":null}"}}
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"citations\":[{\"path\":\"a.sql\",\"line\":22,\"end_line\":null}],\"inference_note\":null},"}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"text\":\"Nothing is deleted.\",\"provenance\":\"doc\",\"citations\":[],\"inference_note\":null}]}"}}
 
         event: content_block_stop
         data: {"type":"content_block_stop","index":0}
@@ -219,26 +222,40 @@ public class AnthropicAdapterTests
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         var complete = Assert.IsType<AgentEvent.Complete>(events.Last());
-        Assert.Equal("It adds five procedures.", complete.Answer.Answer);
-        Assert.Equal(Provenance.Code, complete.Answer.Provenance);
         Assert.Equal(StructuredMode.Structured, complete.Answer.Mode);
+        Assert.Equal(2, complete.Answer.Segments.Count);
 
-        var citation = Assert.Single(complete.Answer.Citations);
+        var first = complete.Answer.Segments[0];
+        Assert.Equal("It adds five procedures.", first.Text);
+        Assert.Equal(Provenance.Code, first.Provenance);
+
+        // The citation sits on the claim it supports, not in a pool at the end of the turn.
+        var citation = Assert.Single(first.Citations);
         Assert.Equal("a.sql", citation.Path);
         Assert.Equal(22, citation.Line);
         Assert.Null(citation.EndLine);
+
+        Assert.Equal(Provenance.Doc, complete.Answer.Segments[1].Provenance);
+        Assert.Empty(complete.Answer.Segments[1].Citations);
     }
 
     [Fact]
-    public async Task Emits_prose_progressively_rather_than_in_one_lump()
+    public async Task Emits_each_segment_as_it_closes_rather_than_the_whole_answer_at_once()
     {
         var handler = new CapturingHandler(_ => Sse(ToolUseStream));
         var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
-        var deltas = events.OfType<AgentEvent.Delta>().ToList();
-        Assert.True(deltas.Count >= 2, "the answer should arrive in fragments, not one block");
-        Assert.Equal("It adds five procedures.", string.Concat(deltas.Select(d => d.Text)));
+        var segments = events.OfType<AgentEvent.Segment>().ToList();
+        Assert.Equal(2, segments.Count);
+        Assert.Equal("It adds five procedures.", segments[0].Value.Text);
+
+        // The first segment lands before the second one's fragments have even arrived, which is what
+        // makes this the streaming unit rather than a rendering detail.
+        Assert.True(events.IndexOf(segments[0]) < events.IndexOf(segments[1]));
+
+        // A structured answer produces no prose deltas at all: those mean "nobody vouched for this".
+        Assert.Empty(events.OfType<AgentEvent.Delta>());
     }
 
     [Fact]
@@ -248,19 +265,24 @@ public class AnthropicAdapterTests
         var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
-        // Everything is one of Launchpad's own three events. message_start, ping, content_block_*
-        // and message_delta all stopped here, which is what §6 means by normalising before the
-        // client sees a byte.
-        Assert.All(events, e => Assert.True(e is AgentEvent.Delta or AgentEvent.Complete or AgentEvent.Failed));
-        Assert.Single(events.Where(e => e is AgentEvent.Complete or AgentEvent.Failed));
+        // Everything is one of Launchpad's own events. message_start, ping, content_block_* and
+        // message_delta all stopped here, which is what §6 means by normalising before the client
+        // sees a byte.
+        Assert.All(events, e => Assert.True(
+            e is AgentEvent.Segment or AgentEvent.Delta or AgentEvent.Complete
+              or AgentEvent.Failed or AgentEvent.ToolCalls));
+        Assert.Single(events, e => e is AgentEvent.Complete or AgentEvent.Failed);
     }
 
     [Fact]
-    public async Task An_error_event_mid_stream_becomes_a_typed_failure_after_the_partial_prose()
+    public async Task An_error_event_mid_stream_becomes_a_typed_failure_after_the_segments_that_closed()
     {
         var stream = """
             event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"answer\":\"I was explaining the "}}
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"segments\":[{\"text\":\"It adds five procedures.\",\"provenance\":\"code\",\"citations\":[],\"inference_note\":null},"}}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"text\":\"And I was about to say"}}
 
             event: error
             data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}
@@ -272,7 +294,14 @@ public class AnthropicAdapterTests
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         // §6: the partial answer *and* an error row — never a partial that looks complete.
-        Assert.Contains("I was explaining the", string.Concat(events.OfType<AgentEvent.Delta>().Select(d => d.Text)));
+        var segment = Assert.Single(events.OfType<AgentEvent.Segment>());
+        Assert.Equal("It adds five procedures.", segment.Value.Text);
+
+        // The second claim never closed, so it is never shown. Half a sentence under a provenance
+        // badge would be a worse outcome than the error alone: the badge would be vouching for
+        // something the agent hadn't finished saying.
+        Assert.DoesNotContain("about to say", string.Concat(events.OfType<AgentEvent.Segment>().Select(s => s.Value.Text)));
+
         var failed = Assert.IsType<AgentEvent.Failed>(events.Last());
         Assert.Equal(AgentErrorCode.Upstream, failed.Error.Code);
         Assert.DoesNotContain(events, e => e is AgentEvent.Complete);
@@ -312,16 +341,23 @@ public class AnthropicAdapterTests
 
         var complete = Assert.IsType<AgentEvent.Complete>(events.Last());
         Assert.Equal(StructuredMode.Unverified, complete.Answer.Mode);
-        Assert.Null(complete.Answer.Provenance);
-        Assert.Contains("five procedures", complete.Answer.Answer);
+        // Exactly one segment, with no provenance — mode 3 is not a second rendering path.
+        var only = Assert.Single(complete.Answer.Segments);
+        Assert.Null(only.Provenance);
+        Assert.Contains("five procedures", only.Text);
+
+        // Plain text streams as prose, because it is prose. It must never arrive as a segment: a
+        // segment is a claim the agent labelled, and this one was not.
+        Assert.NotEmpty(events.OfType<AgentEvent.Delta>());
+        Assert.Empty(events.OfType<AgentEvent.Segment>());
     }
 
     [Fact]
-    public async Task Renders_in_one_go_when_the_tool_input_puts_answer_last()
+    public async Task Keys_within_a_segment_may_arrive_in_any_order()
     {
         var stream = """
             event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"provenance\":\"code\",\"citations\":[],\"inference_note\":null,\"answer\":\"metadata first\"}"}}
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"segments\":[{\"provenance\":\"code\",\"citations\":[],\"inference_note\":null,\"text\":\"metadata first\"}]}"}}
 
             event: message_stop
             data: {"type":"message_stop"}
@@ -332,10 +368,11 @@ public class AnthropicAdapterTests
         var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
-        // Nothing rendered progressively, so the finished answer is emitted once rather than the
-        // panel showing an empty bubble.
-        Assert.Equal("metadata first", string.Concat(events.OfType<AgentEvent.Delta>().Select(d => d.Text)));
-        Assert.Equal(Provenance.Code, Assert.IsType<AgentEvent.Complete>(events.Last()).Answer.Provenance);
+        // The old flat shape asked providers to emit `answer` first so prose could render while the
+        // metadata was still coming. A segment is parsed whole, so key order stopped mattering.
+        var segment = Assert.Single(Assert.IsType<AgentEvent.Complete>(events.Last()).Answer.Segments);
+        Assert.Equal("metadata first", segment.Text);
+        Assert.Equal(Provenance.Code, segment.Provenance);
     }
 
     [Fact]
@@ -345,7 +382,7 @@ public class AnthropicAdapterTests
             data: not json at all
 
             event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"answer\":\"fine\",\"provenance\":\"code\",\"citations\":[],\"inference_note\":null}"}}
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"segments\":[{\"text\":\"fine\",\"provenance\":\"code\",\"citations\":[],\"inference_note\":null}]}"}}
 
             """;
 
@@ -353,6 +390,6 @@ public class AnthropicAdapterTests
         var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
-        Assert.Equal("fine", Assert.IsType<AgentEvent.Complete>(events.Last()).Answer.Answer);
+        Assert.Equal("fine", Assert.IsType<AgentEvent.Complete>(events.Last()).Answer.PlainText);
     }
 }

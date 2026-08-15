@@ -2861,9 +2861,19 @@ a {
    in the window rather than shunted right by two stacked lists. Both side panels collapse,
    driven by data-left/data-right so it's a single grid-template-columns animation (§5).
    Collapsing both is the intended way to read a wide side-by-side diff. */
+/* Three columns: the left panel, the diff, the file rail.
+
+   The left panel holds the pull request list and the conversation as two tabs, and the conversation
+   replaces the list rather than sitting beside it. That follows the reasoning
+   DESIGN_SPEC_REVIEW.md §5 gives for why the agent does not belong in the right rail: a reviewer
+   never needs the PR list and the conversation at once — you pick a pull request, then you are done
+   with that list — but the file tree is needed constantly alongside an answer, because a citation
+   routinely points at a file other than the one open. So the list is the one surface the
+   conversation can take over for free, and the file tree keeps its own column. */
 .review {
   display: grid;
   grid-template-columns: var(--w-left, var(--w-sidebar)) minmax(0, 1fr) var(--w-right, 380px);
+  grid-template-areas: "prlist diff files";
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -2874,7 +2884,42 @@ a {
      correct. A 160ms flourish is not worth a control that lies. */
 }
 
-.review[data-left="off"] { --w-left: 0px; }
+.review .cfg-col.prlist { grid-area: prlist; position: relative; }
+.review .review-diff { grid-area: diff; }
+.review .review-files { grid-area: files; }
+
+/* Same !important reasoning as the rail below: the dragged width is an inline custom property on
+   .review, which would otherwise outrank the collapse rule. */
+.review[data-left="off"] { --w-left: 0px !important; }
+
+/* Both tab bodies stay mounted; only one is displayed. The PR list keeps its scroll position and its
+   filter, and the conversation keeps a part-typed question, across any number of tab switches. */
+.left-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* On the left panel's right edge — the boundary it moves. */
+.left-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 6;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.left-resizer:hover,
+.left-resizer:focus-visible {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.left-resizer:focus-visible { outline: none; }
 
 /* !important because the reviewer's dragged width is an inline style on .review, and an inline
    custom property would otherwise outrank this rule — collapsing the rail would set a width it
@@ -3300,6 +3345,58 @@ a {
   background: var(--hue-violet);
 }
 
+/* An agent annotation (§7.6). A circle, not the comment marker's square: two different things live in
+   this gutter now, and shape is what tells them apart at 8px — hue can't, because both are violet, and
+   both being violet is correct. It means "the agent is involved here" either way. */
+.diff-glyph-annotation {
+  cursor: pointer;
+}
+
+.diff-glyph-annotation::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 6px auto 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--hue-violet);
+  background: transparent;
+}
+
+/* With replies it fills in: a thread the reviewer has engaged with should look different from a
+   citation they have walked past. */
+.diff-glyph-annotation.has-replies::before {
+  background: var(--hue-violet);
+}
+
+/* Graded by the worst thing said about the line, so the margin can be scanned for problems rather
+   than only for "the agent mentioned this". These are always filled — a warning you have to look
+   twice at is not doing its job — and `--status-*` is the correct token family here, because "this
+   is wrong" is a genuine health signal rather than an identity. */
+.diff-glyph-annotation.sev-warning::before {
+  border-color: var(--status-warn);
+  background: var(--status-warn);
+  /* A square at 8px, against info's circle: the shape differs as well as the hue (A4), so the margin
+     still sorts into three kinds in greyscale. */
+  border-radius: 2px;
+}
+
+.diff-glyph-annotation.sev-error::before {
+  border-color: var(--status-bad);
+  background: var(--status-bad);
+  border-radius: 2px;
+  /* Slightly larger, and the only marker that is. At 8px in a busy margin, size is the difference
+     between noticing a problem on the way past and finding it later. */
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+}
+
+/* Resolved dims rather than disappears — the record survives, and `Show resolved` brings it back. */
+.diff-glyph-annotation.is-resolved::before {
+  opacity: 0.4;
+}
+
 /* Follows the pointer down the gutter: the visible way in to leaving a comment. */
 .diff-glyph-add {
   cursor: pointer;
@@ -3588,6 +3685,153 @@ a {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+/* ---------- inline annotations (DESIGN_SPEC_CONNECTORS.md §7.6) ---------- */
+
+/* Deliberately the composer's treatment — elevated surface, rotated-square pointer, scrim over the
+   lines it covers — so the interaction reads as native to the diff. The one difference that matters is
+   the dashed border: this must never be mistaken for a comment already live on the pull request. */
+.ann-card {
+  position: absolute;
+  right: 24px;
+  max-width: 620px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  max-height: 60%;
+  background: var(--bg-surface);
+  border: 1px dashed var(--hue-violet);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.ann-card::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 22px;
+  width: 9px;
+  height: 9px;
+  background: var(--bg-surface);
+  border-left: 1px dashed var(--hue-violet);
+  border-top: 1px dashed var(--hue-violet);
+  transform: rotate(45deg);
+}
+
+.ann-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+/* The tag that stops this being mistaken for a posted comment. Stated in a word, not implied by the
+   dashed border alone — the border is a hint, the word is the fact. */
+.ann-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 100px;
+  color: var(--hue-violet);
+  background: color-mix(in oklab, var(--hue-violet) 14%, transparent);
+}
+
+.ann-tag.resolved {
+  color: var(--ink-muted);
+  background: var(--hover-wash);
+}
+
+.ann-where {
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ink-muted);
+}
+
+/* The anchor predates the current head, so the cited line may have moved. §7.6 leaves re-anchoring
+   open; this is the flag, not the fix. */
+.ann-stale {
+  flex-shrink: 0;
+  padding: 7px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+  background: color-mix(in oklab, var(--status-warn) 10%, transparent);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.ann-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px;
+}
+
+/* The claim that opened the annotation, in the agent's own words. */
+.ann-seed {
+  border-left: 2px solid var(--hue-violet);
+  padding-left: 9px;
+}
+
+.ann-who {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--hue-violet);
+  margin-top: 8px;
+}
+
+.ann-turn {
+  border-top: 1px solid var(--border-hairline);
+  margin-top: 8px;
+  padding-top: 4px;
+}
+
+.ann-foot {
+  flex-shrink: 0;
+  padding: 8px 10px 9px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.ann-foot textarea {
+  width: 100%;
+  resize: vertical;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ann-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.ann-fine {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+}
+
+/* Stepping through annotations, in the diff toolbar. */
+.ann-cycle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ann-count {
+  font-size: 11px;
+  color: var(--ink-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: center;
 }
 
 .dc-badge {
@@ -5229,6 +5473,7 @@ a {
    underneath. Provider identity is the .ag-ptag text only.
    ========================================================================== */
 
+/* The left panel's two tabs: the pull request list, and the conversation. */
 .ag-tabs {
   display: flex;
   flex-shrink: 0;
@@ -5259,10 +5504,19 @@ a {
   border-bottom-color: var(--ink-primary);
 }
 
-/* The agent tab takes the activity hue only when it is the one selected. */
+/* The agent tab takes the activity hue only when it is the one selected — violet means "this is what
+   is answering right now", not "this vendor" (§7.1). */
 .ag-tab.bot.on {
   color: var(--hue-violet);
   border-bottom-color: var(--hue-violet);
+}
+
+/* Visibly waiting for a pull request rather than absent: a tab that appears and disappears as you
+   click around is harder to find than one that is there and dimmed. */
+.ag-tab:disabled {
+  color: var(--ink-muted);
+  opacity: 0.55;
+  cursor: default;
 }
 
 .ag-tabn {
@@ -5275,12 +5529,24 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-.ag-pane {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+/* The status dot in the panel's header. Shape and word carry the state as well as hue (A4) — the
+   word is in the line beneath, so this is the second signal rather than the only one. */
+.ag-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-good);
+}
+
+.ag-dot.down { background: var(--status-bad); }
+
+/* Never-connected is a hollow square, not a dot: a different shape, so the three states differ by
+   more than colour. */
+.ag-dot.none {
+  border-radius: 2px;
+  background: transparent;
+  border: 1px solid var(--ink-muted);
 }
 
 .ag-head {
@@ -5535,6 +5801,89 @@ a {
 
 .ag-infer b { color: var(--ink-primary); }
 
+/* ---------- one card per claim (§5.2) ---------- */
+
+/* Each segment is visually its own block, because each carries its own badge and its own citations.
+   Without the separation a badge reads as belonging to whichever paragraph it happens to sit nearest
+   — which is the ambiguity this shape exists to remove. */
+.ag-seg {
+  padding: 8px 0 2px;
+}
+
+.ag-seg + .ag-seg {
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* A graded claim gets a stripe as well as its label, so a long answer can be scanned for the two that
+   need action without reading all six. `info` gets nothing: it is the baseline, and a baseline that
+   decorates itself makes the exceptions harder to see, not easier. */
+.ag-seg[data-sev="warning"],
+.ag-seg[data-sev="error"] {
+  padding-left: 9px;
+  margin-left: -11px;
+  border-left: 2px solid var(--status-warn);
+}
+
+.ag-seg[data-sev="error"] {
+  border-left-color: var(--status-bad);
+}
+
+/* The label. Word first, glyph second, hue third — the hue is the only one of the three that fails in
+   greyscale or to a colour-blind reader, so it is never carrying the meaning alone. */
+.ag-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px 2px 5px;
+  border-radius: 100px;
+}
+
+.ag-sev.warning {
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 14%, transparent);
+}
+
+.ag-sev.error {
+  color: var(--status-bad);
+  background: color-mix(in oklab, var(--status-bad) 14%, transparent);
+}
+
+.ag-seg .ag-p:last-of-type,
+.ag-seg .ag-ul:last-child {
+  margin-bottom: 6px;
+}
+
+/* Badge and citations on one wrapping row directly under this claim's text — bundled with it rather
+   than pooled at the end of the turn. */
+.ag-segfoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+/* Pushed to the end of the row so the badge and its citations stay adjacent to each other. */
+.ag-segfoot .ag-post {
+  margin-left: auto;
+}
+
+/* The claim currently being written. Deliberately quiet — a placeholder for something not yet said,
+   not a claim of its own. */
+.ag-pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 0 4px;
+}
+
+.ag-pending .ag-thinking { margin: 0; }
+
 /* ---------- citations ---------- */
 
 .ag-cites {
@@ -5564,10 +5913,22 @@ a {
 }
 
 /* The cited line in the diff. Violet, so it is visibly not an add or a remove — a citation must
-   never be mistaken for a change. */
+   never be mistaken for a change.
+
+   Stronger than a normal row tint on purpose: a cited line is very often an *added* line, so the wash
+   lands on top of the green add tint. At 16% it was invisible there, which is the same as not
+   working. The margin bar below carries it in the one place no diff tint reaches. */
 .agent-cited-line {
-  background: color-mix(in oklab, var(--hue-violet) 16%, transparent) !important;
+  background: color-mix(in oklab, var(--hue-violet) 28%, transparent) !important;
   box-shadow: inset 2px 0 0 var(--hue-violet);
+}
+
+/* In the line-decorations margin, which never takes a diff tint (REVIEW §3, move 2) — so this reads
+   at full strength on an added, removed or context line alike. */
+.agent-cited-margin {
+  background: var(--hue-violet);
+  width: 3px !important;
+  margin-left: 2px;
 }
 
 /* ---------- answer footer ---------- */

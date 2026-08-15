@@ -270,8 +270,12 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     ///
     /// With repository tools offered, a stream can now end two ways: the answer tool's completed
     /// input, or a request for files. So content blocks are tracked by index and routed by tool name
-    /// — the answer tool's fragments feed the tolerant parser for progressive prose, and everything
-    /// else accumulates into a tool call for the orchestrator to service.
+    /// — the answer tool's `partial_json` fragments feed the segment parser, and everything else
+    /// accumulates into a tool call for the orchestrator to service.
+    ///
+    /// Two destinations, deliberately not one: the answer tool's fragments are JSON and become
+    /// segments as each element closes; plain text arriving despite `tool_choice` is prose nobody
+    /// labelled, and streams straight through as a delta on its way to mode 3.
     ///
     /// The §5.5 budget is enforced here rather than on <see cref="HttpClient.Timeout"/>, which
     /// applies to the whole operation including the body and would therefore kill a legitimately
@@ -280,8 +284,8 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
         HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)
     {
-        var parser = new CanonicalAnswerParser();
-        var sawAnyDelta = false;
+        var parser = new SegmentStreamParser();
+        var prose = new StringBuilder();
         AgentError? failure = null;
         int? promptTokens = null;
         int? completionTokens = null;
@@ -329,6 +333,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             if (payload.Length == 0) continue;
 
             string? answerFragment = null;
+            string? proseFragment = null;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
@@ -363,6 +368,9 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                     case "content_block_delta":
                         if (root.TryGetProperty("delta", out var delta))
                         {
+                            var isToolInput = delta.TryGetProperty("type", out var dt)
+                                           && dt.GetString() == "input_json_delta";
+
                             var fragment = delta.TryGetProperty("partial_json", out var pj) ? pj.GetString()
                                          : delta.TryGetProperty("text", out var tx) ? tx.GetString()
                                          : null;
@@ -372,16 +380,25 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                                 if (index >= 0 && blocks.TryGetValue(index, out var b))
                                 {
                                     b.Args.Append(fragment);
-                                    // Only the answer tool carries prose worth rendering as it
-                                    // arrives. A file path being spelled out character by character
-                                    // is not something to show the reviewer.
+                                    // Only the answer tool's input is the canonical response. A file
+                                    // path being spelled out character by character is not something
+                                    // to show the reviewer.
                                     if (b.Name == ToolName) answerFragment = fragment;
+                                }
+                                else if (isToolInput)
+                                {
+                                    // Tool input for a block whose `content_block_start` we never saw.
+                                    // Routed on the delta's own type rather than on the block table,
+                                    // because the type is the reliable signal: this is JSON either way,
+                                    // and treating it as prose would put a raw envelope on screen.
+                                    answerFragment = fragment;
                                 }
                                 else
                                 {
-                                    // Plain text despite tool_choice — the tolerant parser handles
-                                    // it as mode 3.
-                                    answerFragment = fragment;
+                                    // Plain text despite tool_choice. Not JSON, so it can't become a
+                                    // segment — it streams as prose and Finish turns it into mode 3's
+                                    // single unlabelled segment.
+                                    proseFragment = fragment;
                                 }
                             }
                         }
@@ -406,13 +423,16 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             if (!string.IsNullOrEmpty(answerFragment))
             {
-                var prose = parser.Feed(answerFragment);
                 deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
-                if (prose.Length > 0)
-                {
-                    sawAnyDelta = true;
-                    yield return new AgentEvent.Delta(prose);
-                }
+                foreach (var segment in parser.Feed(answerFragment))
+                    yield return new AgentEvent.Segment(segment);
+            }
+
+            if (!string.IsNullOrEmpty(proseFragment))
+            {
+                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
+                prose.Append(proseFragment);
+                yield return new AgentEvent.Delta(proseFragment);
             }
         }
 
@@ -438,14 +458,10 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             yield break;
         }
 
-        var answer = parser.Finish();
-
-        // Keys can arrive in any order (§5.2). If nothing rendered progressively, the panel gets
-        // the finished answer in one go rather than an empty bubble.
-        if (!sawAnyDelta && answer.Answer.Length > 0)
-            yield return new AgentEvent.Delta(answer.Answer);
-
-        yield return new AgentEvent.Complete(answer, usage);
+        // The finished list is authoritative regardless of what streamed: a stream that couldn't be
+        // split into elements still renders here, in one go, rather than blocking on a boundary that
+        // may never arrive (§5.2).
+        yield return new AgentEvent.Complete(parser.Finish(prose.ToString()), usage);
     }
 
     /// <summary>Reads a token count out of an Anthropic `usage` object, if it is there.</summary>

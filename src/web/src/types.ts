@@ -366,15 +366,38 @@ export interface AgentCitation {
   endLine?: number | null;
 }
 
+/**
+ * One claim, with its own badge and its own citations (§5.2).
+ *
+ * `provenance` is null only when the agent asserted nothing for this claim — the badge then reads
+ * UNVERIFIED SOURCE. It is never derived from whether citations happen to be present.
+ */
+export interface AgentSegment {
+  text: string;
+  /** code | doc | inferred, or null when the agent asserted nothing for this claim. */
+  provenance?: string | null;
+  /**
+   * info | warning | error — how much this should worry the reviewer.
+   *
+   * A separate axis from `provenance`, and neither implies the other: a claim grounded in the diff
+   * can be harmless, and a hypothesis can be the most important thing on the page. Optional on the
+   * type because a turn recorded before severity existed has none, and those read as `info`.
+   */
+  severity?: string | null;
+  citations: AgentCitation[];
+  inferenceNote?: string | null;
+}
+
 export interface AgentTurn {
   id: string;
   ordinal: number;
   question: string;
+  /**
+   * The segments' prose, joined. For "Copy all" only — rendering is per segment, or the badge and
+   * the citations go back to being pooled under a whole answer.
+   */
   answer: string;
-  /** code | doc | inferred, or null when the agent asserted nothing (§5.4 mode 3). */
-  provenance?: string | null;
-  citations: AgentCitation[];
-  inferenceNote?: string | null;
+  segments: AgentSegment[];
   /** structured | fencedjson | unverified. */
   mode: string;
   /** Recorded on the turn, so attribution survives the connector's removal. */
@@ -383,6 +406,8 @@ export interface AgentTurn {
   commitSha?: string | null;
   stopped: boolean;
   errorCode?: string | null;
+  /** The sentence behind the code — `upstream` alone says nothing and offers no next step. */
+  errorDetail?: string | null;
   /** Whether "Post as comment…" appears at all (§7.4). */
   postable: boolean;
   createdAt: string;
@@ -391,4 +416,26 @@ export interface AgentTurn {
 export interface AgentThread {
   id?: string | null;
   turns: AgentTurn[];
+}
+
+/**
+ * A citation the reviewer left on the diff, plus whatever they went on to ask about it (§7.6).
+ *
+ * Private to the reviewer: never written to Azure DevOps, never shown to anyone else looking at the
+ * same pull request, unless they promote one through `Post as comment…`.
+ */
+export interface Annotation {
+  id: string;
+  path: string;
+  line: number;
+  endLine?: number | null;
+  /** The commit the citation was made against — drives the "based on an earlier commit" note. */
+  commitSha?: string | null;
+  /** The claim that opened it: the card's first turn, in the agent's own words. */
+  seed?: string | null;
+  /** open | resolved. Resolving dims the marker and drops it from the cycle; it never deletes. */
+  status: string;
+  turns: AgentTurn[];
+  createdAt: string;
+  updatedAt: string;
 }

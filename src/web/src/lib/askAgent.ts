@@ -1,4 +1,4 @@
-import type { AgentTurn } from "../types";
+import type { AgentSegment, AgentTurn } from "../types";
 
 /**
  * Reads Launchpad's own SSE shape (DESIGN_SPEC_CONNECTORS.md §6).
@@ -13,9 +13,20 @@ import type { AgentTurn } from "../types";
 export interface AskHandlers {
   /** Assembled context, before the agent is called — carries the truncation warning (§5.1). */
   onContext?: (info: { truncated: boolean; omitted: string[]; diffBytes: number }) => void;
-  /** More prose. Fragments concatenate. */
   /** The agent asked for a file, a listing or a search. Surfaced live so a pause has a reason. */
   onReading?: (info: { tool: string; detail: string }) => void;
+  /**
+   * One claim closed — the streaming unit (§5.2).
+   *
+   * Arrives complete, with its badge and its citations, so it renders as a finished card while the
+   * next one is still being written. Segments never arrive twice, so append rather than replace.
+   */
+  onSegment: (segment: AgentSegment) => void;
+  /**
+   * Unlabelled prose, from a connector that can't produce structure at all (§5.4 mode 3). Fragments
+   * concatenate. Kept separate from `onSegment` because nobody vouched for this text — showing it
+   * under a provenance badge would be the lie the badge exists to prevent.
+   */
   onDelta: (text: string) => void;
   /** The finished, validated turn as the server recorded it. Terminal. */
   onComplete: (turn: AgentTurn) => void;
@@ -23,6 +34,10 @@ export interface AskHandlers {
   onError: (error: { code: string; detail?: string | null; httpStatus?: number | null }) => void;
 }
 
+/**
+ * @param annotationId When set, the question is scoped to one inline annotation (§7.6) — the same
+ * stream shape, against that annotation's own turns rather than the main conversation's.
+ */
 export async function askAgent(
   project: string,
   repoId: string,
@@ -30,9 +45,11 @@ export async function askAgent(
   question: string,
   handlers: AskHandlers,
   signal: AbortSignal,
+  annotationId?: string,
 ): Promise<void> {
-  const url = `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}`
-    + `/pulls/${prId}/ask`;
+  const base = `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}`
+    + `/pulls/${prId}`;
+  const url = annotationId ? `${base}/annotations/${annotationId}/ask` : `${base}/ask`;
 
   const resp = await fetch(url, {
     method: "POST",
@@ -78,6 +95,7 @@ export async function askAgent(
       switch (event) {
         case "context": handlers.onContext?.(payload as never); break;
         case "reading": handlers.onReading?.(payload as never); break;
+        case "segment": handlers.onSegment(payload as AgentSegment); break;
         case "delta": handlers.onDelta((payload as { text: string }).text); break;
         case "complete": handlers.onComplete(payload as AgentTurn); break;
         case "error": handlers.onError(payload as never); break;
