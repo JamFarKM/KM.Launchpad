@@ -121,6 +121,58 @@ Bands, not rings: concentric circles are the clean-architecture poster, but node
 half the sheet and curve every label. Horizontal bands stacked outer→core keep the depth metaphor
 (a vertical "outer → core" axis labels it explicitly) and read left-to-right like the flow does.
 
+### 6.1 Edges are orthogonal, never curved
+
+The first version drew beziers and was genuinely hard to read: a curve leaves a card at a slant, and
+a slant makes the reader hunt for which card an edge actually came from. Right angles with small
+rounded corners are the idiom a layered diagram reads in, and they make an edge's origin unambiguous.
+
+Three shapes, by how many bands an edge spans:
+
+| Span | Shape |
+|---|---|
+| Same band | Straight horizontal between facing sides |
+| Neighbouring bands | Down out of the source, across in the gutter, down into the target — and **nothing but a straight vertical** when the two cards are column-aligned |
+| Two or more bands | Out the side, along a channel in the right margin, back in |
+
+The third is deliberately *not* the direct line: the direct line crosses a band that is not party to
+the edge, which is what made the violation arrow unreadable in v1.
+
+**No edge may cross a card it does not belong to.** Every candidate path is tested against every
+other card's rectangle, and a blocked path falls back to the channel — so this is a property of the
+renderer, not something that has to hold by luck of the data.
+
+### 6.2 Cards are one width, and bands never wrap
+
+All cards share a width, computed so the busiest band fits on one row. Two things follow, and both
+matter more than they look:
+
+- **Columns line up across bands**, which is what lets a dependency between two aligned groups be a
+  single straight vertical line rather than a dog-leg.
+- **The gutter between bands is genuinely empty**, which is what makes it safe to route through. When
+  a band wrapped to two rows in v1, the flow arrow from the endpoint to the orchestrator ran straight
+  through the card that had wrapped beneath it.
+
+Below a floor width the band is allowed to wrap instead of shrinking cards past readability, and
+§6.1's obstacle check absorbs the consequence.
+
+Each band label carries a deep bottom margin. That space is a routing lane — an edge arriving from
+the channel comes in through it — and at label-margin defaults it ran through the label text.
+
+### 6.3 Group order minimises crossings
+
+Within each band, groups are ordered by the standard layered-graph barycenter heuristic: sweep the
+bands top-down then bottom-up, placing each group near the average position of the neighbours it
+connects to in the band just fixed. Every sweep is scored by an actual crossing count and the best
+arrangement seen is kept, so a bad sweep can never leave the map worse than it started.
+
+Only edges spanning one band or staying inside one feed the ordering. A skip edge is already routed
+around the bands between it, so letting it pull groups in a band it merely passes would trade a real
+crossing for an imaginary one.
+
+DOM order follows the final arrangement, so keyboard traversal and the visual left-to-right order
+stay the same thing.
+
 ## 7. Persistence, staleness, failure
 
 - Stored per thread and commit like a turn (`MapJson` beside the turns), so reopening is free and

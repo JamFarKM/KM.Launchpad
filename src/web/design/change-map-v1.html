@@ -60,7 +60,9 @@ body {
 @media (max-width: 899px) { .sheet-main { flex-direction: column; } }
 
 /* ---------- diagram ---------- */
-.map { flex: 1; min-width: 0; position: relative; padding: 14px 16px 10px 44px; }
+/* Right padding is the skip-edge channel (see routeFor): edges that jump a band run vertically in
+   here rather than cutting diagonally across the bands between. */
+.map { flex: 1; min-width: 0; position: relative; padding: 14px 46px 10px 44px; }
 .axis {
   position: absolute; left: 14px; top: 22px; bottom: 18px; width: 14px;
   color: var(--ink-muted); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
@@ -68,18 +70,31 @@ body {
   display: flex; align-items: center; justify-content: center;
   border-right: 1px solid var(--border-hairline);
 }
-.band { padding: 8px 0 12px; }
+/* The deep bottom padding is the edge gutter. Edges between neighbouring bands make their
+   horizontal run in here, and the next band's label sits below that run — the two used to share
+   ~14px and collided ("builds snapshot" landing on "DOMAIN CORE"). */
+.band { padding: 10px 0 30px; }
 .band + .band { border-top: 1px dashed var(--border-hairline); }
+/* The generous margin below the label is a routing lane, not decoration: an edge coming into this
+   band from the side arrives through it, and at 7px it ran straight through the label text. */
 .band-label {
   font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--ink-muted); margin-bottom: 7px;
+  color: var(--ink-muted); margin-bottom: 18px;
 }
-.nodes { display: flex; flex-wrap: wrap; gap: 10px; }
+/* stretch (the flex default) keeps every card in a row the same height, so all edges leaving a row
+   leave from one baseline. */
+.nodes { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: stretch; }
 
+/* Fixed width, so cards form real columns across bands. That is what lets the ordering pass below
+   put connected groups in the same column and give them a genuinely straight vertical edge. */
+/* One shared width, set by fitNodes() so the busiest band fits on a single row and every band's
+   cards line up in the same columns. Columns are what let the ordering pass turn a dependency into
+   a genuinely straight vertical line — and a band that never wraps is what keeps the gutter between
+   bands empty, which is what the router assumes when it runs an edge through it. */
 .node {
   text-align: left; background: var(--bg-surface-2); border: 1px solid var(--border-hairline);
-  border-radius: 9px; padding: 8px 11px; cursor: pointer; color: inherit;
-  font: inherit; min-width: 150px; position: relative;
+  border-radius: 9px; padding: 8px 10px; cursor: pointer; color: inherit;
+  font: inherit; width: var(--node-w, 168px); position: relative;
 }
 .node:hover { border-color: var(--hue-slate); }
 .node[aria-pressed="true"] { border-color: var(--hue-violet); box-shadow: 0 0 0 1px var(--hue-violet); }
@@ -110,6 +125,8 @@ svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visibl
   paint-order: stroke; stroke: var(--bg-surface); stroke-width: 3px;
 }
 .edge.lit text, .edge.viol text, .edge.flowarrow text { display: revert; }
+/* Channel labels grow leftward into the empty space beside the channel, never off the sheet. */
+.edge text.side { text-anchor: end; }
 .edge.viol path { stroke: var(--status-warn); stroke-dasharray: 5 4; stroke-width: 1.7; opacity: 1; }
 .edge.viol text { fill: var(--status-warn); }
 .edge.flowarrow path { stroke: var(--ink-primary); stroke-width: 1.8; opacity: 0.9; }
@@ -255,13 +272,165 @@ let selected = null, flowOn = false;
 
 /* The dependency-rule overlay (§5): outward = violation, decided by arithmetic, not the model. */
 const isViolation = (e) => groups[e.from].depth < groups[e.to].depth;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-function anchor(el) {
-  const r = el.getBoundingClientRect(), m = map.getBoundingClientRect();
-  return { x: r.left - m.left + r.width / 2, top: r.top - m.top, bot: r.top - m.top + r.height };
+/* Card width that lets the busiest band sit on one row. Floored, because past a point narrow cards
+   are their own readability problem — below the floor the band is allowed to wrap and the router's
+   obstacle check (see `blocked`) catches anything that would then cross a card. */
+function fitNodes() {
+  const counts = [...document.querySelectorAll(".band")].map(b => b.querySelectorAll(".node").length);
+  const avail = map.clientWidth - 90;
+  const n = Math.max(...counts);
+  const w = Math.max(118, Math.min(184, Math.floor((avail - 12 * (n - 1)) / n)));
+  map.style.setProperty("--node-w", w + "px");
+}
+
+let RECTS = {};
+function cacheRects() {
+  const m = map.getBoundingClientRect();
+  for (const id of Object.keys(groups)) {
+    const r = document.getElementById(id).getBoundingClientRect();
+    const left = r.left - m.left, top = r.top - m.top;
+    RECTS[id] = { left, top, right: left + r.width, bottom: top + r.height,
+                  cx: left + r.width / 2, cy: top + r.height / 2 };
+  }
+}
+const rect = (id) => RECTS[id];
+
+/* Does this path run through a card that isn't one of its own endpoints? Cheap because every
+   segment is axis-aligned and a map is capped at 8 groups. */
+function blocked(pts, exclude) {
+  const pad = 5;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p = pts[i], q = pts[i + 1];
+    const vertical = Math.abs(p.x - q.x) < 0.5;
+    for (const id of Object.keys(groups)) {
+      if (exclude.includes(id)) continue;
+      const r = RECTS[id];
+      const L = r.left - pad, R = r.right + pad, T = r.top - pad, Bo = r.bottom + pad;
+      const hit = vertical
+        ? p.x > L && p.x < R && Math.max(p.y, q.y) > T && Math.min(p.y, q.y) < Bo
+        : p.y > T && p.y < Bo && Math.max(p.x, q.x) > L && Math.min(p.x, q.x) < R;
+      if (hit) return true;
+    }
+  }
+  return false;
+}
+
+/*
+ * Orthogonal path through axis-aligned waypoints, with the corners rounded.
+ *
+ * Right angles rather than curves, because that is the idiom a layered diagram reads in: a bezier
+ * between two bands leaves at a slant, and a slant is the one thing that makes a reader hunt for
+ * which box an edge actually came from. Corner radius is capped at half the shorter adjoining
+ * segment so a short leg can't produce a corner that overshoots its own line.
+ */
+function orthPath(pts) {
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i], prev = pts[i - 1], next = pts[i + 1];
+    const inLen = Math.hypot(p.x - prev.x, p.y - prev.y);
+    const outLen = Math.hypot(next.x - p.x, next.y - p.y);
+    const r = Math.min(9, inLen / 2, outLen / 2);
+    const ai = { x: p.x - Math.sign(p.x - prev.x) * r, y: p.y - Math.sign(p.y - prev.y) * r };
+    const bo = { x: p.x + Math.sign(next.x - p.x) * r, y: p.y + Math.sign(next.y - p.y) * r };
+    d += ` L ${ai.x} ${ai.y} Q ${p.x} ${p.y} ${bo.x} ${bo.y}`;
+  }
+  const last = pts[pts.length - 1];
+  return d + ` L ${last.x} ${last.y}`;
+}
+
+/*
+ * Three routing shapes, picked by how many bands an edge spans.
+ *
+ * Same row: a straight horizontal line between facing sides. The previous version ran a bezier
+ * here whose control points inverted whenever the gap was small, turning a 4px sideways hop into
+ * a visible squiggle.
+ *
+ * Neighbouring bands: down out of the source, across in the gutter, down into the target — and
+ * when the two are column-aligned (which the ordering pass below tries to arrange) the middle leg
+ * vanishes and the edge is one straight vertical line. Exit x is aimed at the target and clamped
+ * inside the source, so two edges leaving one card separate instead of stacking on a pixel.
+ *
+ * Skipping a band: out the right side, up or down a channel in the right margin, back in the
+ * target's right side. Deliberately not the direct line — the direct line crosses a band that is
+ * not party to the edge, which is exactly what made the old violation arrow unreadable. Lanes are
+ * staggered so two skip edges never share one vertical.
+ */
+/*
+ * The way round for an edge that can't go straight: out to a vertical channel in the right margin,
+ * along it, and back in. Two shapes, because the direct side-entry fails whenever another card sits
+ * between the channel and the target — which is exactly what happened to the violation edge once
+ * the ordering pass put Settlement store to the right of Voucher client.
+ */
+function channelRoute(e, lane) {
+  const A = rect(e.from), B = rect(e.to), gap = 3;
+  const chan = map.clientWidth - 26 - lane() * 13;
+  const ends = [e.from, e.to];
+  const down = B.top > A.top;
+
+  const side = [{ x: A.right + gap, y: A.cy }, { x: chan, y: A.cy },
+                { x: chan, y: B.cy }, { x: B.right + gap, y: B.cy }];
+  if (!blocked(side, ends))
+    return { d: orthPath(side), lx: chan - 9, ly: (A.cy + B.cy) / 2, side: true };
+
+  // Blocked beside the target, so approach through the band gutter, which is empty by construction
+  // (fitNodes keeps every band to a single row).
+  // Below a band: anywhere in its 30px tail. Above a band: the lane the label's margin opens up,
+  // never the label's own line.
+  const yA = down ? A.bottom + 15 : A.top - 11;
+  const yB = down ? B.top - 11 : B.bottom + 15;
+  const xA = clamp(A.cx, A.left + 16, A.right - 16);
+  const xB = clamp(B.cx, B.left + 16, B.right - 16);
+  const pts = [{ x: xA, y: down ? A.bottom + gap : A.top - gap }, { x: xA, y: yA },
+               { x: chan, y: yA }, { x: chan, y: yB }, { x: xB, y: yB },
+               { x: xB, y: down ? B.top - gap : B.bottom + gap }];
+  return { d: orthPath(pts), lx: chan - 9, ly: (yA + yB) / 2, side: true };
+}
+
+function routeFor(e, lane) {
+  const A = rect(e.from), B = rect(e.to), gap = 3;
+  const dA = groups[e.from].depth, dB = groups[e.to].depth;
+  const ends = [e.from, e.to];
+
+  if (Math.abs(dA - dB) >= 2) return channelRoute(e, lane);
+
+  // Same band, same row: a plain horizontal between facing sides.
+  if (dA === dB && Math.abs(A.cy - B.cy) < 4) {
+    const fromLeft = A.cx <= B.cx;
+    const y = A.cy;
+    const pts = [{ x: fromLeft ? A.right + gap : A.left - gap, y },
+                 { x: fromLeft ? B.left - gap : B.right + gap, y }];
+    return blocked(pts, ends)
+      ? channelRoute(e, lane)
+      : { d: orthPath(pts), lx: (pts[0].x + pts[1].x) / 2, ly: y - 7 };
+  }
+
+  const down = B.top > A.top;
+  const y1 = down ? A.bottom + gap : A.top - gap;
+  const y2 = down ? B.top - gap : B.bottom + gap;
+  const x1 = clamp(B.cx, A.left + 16, A.right - 16);
+  const x2 = clamp(A.cx, B.left + 16, B.right - 16);
+
+  // Column-aligned: one straight vertical, no dog-leg, label beside it.
+  if (Math.abs(x1 - x2) < 7) {
+    const x = (x1 + x2) / 2;
+    const pts = [{ x, y: y1 }, { x, y: y2 }];
+    return blocked(pts, ends)
+      ? channelRoute(e, lane)
+      : { d: orthPath(pts), lx: x + 7, ly: (y1 + y2) / 2 };
+  }
+
+  const my = (y1 + y2) / 2;
+  const pts = [{ x: x1, y: y1 }, { x: x1, y: my }, { x: x2, y: my }, { x: x2, y: y2 }];
+  return blocked(pts, ends)
+    ? channelRoute(e, lane)
+    : { d: orthPath(pts), lx: (x1 + x2) / 2, ly: my - 6 };
 }
 
 function draw() {
+  fitNodes();
+  cacheRects();
   svg.setAttribute("width", map.clientWidth);
   svg.setAttribute("height", map.clientHeight);
   svg.innerHTML = `<defs>
@@ -272,21 +441,91 @@ function draw() {
     ? flow.slice(0, -1).map(([g], i) => ({ from: g, to: flow[i + 1][0], label: String(i + 1), flowarrow: true }))
     : edges;
 
+  // Channel lanes are handed out only to the edges that actually need one, so a map with no skips
+  // and no obstacles uses none and the right margin stays empty.
+  let lanes = 0;
+  const lane = () => lanes++;
   for (const e of list) {
-    const a = anchor(document.getElementById(e.from));
-    const b = anchor(document.getElementById(e.to));
-    const down = b.top > a.bot;                       // target sits in a lower band
-    const y1 = down ? a.bot : a.top, y2 = down ? b.top - 2 : b.bot + 2;
-    const bend = Math.max(18, Math.abs(y2 - y1) / 2);
+    const r = routeFor(e, lane);
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", "edge" + (e.flowarrow ? " flowarrow lit" : isViolation(e) ? " viol" : ""));
     g.dataset.from = e.from; g.dataset.to = e.to;
-    g.innerHTML = `<path d="M ${a.x} ${y1} C ${a.x} ${y1 + (down ? bend : -bend)}, ${b.x} ${y2 - (down ? bend : -bend)}, ${b.x} ${y2}" marker-end="url(#arr)"/>
-      <text x="${(a.x + b.x) / 2 + 6}" y="${(y1 + y2) / 2 + 3}">${e.label}</text>`;
+    g.innerHTML = `<path d="${r.d}" marker-end="url(#arr)"/>`
+      + `<text class="${r.side ? "side" : ""}" x="${r.lx}" y="${r.ly}">${e.label}</text>`;
     svg.appendChild(g);
   }
   relight();
 }
+
+/*
+ * Reorders nodes within each band to cut down how often edges cross — the classic layered-graph
+ * "barycenter" pass (Sugiyama et al.): sweep the bands top-down then bottom-up a few times,
+ * each pass placing a node near the average position of the neighbours it already has an edge to
+ * in the band just fixed. It's a heuristic, not an optimum, so every pass is scored by an actual
+ * crossing count and the best-scoring arrangement seen is the one kept — cheap insurance at the
+ * handful of nodes a map is capped at (§2: 8 groups), and it means a bad sweep can't make the
+ * on-screen result worse than where it started.
+ *
+ * Only edges spanning one band or staying within one feed this — a skip edge is already routed
+ * around the intervening band (see routeFor) and its two ends have no business pulling nodes in a
+ * band it doesn't touch.
+ */
+function optimizeOrder() {
+  const shortEdges = edges.filter(e => Math.abs(groups[e.from].depth - groups[e.to].depth) <= 1);
+  const depths = [...new Set(Object.values(groups).map(g => g.depth))].sort((a, b) => b - a);
+  const order = {};
+  for (const d of depths) order[d] = Object.keys(groups).filter(id => groups[id].depth === d);
+
+  const neighborsIn = (id, depth) => {
+    const s = new Set();
+    for (const e of shortEdges) {
+      if (e.from === id && groups[e.to].depth === depth) s.add(e.to);
+      if (e.to === id && groups[e.from].depth === depth) s.add(e.from);
+    }
+    return [...s];
+  };
+
+  function crossings(ord) {
+    let n = 0;
+    for (let i = 0; i < depths.length - 1; i++) {
+      const top = depths[i], bot = depths[i + 1];
+      const pt = Object.fromEntries(ord[top].map((id, ix) => [id, ix]));
+      const pb = Object.fromEntries(ord[bot].map((id, ix) => [id, ix]));
+      const pairs = shortEdges
+        .filter(e => (groups[e.from].depth === top && groups[e.to].depth === bot)
+                  || (groups[e.to].depth === top && groups[e.from].depth === bot))
+        .map(e => groups[e.from].depth === top ? [pt[e.from], pb[e.to]] : [pt[e.to], pb[e.from]]);
+      for (let a = 0; a < pairs.length; a++)
+        for (let b = a + 1; b < pairs.length; b++)
+          if ((pairs[a][0] - pairs[b][0]) * (pairs[a][1] - pairs[b][1]) < 0) n++;
+    }
+    return n;
+  }
+
+  function sweep(fromDepth, toDepth) {
+    const pos = Object.fromEntries(order[fromDepth].map((id, ix) => [id, ix]));
+    const prev = Object.fromEntries(order[toDepth].map((id, ix) => [id, ix]));
+    order[toDepth] = order[toDepth]
+      .map(id => {
+        const nb = neighborsIn(id, fromDepth).map(n => pos[n]);
+        return [id, nb.length ? nb.reduce((a, b) => a + b, 0) / nb.length : prev[id]];
+      })
+      .sort((a, b) => a[1] - b[1] || prev[a[0]] - prev[b[0]])
+      .map(([id]) => id);
+  }
+
+  let best = structuredClone(order), bestScore = crossings(order);
+  for (let s = 0; s < 6; s++) {
+    const dir = s % 2 === 0 ? depths : [...depths].reverse();
+    for (let i = 1; i < dir.length; i++) sweep(dir[i - 1], dir[i]);
+    const score = crossings(order);
+    if (score < bestScore) { bestScore = score; best = structuredClone(order); }
+  }
+  return best;
+}
+
+for (const [depth, ids] of Object.entries(optimizeOrder()))
+  ids.forEach((id, ix) => { document.getElementById(id).style.order = ix; });
 
 function relight() {
   const mode = flowOn ? "flow" : selected ? "sel" : null;
