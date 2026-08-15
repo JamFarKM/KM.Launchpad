@@ -447,6 +447,12 @@ export interface ChangeMapFlowStep {
   action: string;
 }
 
+/** A name for one depth on the outer-to-core axis, in the repository's own vocabulary. */
+export interface ChangeMapLayer {
+  depth: number;
+  name: string;
+}
+
 /**
  * The whole map (§2). `style` is clean | layers | modules | pipeline | unknown; `styleBasis` is
  * structure | inferred — the same badge vocabulary as a segment's provenance, since a reviewer who
@@ -458,6 +464,8 @@ export interface ChangeMap {
   groups: ChangeMapGroup[];
   edges: ChangeMapEdge[];
   flow: ChangeMapFlowStep[];
+  /** Empty on maps stored before layer names existed — the sheet falls back to axis extremes. */
+  layers: ChangeMapLayer[];
   commitSha?: string | null;
 }
 

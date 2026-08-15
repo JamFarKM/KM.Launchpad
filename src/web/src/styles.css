@@ -6214,13 +6214,19 @@ body.is-card-sliding * { cursor: grabbing !important; }
 }
 
 /* stretch (the flex default) keeps every card in a row the same height, so all edges leaving a row
-   leave from one baseline. The wide gap is deliberate: a same-band edge lives in it. */
-.map-nodes { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: stretch; }
+   leave from one baseline. The wide gap is deliberate: a same-band edge lives in it.
+
+   nowrap is load-bearing, not cosmetic. The router treats the strip between two bands as empty and
+   routes edges through it; a band that wrapped to a second row would put cards in that strip and let
+   an edge pass straight through one. fitNodes() sizes cards to fit a single row where it can, and
+   past that the diagram scrolls horizontally — which is worse to look at and still correct, where
+   wrapping is neither. */
+.map-nodes { display: flex; flex-wrap: nowrap; gap: 22px; align-items: stretch; }
 
 .map-node {
   text-align: left; background: var(--bg-surface-2); border: 1px solid var(--border-hairline);
   border-radius: 9px; padding: 8px 10px; cursor: pointer; color: inherit;
-  font: inherit; width: 168px; position: relative;
+  font: inherit; width: var(--map-node-w, 168px); flex-shrink: 0; position: relative;
 }
 .map-node:hover { border-color: var(--hue-slate); }
 .map-node[aria-pressed="true"] { border-color: var(--hue-violet); box-shadow: 0 0 0 1px var(--hue-violet); }

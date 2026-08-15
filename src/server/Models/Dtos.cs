@@ -368,6 +368,9 @@ public record ChangeMapEdgeDto(string From, string To, string Label);
 
 public record ChangeMapFlowStepDto(int Step, string Group, string Action);
 
+/// <summary>A name for one depth on the outer-to-core axis, in the repository's own vocabulary.</summary>
+public record ChangeMapLayerDto(int Depth, string Name);
+
 /// <param name="Style">clean | layers | modules | pipeline | unknown.</param>
 /// <param name="StyleBasis">structure | inferred — the same badge vocabulary as a segment's provenance.</param>
 /// <param name="CommitSha">What the map was generated against. Compare to the PR's head for the
@@ -378,6 +381,7 @@ public record ChangeMapDto(
     List<ChangeMapGroupDto> Groups,
     List<ChangeMapEdgeDto> Edges,
     List<ChangeMapFlowStepDto> Flow,
+    List<ChangeMapLayerDto> Layers,
     string? CommitSha);
 
 // ----- inline annotations (§7.6) -----

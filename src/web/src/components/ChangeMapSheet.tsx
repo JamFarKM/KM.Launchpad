@@ -56,7 +56,7 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
 
   const order = useMemo(() => optimizeOrder(map.groups, shortEdges, depths), [map.groups, shortEdges, depths]);
 
-  const bandLabel = depthLabel(depths);
+  const bandLabel = depthLabel(depths, map.layers ?? []);
 
   const [layout, setLayout] = useState<EdgeLayout[]>([]);
 
@@ -68,6 +68,18 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
     if (!container) return;
 
     const measure = () => {
+      /* One shared card width, sized so the busiest band fits on a single row — the mockup's
+         fitNodes(). Not decoration: the router treats the strip between bands as empty, so a band
+         that wrapped would put cards where edges are routed. Past the floor the row scrolls instead
+         of wrapping, which keeps the geometry honest. */
+      const widest = Math.max(1, ...depths.map((d) => (order[d] ?? []).length));
+      const row = container.querySelector<HTMLElement>(".map-nodes");
+      const avail = row?.clientWidth ?? 0;
+      if (avail > 0) {
+        const w = Math.max(118, Math.min(196, Math.floor((avail - 22 * (widest - 1)) / widest)));
+        container.style.setProperty("--map-node-w", `${w}px`);
+      }
+
       const rects: Record<string, Rect> = {};
       const cRect = container.getBoundingClientRect();
       for (const [id, el] of nodeRefs.current) {
@@ -86,7 +98,7 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
     const ro = new ResizeObserver(measure);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [map, order, flowOn, byId]);
+  }, [map, order, flowOn, byId, depths]);
 
   const group = selected ? byId.get(selected) : null;
   const flowIndex = useMemo(() => new Map(map.flow.map((s) => [s.group, s.step])), [map.flow]);
@@ -149,7 +161,10 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
 
             {depths.map((depth) => (
               <div className="map-band" key={depth}>
-                {depths.length > 1 && <div className="map-band-label">{bandLabel(depth)}</div>}
+                {/* Always rendered, even when unnamed: the grid's first column is what keeps every
+                    band's cards in the same columns, which is what lets a dependency be a straight
+                    vertical line. */}
+                <div className="map-band-label">{depths.length > 1 ? bandLabel(depth) : ""}</div>
                 <div className="map-nodes">
                   {(order[depth] ?? []).map((id) => {
                     const g = byId.get(id);
@@ -237,15 +252,24 @@ function styleName(style: string): string {
   }
 }
 
-/** depth → a readable band name. Only extremes are named for more than three bands, since the
-    schema gives no name for a middle layer and guessing one would be asserting a fact nobody said. */
-function depthLabel(depths: number[]): (d: number) => string {
+/**
+ * depth → a readable band name, from the agent's own `layers` when it supplied one.
+ *
+ * The fallback names only the two extremes, because those are the two the axis itself establishes.
+ * An earlier version numbered the rest — producing band labels reading "DEPTH 2", which names a
+ * position on the axis and says nothing about what lives there. A blank is more honest than that:
+ * the group cards in the row already say what is in it.
+ */
+function depthLabel(depths: number[], layers: { depth: number; name: string }[]): (d: number) => string {
+  const named = new Map(layers.map((l) => [l.depth, l.name]));
   const min = Math.min(...depths), max = Math.max(...depths);
   return (d: number) => {
+    const own = named.get(d);
+    if (own) return own;
     if (depths.length === 1) return "Areas changed";
     if (d === min) return "Core";
     if (d === max) return "Outer";
-    return depths.length === 3 ? "Middle" : `Depth ${d}`;
+    return "";
   };
 }
 

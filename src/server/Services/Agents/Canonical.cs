@@ -637,6 +637,16 @@ public static class StyleBasisNames
 public record ChangeMapFile(string Path, int Added, int Removed);
 
 /// <summary>
+/// A name for one depth on the outer-to-core axis (§2) — "Domain core", "Application",
+/// "Infrastructure".
+///
+/// Asked for rather than derived, because only the agent knows what this repository calls its
+/// layers. Deriving them from the depth number produced band labels reading "DEPTH 2", which names
+/// the axis position and tells the reviewer nothing about what lives there.
+/// </summary>
+public record ChangeMapLayer(int Depth, string Name);
+
+/// <summary>
 /// One area of the change (§2). <paramref name="Depth"/> is 0 at the innermost (domain) layer and
 /// increases outward — arithmetic the client uses to draw the dependency-rule overlay (§5), not a
 /// display order.
@@ -664,7 +674,8 @@ public record ChangeMap(
     StyleBasis StyleBasis,
     List<ChangeMapGroup> Groups,
     List<ChangeMapEdge> Edges,
-    List<ChangeMapFlowStep> Flow);
+    List<ChangeMapFlowStep> Flow,
+    List<ChangeMapLayer> Layers);
 
 /// <summary>
 /// The change-map schema (§2), built once so the prompt, the forced tool call and the fixture all
@@ -689,7 +700,7 @@ public static class ChangeMapSchema
     {
         ["type"] = "object",
         ["additionalProperties"] = false,
-        ["required"] = new JsonArray("style", "style_basis", "groups", "edges", "flow"),
+        ["required"] = new JsonArray("style", "style_basis", "layers", "groups", "edges", "flow"),
         ["properties"] = new JsonObject
         {
             ["style"] = new JsonObject
@@ -703,6 +714,28 @@ public static class ChangeMapSchema
                 ["enum"] = new JsonArray("structure", "inferred"),
                 ["description"] = "structure = the folders, projects or a checked-in doc say so outright. "
                                 + "inferred = you are reading the shape from convention, not from something stated.",
+            },
+            ["layers"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["items"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["required"] = new JsonArray("depth", "name"),
+                    ["properties"] = new JsonObject
+                    {
+                        ["depth"] = new JsonObject { ["type"] = "integer" },
+                        ["name"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["description"] = "Short name for this depth, two or three words: "
+                                            + "\"Domain core\", \"Application\", \"Infrastructure\".",
+                        },
+                    },
+                },
+                ["description"] = "One entry per distinct depth used by groups, naming what lives at "
+                                + "that level in this repository's own vocabulary.",
             },
             ["groups"] = new JsonObject
             {
@@ -875,7 +908,22 @@ public static class ChangeMapParser
                     flow.Add(new ChangeMapFlowStep(flow.Count + 1, group, Str(fl, "action") ?? ""));
                 }
 
-            return new ChangeMap(style, basis, groups, edges, flow);
+            // Only depths a surviving group actually occupies: a name for a band with nothing in it
+            // would render an empty row.
+            var usedDepths = new HashSet<int>(groups.Select(g => g.Depth));
+            var layers = new List<ChangeMapLayer>();
+            if (root.TryGetProperty("layers", out var ls) && ls.ValueKind == JsonValueKind.Array)
+                foreach (var l in ls.EnumerateArray())
+                {
+                    if (l.ValueKind != JsonValueKind.Object) continue;
+                    var depth = Int(l, "depth");
+                    var lname = Str(l, "name");
+                    if (string.IsNullOrWhiteSpace(lname) || !usedDepths.Contains(depth)) continue;
+                    if (layers.Any(x => x.Depth == depth)) continue;
+                    layers.Add(new ChangeMapLayer(depth, lname));
+                }
+
+            return new ChangeMap(style, basis, groups, edges, flow, layers);
         }
     }
 

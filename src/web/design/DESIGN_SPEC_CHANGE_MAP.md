@@ -33,6 +33,12 @@ schema beside the answer schema:
 {
   "style": "clean",              // clean | layers | modules | pipeline | unknown
   "style_basis": "structure",    // structure: folder/project names say so; inferred: judgment
+  "layers": [
+    // One per distinct depth the groups occupy, naming it in the repo's own vocabulary. Asked for
+    // rather than derived: only the agent knows what this codebase calls its layers, and deriving
+    // them from the number produced band labels reading "DEPTH 2".
+    { "depth": 0, "name": "Domain core" }
+  ],
   "groups": [
     {
       "id": "core",
@@ -62,6 +68,26 @@ coarser, never to truncate silently.
 paths the agent actually read — the same `citablePaths` rule and the same resolver §5.2 already
 applies to citations. A group whose every path fails validation is dropped; a map whose every group
 drops is a failure, not an empty diagram.
+
+### 2.1 The prompt must *demand* edges, not merely permit them
+
+The first real run of this feature returned **eight groups and zero edges** — a grouped file list,
+with the dependency-rule overlay that justifies the whole feature unable to fire. Nothing was wrong
+with the model or the parser. The prompt's edge section was four prohibitions and no obligation
+("only an edge you can actually see", "do not invent one", "omit it rather than guess"), sitting next
+to a flow section that explicitly blessed emptiness. Silence was the compliant answer.
+
+§5.3's answer prompt already carries the fix for this exact failure — **"Always return at least one
+segment. An empty list is not an answer"** — because segments failed the same way first. That lesson
+has to be restated per schema; it does not carry across on its own.
+
+So the edge section now states plainly that the edges *are* the point, that seeing a dependency is
+enough to report it (certainty that the coupling is *correct* is not required, and is what `severity`
+and the overlay are for), and that **with two or more groups, no edges is almost always wrong** —
+files that changed together in one pull request are in practice connected, and a map that claims
+otherwise is describing its own grouping being too coarse. The honesty rule survives as one line, in
+its proper proportion: do not invent an edge that is not there. Pruning a real one you were unsure
+about is the equal and opposite failure.
 
 ## 3. Honesty
 

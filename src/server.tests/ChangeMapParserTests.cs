@@ -140,6 +140,63 @@ public class ChangeMapParserTests
     }
 
     [Fact]
+    public void Layer_names_are_kept_for_depths_a_surviving_group_occupies()
+    {
+        var json = Payload(new
+        {
+            style = "clean",
+            style_basis = "structure",
+            layers = new[]
+            {
+                new { depth = 0, name = "Domain core" },
+                new { depth = 1, name = "Application" },
+                // A name for a depth no group sits at would render an empty band.
+                new { depth = 4, name = "Nothing here" },
+            },
+            groups = new object[]
+            {
+                new { id = "core", name = "Model", depth = 0, summary = "…",
+                      files = new[] { new { path = "CouponSnapshot.cs", added = 1, removed = 0 } } },
+                new { id = "app", name = "Orchestration", depth = 1, summary = "…",
+                      files = new[] { new { path = "CouponPlacementOrchestrator.cs", added = 1, removed = 0 } } },
+            },
+            edges = new[] { new { from = "app", to = "core", label = "builds" } },
+            flow = Array.Empty<object>(),
+        });
+
+        var map = ChangeMapParser.Parse(json, Known);
+
+        Assert.NotNull(map);
+        Assert.Equal(2, map!.Layers.Count);
+        Assert.Equal("Domain core", map.Layers.Single(l => l.Depth == 0).Name);
+        Assert.DoesNotContain(map.Layers, l => l.Depth == 4);
+    }
+
+    [Fact]
+    public void A_map_without_layers_still_parses()
+    {
+        // Maps stored before layer names existed, and any provider that omits the array. The sheet
+        // falls back to naming the axis extremes rather than refusing to draw.
+        var json = Payload(new
+        {
+            style = "modules",
+            style_basis = "inferred",
+            groups = new object[]
+            {
+                new { id = "g", name = "Area", depth = 0, summary = "…",
+                      files = new[] { new { path = "MyBoost.cs", added = 1, removed = 0 } } },
+            },
+            edges = Array.Empty<object>(),
+            flow = Array.Empty<object>(),
+        });
+
+        var map = ChangeMapParser.Parse(json, Known);
+
+        Assert.NotNull(map);
+        Assert.Empty(map!.Layers);
+    }
+
+    [Fact]
     public void Leading_slash_does_not_defeat_path_validation()
     {
         // The context block declares paths without one; Azure DevOps hands some back with one.
