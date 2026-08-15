@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { askAgent, askReview } from "../lib/askAgent";
-import { ChangeMapSheet } from "./ChangeMapSheet";
+import { askAgent, askMap, askReview } from "../lib/askAgent";
+import { WizardSheet } from "./WizardSheet";
 import type {
   AgentCitation, AgentSegment, AgentTurn, ChangeMap, Connector, ConnectorProvider, PullRequest,
 } from "../types";
@@ -86,13 +86,15 @@ export function AgentPanel({
   const [reviewSegments, setReviewSegments] = useState<AgentSegment[]>([]);
   const [reviewReading, setReviewReading] = useState<string | null>(null);
   const [reviewFailure, setReviewFailure] = useState<{ code: string; detail?: string | null } | null>(null);
-  /* True only across the map phase, which starts after the review turn has already landed — so the
-     review's own segments are showing normally by the time this is the only spinner left. */
+  /* The wizard's own call (§8), separate from Review's. Two buttons, two spends, and neither one
+     pays for the other: tying them meant every review produced a walkthrough nobody had asked to
+     see. `wizardOpen` is what the Wizard button does once a map exists. */
   const [mapping, setMapping] = useState(false);
   const [map, setMap] = useState<ChangeMap | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [mapOpen, setMapOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const reviewAbort = useRef<AbortController | null>(null);
+  const mapAbort = useRef<AbortController | null>(null);
 
   const abort = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -170,19 +172,13 @@ export function AgentPanel({
     }
   }
 
-  /**
-   * §4.1: one button, one request, both halves. `reviewing` covers the whole thing so a second
-   * click can't overlap the first; `mapping` narrows to just the second half once the review turn
-   * has landed, since by then the review's own segments are rendering normally and the map is the
-   * only thing left waiting.
-   */
+  /** Review (§4.1): a fixed question down the same path a typed one takes, so it lands as a turn. */
   async function runReview() {
     if (reviewing || !connector) return;
 
     setReviewSegments([]);
     setReviewReading(null);
     setReviewFailure(null);
-    setMapError(null);
     setReviewing(true);
 
     const controller = new AbortController();
@@ -193,16 +189,13 @@ export function AgentPanel({
         onReading: (info) => setReviewReading(info.detail || info.tool),
         onSegment: (segment) => setReviewSegments((s) => [...s, segment]),
         onComplete: (turn) => {
-          // The review is a normal turn the moment it lands — same rendering, same "Post as
+          // A review is a normal turn the moment it lands — same rendering, same "Post as
           // comment…", same replay — so it joins the thread exactly like a typed question would.
           setTurns((t) => [...t, turn]);
           setReviewSegments([]);
           setReviewReading(null);
-          setMapping(true);
         },
         onError: (e) => setReviewFailure(e),
-        onMap: (m) => { setMap(m); setMapping(false); },
-        onMapError: (detail) => { setMapError(detail ?? "The change map could not be produced."); setMapping(false); },
       }, controller.signal);
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) {
@@ -210,8 +203,44 @@ export function AgentPanel({
       }
     } finally {
       setReviewing(false);
-      setMapping(false);
       reviewAbort.current = null;
+      threadQ.refetch();
+    }
+  }
+
+  /**
+   * The Wizard button (§8). One control, three behaviours, and which one it is depends only on
+   * whether a walkthrough already exists — so the label always says what pressing it will do.
+   *
+   * @param force Re-map: throw away the stored walkthrough and ask again on the current commit.
+   */
+  async function runWizard(force = false) {
+    if (mapping || !connector) return;
+
+    // Already have one: opening it is free, and re-running would spend a call to replace something
+    // the reviewer just asked to look at.
+    if (map && !force) { setWizardOpen(true); return; }
+
+    setMapError(null);
+    setMapping(true);
+
+    const controller = new AbortController();
+    mapAbort.current = controller;
+
+    try {
+      await askMap(project, repoId, pr.id, {
+        onReading: (info) => setReviewReading(info.detail || info.tool),
+        onMap: (m) => { setMap(m); setWizardOpen(true); },
+        onError: (detail) => setMapError(detail ?? "The walkthrough could not be produced."),
+      }, controller.signal);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setMapError("The request could not be completed.");
+      }
+    } finally {
+      setMapping(false);
+      setReviewReading(null);
+      mapAbort.current = null;
       threadQ.refetch();
     }
   }
@@ -238,23 +267,27 @@ export function AgentPanel({
         </div>
       </div>
 
-      {/* §4.1: one button runs both a review and the change map it indexes. Map appears only once
-          one exists — a control offering a diagram before there is anything to show it against
-          would ask the reviewer to want it before they know what it contains. */}
+      {/* Two actions, two spends, and each label says what pressing it costs. Review reads the diff
+          and reports problems; Wizard maps the change and walks it. Neither pays for the other. */}
       {!missing && (
         <div className="ag-headctl">
-          {map && (
-            <button className="ag-mini" onClick={() => setMapOpen(true)} disabled={reviewing}>
-              Map
-            </button>
-          )}
           <button
             className="ag-mini"
             onClick={runReview}
-            disabled={reviewing || unreachable}
-            title={hasReviewed ? "Run again on the current commit" : "Ask for problems, risks and a map of what changed"}
+            disabled={reviewing || mapping || unreachable}
+            title={hasReviewed ? "Review again on the current commit" : "Ask for problems, risks and notable decisions"}
           >
-            {reviewing ? (mapping ? "Mapping…" : "Reviewing…") : hasReviewed ? "Re-review" : "Review"}
+            {reviewing ? "Reviewing…" : hasReviewed ? "🔍 Re-review" : "🔍 Review"}
+          </button>
+          <button
+            className="ag-mini"
+            onClick={() => runWizard()}
+            disabled={reviewing || mapping || unreachable}
+            title={map
+              ? "Open the walkthrough — already generated, costs nothing"
+              : "Map this change and walk through it step by step"}
+          >
+            {mapping ? "Mapping…" : map ? "🪄 Show walkthrough" : "🪄 Wizard"}
           </button>
         </div>
       )}
@@ -409,21 +442,24 @@ export function AgentPanel({
           </div>
         )}
 
-        {/* The map phase: the review turn above is already finished and on screen, so this is the
-            only thing still working. No Stop here — the review it's attached to already landed, and
-            stopping midway would leave neither a map nor a clear reason why not. */}
+        {/* The wizard working. Stoppable, unlike the old map phase — this is now its own request
+            rather than the tail of a review whose turn had already landed, so abandoning it leaves
+            nothing half-recorded. */}
         {mapping && (
           <div className="ag-pending" style={{ padding: "4px 0 10px" }}>
             <span className="spin" aria-hidden="true" />
             <span className="ag-thinking">
-              {reviewReading ? <>mapping — reading <code>{reviewReading}</code>…</> : "drawing the change map…"}
+              {reviewReading
+                ? <>mapping — reading <code>{reviewReading}</code>…</>
+                : "working out the shape of the change…"}
             </span>
+            <button className="ag-mini" onClick={() => mapAbort.current?.abort()}>Stop</button>
           </div>
         )}
 
         {mapError && (
           <div className="ag-banner ag-note">
-            <div><b>The change map didn't come back.</b> {mapError}</div>
+            <div><b>The walkthrough didn't come back.</b> {mapError}</div>
           </div>
         )}
 
@@ -441,8 +477,15 @@ export function AgentPanel({
         {reviewFailure && <FailureRow failure={reviewFailure} name={name} />}
       </div>
 
-      {mapOpen && map && (
-        <ChangeMapSheet map={map} connectorName={name} onCite={onCite} onClose={() => setMapOpen(false)} />
+      {wizardOpen && map && (
+        <WizardSheet
+          map={map}
+          prTitle={pr.title}
+          connectorName={name}
+          onCite={(path, line) => { setWizardOpen(false); onCite(path, line); }}
+          onClose={() => setWizardOpen(false)}
+          onRemap={() => { setWizardOpen(false); runWizard(true); }}
+        />
       )}
 
       <div className="ag-composer">

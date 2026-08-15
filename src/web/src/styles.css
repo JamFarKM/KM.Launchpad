@@ -6190,12 +6190,121 @@ body.is-card-sliding * { cursor: grabbing !important; }
 .map-sheet-main { display: flex; min-height: 0; flex: 1; }
 @media (max-width: 899px) { .map-sheet-main { flex-direction: column; overflow-y: auto; } }
 
+/* ---------- the wizard (§8) ---------- */
+
+.wz-sheet {
+  width: 100%; max-width: 1180px; height: min(90vh, 880px);
+  background: var(--bg-surface); border: 1px solid var(--border-hairline);
+  border-radius: 12px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+.wz-main { display: flex; min-height: 0; flex: 1; }
+@media (max-width: 979px) { .wz-main { flex-direction: column; } }
+
+/* The map is the reference, the deck is the reading — so the deck gets the fixed, comfortable
+   measure and the map takes what's left. Narrow enough that the diagram usually overflows, which is
+   what pan is for: shrinking cards until a 4-card band fits would make the names unreadable. */
+.wz-map { flex: 1; min-width: 0; min-height: 0; display: flex; border-right: 1px solid var(--border-hairline); }
+.wz-deck-pane { width: 400px; flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; padding: 14px; }
+@media (max-width: 979px) {
+  .wz-map { border-right: 0; border-bottom: 1px solid var(--border-hairline); min-height: 300px; }
+  .wz-deck-pane { width: auto; }
+}
+
+/* ---------- the pack ---------- */
+
+/* Every slide stays mounted and is placed by its distance from the current one, so moving on is a
+   transition between transforms rather than a mount. That is what makes the departing card visibly
+   travel to the back of the pack instead of simply vanishing and being replaced. */
+.wz-deck { position: relative; flex: 1; min-height: 0; perspective: 1400px; }
+
+/* The bottom 20px is the pack: cards behind the front one sit lower and their edges show there. With
+   the cards filling the deck exactly, the ones behind hid perfectly behind the front card and the
+   whole thing read as a single panel that swapped contents. */
+.wz-card {
+  position: absolute; inset: 0 0 20px; overflow-y: auto;
+  background: var(--bg-surface); border: 1px solid var(--border-hairline);
+  border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 6px 18px color-mix(in oklab, black 12%, transparent);
+  transform-origin: 50% 90%;
+  transition: transform 0.42s cubic-bezier(0.22, 0.7, 0.16, 1), opacity 0.42s ease;
+}
+
+/* The card in hand. */
+.wz-card[data-off="0"] { transform: none; opacity: 1; }
+
+/* Still to come: stacked just behind, enough to read as a pack with depth rather than one panel. */
+.wz-card[data-off="1"] { transform: translateY(9px) scale(0.972); opacity: 0.55; }
+.wz-card[data-off="2"] { transform: translateY(18px) scale(0.944); opacity: 0.28; }
+.wz-card[data-off="deep"] { transform: translateY(24px) scale(0.93); opacity: 0; }
+
+/* Read, and put to the back: lifted, tilted and dropped behind the rest. The rotation is what sells
+   it as a hand movement — a straight fade would just be a card disappearing. */
+.wz-card[data-off="past"] {
+  transform: translateY(-16%) scale(0.9) rotateZ(-4deg);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wz-card { transition: opacity 0.15s ease; }
+  .wz-card[data-off="past"] { transform: none; }
+  .wz-card[data-off="1"], .wz-card[data-off="2"], .wz-card[data-off="deep"] { transform: none; }
+}
+
+.wz-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wz-step {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--hue-violet);
+  background: color-mix(in oklab, var(--hue-violet) 12%, transparent);
+  padding: 2px 7px; border-radius: 100px;
+}
+.wz-find {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 14%, transparent);
+  padding: 2px 7px; border-radius: 100px;
+}
+
+.wz-title { margin: 0 0 2px; font-size: 15px; font-weight: 650; line-height: 1.3; }
+.wz-where { font-size: 11px; color: var(--ink-muted); margin-bottom: 10px; }
+/* 62ch is the same measure the annotation card settled on — long enough not to fragment a
+   paragraph, short enough to keep the return sweep. */
+.wz-detail { margin: 0 0 12px; font-size: 12.5px; line-height: 1.6; color: var(--ink-primary); max-width: 62ch; }
+
+.wz-files-label {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--ink-muted); margin-bottom: 5px;
+}
+
+.wz-foot { display: flex; align-items: center; gap: 10px; padding-top: 12px; flex-shrink: 0; }
+.wz-dots { display: flex; align-items: center; gap: 5px; flex: 1; justify-content: center; }
+.wz-dot {
+  width: 7px; height: 7px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--border-hairline); background: transparent;
+}
+.wz-dot.seen { background: color-mix(in oklab, var(--hue-violet) 35%, transparent); border-color: transparent; }
+.wz-dot.on { background: var(--hue-violet); border-color: transparent; transform: scale(1.35); }
+
+.wz-empty { font-size: 12.5px; color: var(--ink-secondary); }
+.wz-empty b { color: var(--ink-primary); }
+.wz-empty p { margin: 6px 0 0; line-height: 1.6; }
+
 /* ---------- diagram ---------- */
 
 .map-diagram {
   flex: 1; min-width: 0; min-height: 320px; position: relative;
-  padding: 14px 44px 10px 20px; overflow: auto;
+  padding: 14px 44px 10px 20px; overflow: hidden;
 }
+
+/* Pan rather than scrollbars: the diagram is a picture to move around, and at these sizes a 4-card
+   band shrunk to fit would have unreadable names. */
+.map-diagram.is-pannable { cursor: grab; }
+body.is-map-panning, body.is-map-panning * { cursor: grabbing !important; user-select: none; }
+
+/* Holds the cards and the edge SVG together, so panning cannot move one relative to the other —
+   and so every measurement taken against this element is pan-independent. */
+.map-pan { position: relative; will-change: transform; }
 
 .map-axis {
   position: absolute; left: 1px; top: 22px; bottom: 18px; width: 13px;

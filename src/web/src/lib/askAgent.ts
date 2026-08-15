@@ -127,28 +127,17 @@ export interface ReviewHandlers {
   onReading?: (info: { tool: string; detail: string }) => void;
   /** One claim of the review closed — same shape and same meaning as an ordinary answer's. */
   onSegment: (segment: AgentSegment) => void;
-  /** The review half finished: a normal turn, appended to the thread exactly like a typed question. */
+  /** Finished: a normal turn, appended to the thread exactly like a typed question. */
   onComplete: (turn: AgentTurn) => void;
-  /** The review half failed. Terminal for the whole request — a map is not attempted without one. */
   onError: (error: { code: string; detail?: string | null; httpStatus?: number | null }) => void;
-  /**
-   * The map half finished (§4.1). Arrives after `onComplete`, on the same stream — one Review
-   * click, one spend, both payloads.
-   */
-  onMap?: (map: ChangeMap) => void;
-  /**
-   * The map half failed. Deliberately not routed through {@link onError}: the review already
-   * succeeded and its turn is already on screen, so this must not read as though the whole
-   * request failed — only the map did.
-   */
-  onMapError?: (detail: string | null) => void;
 }
 
 /**
- * DESIGN_SPEC_CHANGE_MAP.md §4.1 — one button, one stream, both halves. The server runs the fixed
- * review question through the exact same path as a typed one, then — only once that produced a
- * real turn — the map phase, sharing the connector and the diff context rather than asking the
- * reviewer to spend twice for one picture.
+ * The Review button (DESIGN_SPEC_CHANGE_MAP.md §4.1) — a fixed question down the same path a typed
+ * one takes, so what comes back is a turn in the thread rather than a parallel kind of thing.
+ *
+ * It no longer produces the map. The two shared a call while there was one button; the wizard owns
+ * the walkthrough now, and tying them meant every review paid for a map nobody had asked to see.
  */
 export async function askReview(
   project: string,
@@ -174,8 +163,47 @@ export async function askReview(
       case "segment": handlers.onSegment(payload as AgentSegment); break;
       case "complete": handlers.onComplete(payload as AgentTurn); break;
       case "error": handlers.onError(payload as never); break;
-      case "map": handlers.onMap?.(payload as ChangeMap); break;
-      case "map_error": handlers.onMapError?.((payload as { detail: string | null }).detail); break;
+    }
+  });
+}
+
+export interface MapHandlers {
+  /** What the agent is reading while it works out the shape. */
+  onReading?: (info: { tool: string; detail: string }) => void;
+  /** The map, which is also the wizard's script: `flow[].detail` is what the slides read. */
+  onMap: (map: ChangeMap) => void;
+  onError: (detail: string | null) => void;
+}
+
+/**
+ * The Wizard's one call (§8): the change map, which is both the diagram and the walkthrough.
+ *
+ * Stored on the thread server-side, so reopening the wizard afterwards costs nothing and re-running
+ * it is a deliberate act rather than a side effect of pressing something else.
+ */
+export async function askMap(
+  project: string,
+  repoId: string,
+  prId: number,
+  handlers: MapHandlers,
+  signal: AbortSignal,
+): Promise<void> {
+  const url = `/api/review/${encodeURIComponent(project)}/${encodeURIComponent(repoId)}/pulls/${prId}/map`;
+
+  const resp = await fetch(url, { method: "POST", credentials: "same-origin", signal });
+
+  if (!resp.ok || !resp.body) {
+    let detail: string | null = null;
+    try { detail = (await resp.json())?.error ?? null; } catch { /* not json */ }
+    handlers.onError(detail);
+    return;
+  }
+
+  await readSse(resp, (event, payload) => {
+    switch (event) {
+      case "reading": handlers.onReading?.(payload as never); break;
+      case "map": handlers.onMap(payload as ChangeMap); break;
+      case "map_error": handlers.onError((payload as { detail: string | null }).detail); break;
     }
   });
 }

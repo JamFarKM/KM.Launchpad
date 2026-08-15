@@ -444,7 +444,10 @@ export interface ChangeMapEdge {
 export interface ChangeMapFlowStep {
   step: number;
   group: string;
+  /** Short phrase — the diagram's label for this step. */
   action: string;
+  /** The wizard's narration: what happens here, what changed, and how it serves the PR's intention. */
+  detail: string;
 }
 
 /** A name for one depth on the outer-to-core axis, in the repository's own vocabulary. */

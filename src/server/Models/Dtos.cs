@@ -366,7 +366,10 @@ public record ChangeMapGroupDto(
 /// <param name="From">The dependent side. <paramref name="From"/> depends on / calls <paramref name="To"/>.</param>
 public record ChangeMapEdgeDto(string From, string To, string Label);
 
-public record ChangeMapFlowStepDto(int Step, string Group, string Action);
+/// <param name="Action">Short phrase — the diagram's label for this step.</param>
+/// <param name="Detail">The wizard's narration for this step: what happens, what changed, and how
+/// that serves the pull request's intention.</param>
+public record ChangeMapFlowStepDto(int Step, string Group, string Action, string Detail);
 
 /// <summary>A name for one depth on the outer-to-core axis, in the repository's own vocabulary.</summary>
 public record ChangeMapLayerDto(int Depth, string Name);

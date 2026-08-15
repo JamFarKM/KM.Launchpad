@@ -203,10 +203,13 @@ public static class AgentEndpoints
             return Results.Ok(new ThreadDto(thread.Id, turns.Select(ToTurnDto).ToList(), ThreadStore.Map(thread, turns)));
         });
 
-        // §4.1: one button, one stream, both halves. A fixed review question runs through the exact
-        // same path as a typed one — same turn shape, same "Post as comment…" — and only once that
-        // has something to show does the map phase run, sharing the connector and the diff context
-        // rather than asking the reviewer to spend twice to get one picture.
+        /* Review (§4.1). A fixed question through the exact same path as a typed one — same turn
+         * shape, same "Post as comment…", same replay — so a review *is* a turn in the thread rather
+         * than a parallel kind of thing the panel has to render differently.
+         *
+         * It no longer produces the map. The two were one call while there was one button; now that
+         * the wizard owns the walkthrough, tying them meant every review paid for a map whether or
+         * not anyone opened it. */
         api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/review", async (
             string project, string repoId, int prId,
             HttpContext http, AdoContext ctx, AppDbContext db,
@@ -217,21 +220,30 @@ public static class AgentEndpoints
 
             var thread = await threads.GetOrCreateAsync(ctx.UserId!, project, repoId, prId, ct);
 
-            var reviewed = await RunAskAsync(project, repoId, prId, ReviewQuestion, thread,
+            await RunAskAsync(project, repoId, prId, ReviewQuestion, thread,
                 http, ctx, db, registry, ado, contexts, threads, conversation, ct);
+        });
 
-            // RunAskAsync already sent the appropriate error (a missing connector, an unreachable
-            // one, a pull request Azure DevOps couldn't produce) and the response is what it is —
-            // spending a second call on a map for a review that didn't happen would just repeat
-            // the same failure a second time.
-            if (!reviewed) return;
+        /* The wizard's one call (§8): the map, which is both the diagram and the walkthrough's
+         * script — `flow[].detail` is what the slides read. Stored on the thread, so reopening the
+         * wizard afterwards costs nothing and a Re-map is a deliberate act. */
+        api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/map", async (
+            string project, string repoId, int prId,
+            HttpContext http, AdoContext ctx, AppDbContext db,
+            AgentRegistry registry, AdoService ado, PrContextService contexts,
+            ThreadStore threads, AgentConversation conversation, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) { http.Response.StatusCode = 401; return; }
 
+            var thread = await threads.GetOrCreateAsync(ctx.UserId!, project, repoId, prId, ct);
+
+            StartSse(http);
             await RunMapAsync(project, repoId, prId, thread,
                 http, ctx, db, registry, ado, contexts, threads, conversation, ct);
         });
     }
 
-    /// <summary>The fixed question behind the Review button's first half (§4.1).</summary>
+    /// <summary>The fixed question behind the Review button (§4.1).</summary>
     private const string ReviewQuestion =
         "Review this pull request. Identify concrete problems, risks and notable design decisions — "
         + "cite specific lines. If nothing stands out, say so plainly.";
@@ -467,15 +479,32 @@ public static class AgentEndpoints
         AgentRegistry registry, AdoService ado, PrContextService contexts,
         ThreadStore threads, AgentConversation conversation, CancellationToken ct)
     {
+        /* Every failure here is a `map_error` rather than a silent return. This used to run only as
+           the tail of a review that had already reported any of these, so returning quietly was
+           correct; standing on its own behind the wizard's button, silence would leave the reviewer
+           watching a spinner that never resolves. */
         var holder = await db.ConnectorCapabilities
             .FirstOrDefaultAsync(c => c.UserId == ctx.UserId && c.Capability == ConnectorProviders.PrQuestions, ct);
         var connector = holder is null ? null
             : await db.Connectors.FirstOrDefaultAsync(c => c.Id == holder.ConnectorId, ct);
-        if (connector is null) return;
+        if (connector is null)
+        {
+            await Send(http, "map_error", new { detail = "No connector is assigned to answer PR questions." }, ct);
+            return;
+        }
 
         var adapter = registry.For(connector.Provider);
         var target = registry.TargetFor(connector);
-        if (adapter is null || target is null) return;
+        if (adapter is null || target is null)
+        {
+            await Send(http, "map_error", new
+            {
+                detail = adapter is null
+                    ? $"No adapter is built for {connector.Provider} yet."
+                    : "The stored credential could not be read. Press Replace and paste it again.",
+            }, ct);
+            return;
+        }
 
         PullRequestDto? pr;
         PrContext context;

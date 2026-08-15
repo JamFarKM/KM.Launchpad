@@ -660,9 +660,17 @@ public record ChangeMapGroup(string Id, string Name, int Depth, string Summary, 
 /// </summary>
 public record ChangeMapEdge(string From, string To, string Label);
 
-/// <summary>One step of the user-facing flow this change serves, if it has one (§2). Optional: a
-/// pure refactor or a schema-only change may have no single request/response path to narrate.</summary>
-public record ChangeMapFlowStep(int Step, string Group, string Action);
+/// <summary>
+/// One step of the user-facing flow this change serves, if it has one (§2). Optional: a pure
+/// refactor or a schema-only change may have no single request/response path to narrate.
+/// </summary>
+/// <param name="Action">A short phrase. What the map's flow overlay and its step chips show.</param>
+/// <param name="Detail">
+/// The wizard's narration for this step (§8): what happens here, what this pull request changed
+/// about it, and how that serves what the PR set out to do. A paragraph rather than a phrase —
+/// <paramref name="Action"/> is the label, this is the slide.
+/// </param>
+public record ChangeMapFlowStep(int Step, string Group, string Action, string Detail);
 
 /// <summary>
 /// The whole map, validated and capped (§2, §7). Never partially valid on the wire: a group survives
@@ -801,12 +809,23 @@ public static class ChangeMapSchema
                 {
                     ["type"] = "object",
                     ["additionalProperties"] = false,
-                    ["required"] = new JsonArray("step", "group", "action"),
+                    ["required"] = new JsonArray("step", "group", "action", "detail"),
                     ["properties"] = new JsonObject
                     {
                         ["step"] = new JsonObject { ["type"] = "integer" },
                         ["group"] = new JsonObject { ["type"] = "string", ["description"] = "A group id." },
-                        ["action"] = new JsonObject { ["type"] = "string" },
+                        ["action"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["description"] = "A short phrase — this is a label on a diagram, not a sentence.",
+                        },
+                        ["detail"] = new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["description"] = "Two to four sentences for the reviewer walking this change step by "
+                                            + "step: what happens at this point, what this pull request changed "
+                                            + "about it, and how that serves what the pull request set out to do.",
+                        },
                     },
                 },
                 ["description"] = "Empty when this change has no single user-facing request/response path to "
@@ -905,7 +924,8 @@ public static class ChangeMapParser
                     if (fl.ValueKind != JsonValueKind.Object) continue;
                     var group = Str(fl, "group");
                     if (string.IsNullOrWhiteSpace(group) || !groupIds.Contains(group)) continue;
-                    flow.Add(new ChangeMapFlowStep(flow.Count + 1, group, Str(fl, "action") ?? ""));
+                    flow.Add(new ChangeMapFlowStep(
+                        flow.Count + 1, group, Str(fl, "action") ?? "", Str(fl, "detail") ?? ""));
                 }
 
             // Only depths a surviving group actually occupies: a name for a band with nothing in it

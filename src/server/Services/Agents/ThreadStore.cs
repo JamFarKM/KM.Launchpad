@@ -194,7 +194,7 @@ public class ThreadStore(AppDbContext db)
                 (g.Files ?? []).Select(f => new ChangeMapFileDto(f.Path ?? "", f.Added, f.Removed)).ToList(),
                 findings.GetValueOrDefault(g.Id ?? "", 0))).ToList(),
             (wire.Edges ?? []).Select(e => new ChangeMapEdgeDto(e.From ?? "", e.To ?? "", e.Label ?? "")).ToList(),
-            (wire.Flow ?? []).Select(f => new ChangeMapFlowStepDto(f.Step, f.Group ?? "", f.Action ?? "")).ToList(),
+            (wire.Flow ?? []).Select(f => new ChangeMapFlowStepDto(f.Step, f.Group ?? "", f.Action ?? "", f.Detail ?? "")).ToList(),
             // Absent on maps stored before layer names existed; those fall back to the axis extremes.
             (wire.Layers ?? []).Select(l => new ChangeMapLayerDto(l.Depth, l.Name ?? "")).ToList(),
             thread.MapCommitSha);
@@ -203,7 +203,7 @@ public class ThreadStore(AppDbContext db)
     private record WireChangeMapFile(string? Path, int Added, int Removed);
     private record WireChangeMapGroup(string? Id, string? Name, int Depth, string? Summary, List<WireChangeMapFile>? Files);
     private record WireChangeMapEdge(string? From, string? To, string? Label);
-    private record WireChangeMapFlowStep(int Step, string? Group, string? Action);
+    private record WireChangeMapFlowStep(int Step, string? Group, string? Action, string? Detail);
     private record WireChangeMapLayer(int Depth, string? Name);
     private record WireChangeMap(
         string? Style, string? StyleBasis,
@@ -217,7 +217,7 @@ public class ThreadStore(AppDbContext db)
             g.Id, g.Name, g.Depth, g.Summary,
             g.Files.Select(f => new WireChangeMapFile(f.Path, f.Added, f.Removed)).ToList())).ToList(),
         map.Edges.Select(e => new WireChangeMapEdge(e.From, e.To, e.Label)).ToList(),
-        map.Flow.Select(f => new WireChangeMapFlowStep(f.Step, f.Group, f.Action)).ToList(),
+        map.Flow.Select(f => new WireChangeMapFlowStep(f.Step, f.Group, f.Action, f.Detail)).ToList(),
         map.Layers.Select(l => new WireChangeMapLayer(l.Depth, l.Name)).ToList());
 
     public async Task SetStatusAsync(AgentThread thread, string status, CancellationToken ct)
