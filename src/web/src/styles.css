@@ -6250,10 +6250,14 @@ body.is-card-sliding * { cursor: grabbing !important; }
    themselves back in the thread. */
 .map-node-find { margin-top: 4px; font-size: 10.5px; font-weight: 600; color: var(--ink-secondary); }
 
+/* A pill rather than a fixed circle: a group the flow visits twice carries both its numbers ("1·6"),
+   and a circle sized for one digit clipped the second. Still round at one digit. */
 .map-step {
-  position: absolute; top: -9px; left: -9px; width: 18px; height: 18px; border-radius: 50%;
+  position: absolute; top: -9px; left: -9px; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 100px;
   background: var(--ink-primary); color: var(--bg-surface); font-size: 10.5px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* dimming: selection and flow mode share one mechanism */

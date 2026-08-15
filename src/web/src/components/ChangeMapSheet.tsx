@@ -114,7 +114,16 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
   );
 
   const group = selected ? byId.get(selected) : null;
-  const flowIndex = useMemo(() => new Map(map.flow.map((s) => [s.group, s.step])), [map.flow]);
+  /* Every step number a group holds, not just one.
+     This was a Map<group, step>, which silently kept only a group's *last* step: a flow that comes
+     back to the orchestrator at 3 and 5, or enters and leaves through the edge layer at 1 and 6,
+     lost the earlier number entirely — so the sequence on screen started at 2 and skipped 3. A group
+     can be visited more than once, and the chip has to be able to say so. */
+  const flowSteps = useMemo(() => {
+    const m = new Map<string, number[]>();
+    for (const s of map.flow) m.set(s.group, [...(m.get(s.group) ?? []), s.step]);
+    return m;
+  }, [map.flow]);
   const litGroups = useMemo(() => {
     if (flowOn) return new Set(map.flow.map((s) => s.group));
     if (!selected) return null;
@@ -192,11 +201,16 @@ export function ChangeMapSheet({ map, connectorName, onCite, onClose }: Props) {
                         key={id}
                         id={id}
                         ref={(el) => { if (el) nodeRefs.current.set(id, el); else nodeRefs.current.delete(id); }}
-                        className="map-node"
+                        /* `lit` is what the dimming reads. Computing litGroups and never applying it
+                           left every card at 0.28 opacity the moment anything was selected or the
+                           flow was shown — the whole diagram greyed out with nothing standing up. */
+                        className={`map-node${litGroups?.has(id) ? " lit" : ""}`}
                         aria-pressed={selected === id}
                         onClick={() => setSelected((s) => (s === id ? null : id))}
                       >
-                        {flowOn && flowIndex.has(id) && <span className="map-step">{flowIndex.get(id)}</span>}
+                        {flowOn && flowSteps.has(id) && (
+                          <span className="map-step">{flowSteps.get(id)!.join("·")}</span>
+                        )}
                         <div className="map-node-name">{g.name}</div>
                         <div className="map-node-meta">
                           <span>{g.files.length} file{g.files.length === 1 ? "" : "s"}</span>
