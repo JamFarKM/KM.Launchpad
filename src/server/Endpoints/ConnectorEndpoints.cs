@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PipelineLaunchpad.Server.Data;
 using PipelineLaunchpad.Server.Models;
 using PipelineLaunchpad.Server.Services;
+using PipelineLaunchpad.Server.Services.Agents;
 
 namespace PipelineLaunchpad.Server.Endpoints;
 
@@ -122,7 +123,7 @@ public static class ConnectorEndpoints
                 }
                 else
                 {
-                    connector.LastErrorCode = probe.Error?.Code.ToString().ToLowerInvariant();
+                    connector.LastErrorCode = probe.Error is { } pe ? AgentErrorNames.ToWire(pe.Code) : null;
                     connector.LastErrorAt = DateTime.UtcNow;
                 }
             }

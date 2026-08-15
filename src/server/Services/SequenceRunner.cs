@@ -156,8 +156,9 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
                 }
 
                 previous = final;
-                // Indexed by step position, so `completed[n]` is step n+1's view of step n.
-                while (completed.Count < i) completed.Add(null);
+                /* Indexed by step position, so `completed[n]` is step n+1's view of step n. The
+                   append alone keeps that true: every path that skips it leaves the loop, so the
+                   list can never develop a gap that needs padding. */
                 completed.Add(final);
                 await SaveAsync(db, run, steps, "running", ct);
             }
@@ -207,12 +208,27 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
         List<SequenceRunStepDto> steps, int i, AppDbContext db, SequenceRun run, CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + StepTimeout;
+        // The most recent successful read, so a timeout still reports the run's real build number
+        // and web URL rather than a placeholder. Null only if the very first read never succeeded.
+        RunDto? last = null;
+
         while (true)
         {
             if (ct.IsCancellationRequested) return null;
+
+            /* Tested before the call as well as after it. The catch below `continue`s, which used to
+               skip the deadline test entirely — so a *persistent* Azure DevOps failure (an expired
+               PAT mid-run is the usual way) polled every 5 seconds forever and left the run stuck at
+               "running" until the process restarted. The timeout has to bind on the failing path
+               too, which means testing it where the loop restarts rather than only where it
+               succeeds. */
+            if (DateTime.UtcNow > deadline)
+                return (last ?? Unknown(buildId)) with { State = "completed", Result = "failed" };
+
             RunDto current;
             try { current = await ado.GetRunAsync(project, buildId, ct); }
             catch { await DelayAsync(ct); if (ct.IsCancellationRequested) return null; continue; }
+            last = current;
 
             if (current.State != steps[i].State)
             {
@@ -221,12 +237,15 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
             }
 
             if (current.State == "completed") return current;
-            if (DateTime.UtcNow > deadline)
-                return current with { Result = "failed" };
 
             await DelayAsync(ct);
         }
     }
+
+    /// <summary>A run we triggered but could never read back — only used when polling times out
+    /// without a single successful fetch, so the step still finishes with an id attached.</summary>
+    private static RunDto Unknown(int buildId) =>
+        new(buildId, 0, null, "completed", "failed", null, null, null, null, null, "");
 
     /// <summary>The value an earlier step's run supplies for a named output.</summary>
     private static string OutputOf(RunDto run, string? output)

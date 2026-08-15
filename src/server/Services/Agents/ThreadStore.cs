@@ -184,7 +184,7 @@ public class ThreadStore(AppDbContext db)
             PromptTokens = usage?.PromptTokens,
             CompletionTokens = usage?.CompletionTokens,
             Stopped = stopped,
-            ErrorCode = errorCode?.ToString().ToLowerInvariant(),
+            ErrorCode = errorCode is { } ec ? AgentErrorNames.ToWire(ec) : null,
             // Stored, not just streamed: the code is the category and this is the sentence. Without
             // it a reload turns "the agent returned an empty answer" into the word "upstream".
             ErrorDetail = errorDetail,

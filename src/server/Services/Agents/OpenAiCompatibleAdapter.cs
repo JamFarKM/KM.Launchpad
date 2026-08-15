@@ -34,7 +34,9 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
     public string Provider { get; }
 
-    private const int MaxCompletionTokens = 2048;
+    /// <summary>Ceiling on one answer. Kept level with the Anthropic adapter's, so the same question
+    /// does not get a shorter answer purely because of which connector holds the capability.</summary>
+    private const int MaxCompletionTokens = 8192;
 
     /// <summary>The function the model calls to record its answer when tools are in play.</summary>
     private const string AnswerToolName = "record_pr_answer";
@@ -314,7 +316,17 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                 var remaining = deadline - DateTime.UtcNow;
                 if (remaining <= TimeSpan.Zero) { failure = new AgentError(AgentErrorCode.Timeout); break; }
 
-                var finished = await Task.WhenAny(readTask, Task.Delay(remaining, ct));
+                /* Cancelled once the race resolves so the loser's timer is released rather than left
+                   armed for its full span, and cancellation checked explicitly so pressing Stop can't
+                   be misread as silence — `whole` is linked to `ct`, so a Stop completes both tasks
+                   and WhenAny's choice would otherwise decide between "Stopped" and "timed out".
+                   Same reasoning as AnthropicAdapter; see the longer note there. */
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var finished = await Task.WhenAny(readTask, Task.Delay(remaining, idle.Token));
+                idle.Cancel();
+
+                ct.ThrowIfCancellationRequested();
+
                 if (finished != readTask) { failure = new AgentError(AgentErrorCode.Timeout); break; }
 
                 line = await readTask;
@@ -335,6 +347,12 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
             string? answerFragment = null;
             string? contentFragment = null;
+            /* Any content fragment, tool arguments included — a model spelling out a `read_file` path
+               is working, not idle. Same reasoning as AnthropicAdapter. */
+            var progressed = false;
+            /* Set from `finish_reason`, acted on at the end of the loop body. See
+               AgentErrorMapper.Truncated for why this is read rather than inferred. */
+            var truncated = false;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
@@ -360,6 +378,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                             && content.ValueKind == JsonValueKind.String)
                         {
                             contentFragment = content.GetString();
+                            if (!string.IsNullOrEmpty(contentFragment)) progressed = true;
                         }
 
                         if (delta.TryGetProperty("tool_calls", out var toolCalls)
@@ -385,6 +404,7 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
 
                                 if (!string.IsNullOrEmpty(args))
                                 {
+                                    progressed = true;
                                     entry.Args.Append(args);
                                     // The answer function's arguments *are* the canonical response,
                                     // so they render progressively just as content would.
@@ -393,6 +413,13 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                             }
                         }
                     }
+
+                    // The provider's own verdict on why it stopped. "length" is the truncation signal;
+                    // "stop", "tool_calls" and a null mid-stream value are all normal.
+                    if (choice.TryGetProperty("finish_reason", out var fr)
+                        && fr.ValueKind == JsonValueKind.String
+                        && fr.GetString() == "length")
+                        truncated = true;
 
                     // Non-streaming responses, and some endpoints' final frame, put the whole thing
                     // in message.content instead.
@@ -435,16 +462,17 @@ public sealed class OpenAiCompatibleAdapter : IAgentAdapter
                 }
             }
 
+            // One place, and it covers tool arguments as well as the two visible kinds.
+            if (progressed) deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
+
             if (!string.IsNullOrEmpty(answerFragment))
             {
-                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
                 foreach (var segment in parser.Feed(answerFragment))
                     yield return new AgentEvent.Segment(segment);
             }
-            else if (!string.IsNullOrEmpty(contentFragment))
-            {
-                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
-            }
+
+            // Last, so this frame's content is delivered before the answer is called incomplete.
+            if (truncated) { failure = AgentErrorMapper.Truncated(); break; }
         }
 
         var usage = new AgentUsage(promptTokens, completionTokens);

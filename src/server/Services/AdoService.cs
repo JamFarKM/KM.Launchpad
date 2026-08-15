@@ -32,7 +32,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"https://dev.azure.com/{org}/_apis/connectionData?api-version={ApiVersion}-preview",
-            org, pat, null, ct);
+            pat, null, ct);
 
         var user = doc.RootElement.GetProperty("authenticatedUser");
         var id = user.GetProperty("id").GetString() ?? "";
@@ -56,7 +56,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/_apis/projects?api-version={ApiVersion}&$top=500&stateFilter=wellFormed",
-            null, null, null, ct);
+            null, null, ct);
 
         var list = new List<ProjectDto>();
         foreach (var p in doc.RootElement.GetProperty("value").EnumerateArray())
@@ -73,7 +73,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions" +
             $"?api-version={ApiVersion}&$top=1000&queryOrder=definitionNameAscending",
-            null, null, null, ct);
+            null, null, ct);
 
         var list = new List<PipelineDto>();
         foreach (var d in doc.RootElement.GetProperty("value").EnumerateArray())
@@ -96,7 +96,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions/{id}?api-version={ApiVersion}",
-            null, null, null, ct);
+            null, null, ct);
         var root = doc.RootElement;
 
         string? repoId = null, repoName = null, defaultBranch = null;
@@ -169,7 +169,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
                 HttpMethod.Get,
                 $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{repoId}/stats/branches" +
                 $"?api-version={ApiVersion}",
-                null, null, null, ct);
+                null, null, ct);
 
             var list = new List<BranchDto>();
             foreach (var b in doc.RootElement.GetProperty("value").EnumerateArray())
@@ -214,7 +214,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{repoId}/refs" +
             $"?filter=heads/&api-version={ApiVersion}&$top=1000",
-            null, null, null, ct);
+            null, null, ct);
 
         var refs = new List<BranchDto>();
         foreach (var r in refsDoc.RootElement.GetProperty("value").EnumerateArray())
@@ -312,7 +312,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     public async Task<List<RepoDto>> GetRepositoriesAsync(string project, CancellationToken ct)
     {
         using var doc = await SendJsonAsync(HttpMethod.Get,
-            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories?api-version={ApiVersion}", null, null, null, ct);
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories?api-version={ApiVersion}", null, null, ct);
         return doc.RootElement.GetProperty("value").EnumerateArray()
             .Select(r => new RepoDto(
                 Str(r, "id") ?? "",
@@ -327,39 +327,65 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     {
         using var doc = await SendJsonAsync(HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}/pullrequests" +
-            $"?searchCriteria.status={Uri.EscapeDataString(status)}&$top={top}&api-version={ApiVersion}", null, null, null, ct);
+            $"?searchCriteria.status={Uri.EscapeDataString(status)}&$top={top}&api-version={ApiVersion}", null, null, ct);
 
-        return doc.RootElement.GetProperty("value").EnumerateArray().Select(p =>
+        return doc.RootElement.GetProperty("value").EnumerateArray().Select(ReadPullRequest).ToList();
+    }
+
+    /// <summary>
+    /// One pull request by id.
+    ///
+    /// Exists because the alternative — listing the newest N and filtering — silently stops working
+    /// on an active repository: a PR older than the page size reads as "could not be read from
+    /// Azure DevOps" while the reviewer is looking at its diff. This route has no such horizon, and
+    /// costs one payload instead of N.
+    /// </summary>
+    public async Task<PullRequestDto?> GetPullRequestAsync(
+        string project, string repoId, int prId, CancellationToken ct)
+    {
+        try
         {
-            var author = p.TryGetProperty("createdBy", out var cb) ? Str(cb, "displayName") : null;
+            using var doc = await SendJsonAsync(HttpMethod.Get,
+                $"{PrBase(project, repoId, prId)}?api-version={ApiVersion}", null, null, ct);
+            return ReadPullRequest(doc.RootElement);
+        }
+        catch (AdoException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
 
-            // The signed-in user's own vote, so the review controls can show current state.
-            // 10 approved · 5 approved with suggestions · 0 none · -5 waiting · -10 rejected.
-            var myVote = 0;
-            if (p.TryGetProperty("reviewers", out var revs) && revs.ValueKind == JsonValueKind.Array)
+    /// <summary>One PR, from either the list payload or the single-PR payload — they share a shape.</summary>
+    private PullRequestDto ReadPullRequest(JsonElement p)
+    {
+        var author = p.TryGetProperty("createdBy", out var cb) ? Str(cb, "displayName") : null;
+
+        // The signed-in user's own vote, so the review controls can show current state.
+        // 10 approved · 5 approved with suggestions · 0 none · -5 waiting · -10 rejected.
+        var myVote = 0;
+        if (p.TryGetProperty("reviewers", out var revs) && revs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var r in revs.EnumerateArray())
             {
-                foreach (var r in revs.EnumerateArray())
-                {
-                    if (!string.Equals(Str(r, "id"), ctx.UserId, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (r.TryGetProperty("vote", out var v) && v.TryGetInt32(out var vote)) myVote = vote;
-                    break;
-                }
+                if (!string.Equals(Str(r, "id"), ctx.UserId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (r.TryGetProperty("vote", out var v) && v.TryGetInt32(out var vote)) myVote = vote;
+                break;
             }
+        }
 
-            return new PullRequestDto(
-                p.TryGetProperty("pullRequestId", out var id) ? id.GetInt32() : 0,
-                Str(p, "title") ?? "",
-                author,
-                Str(p, "sourceRefName"),
-                Str(p, "targetRefName"),
-                Str(p, "status"),
-                p.TryGetProperty("isDraft", out var dr) && dr.ValueKind == JsonValueKind.True,
-                p.TryGetProperty("creationDate", out var cd) && cd.TryGetDateTime(out var when) ? when : null,
-                p.TryGetProperty("lastMergeSourceCommit", out var sc) ? Str(sc, "commitId") : null,
-                p.TryGetProperty("lastMergeTargetCommit", out var tc) ? Str(tc, "commitId") : null,
-                myVote,
-                Str(p, "mergeStatus"));
-        }).ToList();
+        return new PullRequestDto(
+            p.TryGetProperty("pullRequestId", out var id) ? id.GetInt32() : 0,
+            Str(p, "title") ?? "",
+            author,
+            Str(p, "sourceRefName"),
+            Str(p, "targetRefName"),
+            Str(p, "status"),
+            p.TryGetProperty("isDraft", out var dr) && dr.ValueKind == JsonValueKind.True,
+            p.TryGetProperty("creationDate", out var cd) && cd.TryGetDateTime(out var when) ? when : null,
+            p.TryGetProperty("lastMergeSourceCommit", out var sc) ? Str(sc, "commitId") : null,
+            p.TryGetProperty("lastMergeTargetCommit", out var tc) ? Str(tc, "commitId") : null,
+            myVote,
+            Str(p, "mergeStatus"));
     }
 
     /// <summary>
@@ -374,7 +400,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
 
         using var doc = await SendJsonAsync(HttpMethod.Put,
             $"{PrBase(project, repoId, prId)}/reviewers/{ctx.UserId}?api-version={ApiVersion}",
-            null, null, new { vote }, ct);
+            null, new { vote }, ct);
         return doc.RootElement.TryGetProperty("vote", out var v) && v.TryGetInt32(out var cast) ? cast : vote;
     }
 
@@ -388,13 +414,17 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         var basePr = $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}" +
                      $"/pullRequests/{prId}";
 
-        using var iters = await SendJsonAsync(HttpMethod.Get, $"{basePr}/iterations?api-version={ApiVersion}", null, null, null, ct);
-        var last = iters.RootElement.GetProperty("value").EnumerateArray().LastOrDefault();
-        if (last.ValueKind != JsonValueKind.Object) return new();
-        var iterationId = last.TryGetProperty("id", out var iid) ? iid.GetInt32() : 1;
+        using var iters = await SendJsonAsync(HttpMethod.Get, $"{basePr}/iterations?api-version={ApiVersion}", null, null, ct);
+        // By id, not by position: "latest" must not rest on an ordering the API doesn't document.
+        // Picking the wrong one shows the first push's file list with no error to give it away.
+        var iterationId = iters.RootElement.GetProperty("value").EnumerateArray()
+            .Select(it => it.TryGetProperty("id", out var iid) && iid.TryGetInt32(out var n) ? n : 0)
+            .DefaultIfEmpty(0)
+            .Max();
+        if (iterationId == 0) return new();
 
         using var doc = await SendJsonAsync(HttpMethod.Get,
-            $"{basePr}/iterations/{iterationId}/changes?api-version={ApiVersion}&$top=1000", null, null, null, ct);
+            $"{basePr}/iterations/{iterationId}/changes?api-version={ApiVersion}&$top=1000", null, null, ct);
 
         var list = new List<PrChangeDto>();
         if (!doc.RootElement.TryGetProperty("changeEntries", out var entries)) return list;
@@ -462,7 +492,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         string project, string repoId, int prId, CancellationToken ct)
     {
         using var doc = await SendJsonAsync(HttpMethod.Get,
-            $"{PrBase(project, repoId, prId)}/threads?api-version={ApiVersion}", null, null, null, ct);
+            $"{PrBase(project, repoId, prId)}/threads?api-version={ApiVersion}", null, null, ct);
         return doc.RootElement.GetProperty("value").EnumerateArray()
             .Select(ReadThread)
             .Where(t => !t.IsDeleted)
@@ -475,9 +505,17 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         string project, string repoId, int prId, NewThreadRequest body, CancellationToken ct)
     {
         var pos = new { line = body.Line, offset = 1 };
-        object context = body.OnLeft
-            ? new { filePath = body.FilePath, leftFileStart = pos, leftFileEnd = pos }
-            : new { filePath = body.FilePath, rightFileStart = pos, rightFileEnd = pos };
+
+        /* No file, or no line, means a pull-request-level comment — and those carry no
+           threadContext at all. Sending one with an empty filePath and line 0 is rejected rather
+           than treated as "unanchored", which is what the agent panel's uncited "Post as comment"
+           produced: the one path deliberately routed here so an answer without citations still had
+           somewhere to go. */
+        object? context = string.IsNullOrWhiteSpace(body.FilePath) || body.Line <= 0
+            ? null
+            : body.OnLeft
+                ? new { filePath = body.FilePath, leftFileStart = pos, leftFileEnd = pos }
+                : new { filePath = body.FilePath, rightFileStart = pos, rightFileEnd = pos };
 
         var payload = new
         {
@@ -487,7 +525,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         };
 
         using var doc = await SendJsonAsync(HttpMethod.Post,
-            $"{PrBase(project, repoId, prId)}/threads?api-version={ApiVersion}", null, null, payload, ct);
+            $"{PrBase(project, repoId, prId)}/threads?api-version={ApiVersion}", null, payload, ct);
         return ReadThread(doc.RootElement);
     }
 
@@ -497,7 +535,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         var payload = new { parentCommentId = 1, content, commentType = 1 };
         using var doc = await SendJsonAsync(HttpMethod.Post,
             $"{PrBase(project, repoId, prId)}/threads/{threadId}/comments?api-version={ApiVersion}",
-            null, null, payload, ct);
+            null, payload, ct);
         var c = doc.RootElement;
         return new PrCommentDto(
             c.TryGetProperty("id", out var cid) ? cid.GetInt32() : 0,
@@ -515,7 +553,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     {
         using var doc = await SendJsonAsync(HttpMethod.Patch,
             $"{PrBase(project, repoId, prId)}/threads/{threadId}?api-version={ApiVersion}",
-            null, null, new { status }, ct);
+            null, new { status }, ct);
         return ReadThread(doc.RootElement);
     }
 
@@ -643,7 +681,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Post,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/pipelines/{pipelineId}/runs?api-version={ApiVersion}",
-            null, null, body, ct);
+            null, body, ct);
 
         var runId = doc.RootElement.GetProperty("id").GetInt32();
         await TryTagRunAsync(project, runId, ct);
@@ -659,7 +697,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             using var _ = await SendJsonAsync(
                 HttpMethod.Post,
                 $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds/{buildId}/tags?api-version={ApiVersion}",
-                null, null, new[] { LaunchpadTag }, ct);
+                null, new[] { LaunchpadTag }, ct);
         }
         catch { /* tagging is a nicety, not a requirement */ }
     }
@@ -673,7 +711,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions/{pipelineId}?api-version={ApiVersion}",
-            null, null, null, ct);
+            null, null, ct);
         if (doc.RootElement.TryGetProperty("repository", out var repo)
             && repo.TryGetProperty("defaultBranch", out var db))
             return db.GetString()?.Replace("refs/heads/", "");
@@ -686,7 +724,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions/{pipelineId}?api-version={ApiVersion}",
-            null, null, null, ct);
+            null, null, ct);
         string? repoId = null, defaultBranch = null;
         if (doc.RootElement.TryGetProperty("repository", out var repo))
         {
@@ -705,7 +743,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds" +
             $"?definitions={pipelineId}&$top={top}&queryOrder=queueTimeDescending&api-version={ApiVersion}",
-            null, null, null, ct);
+            null, null, ct);
 
         var list = new List<RunDto>();
         foreach (var b in doc.RootElement.GetProperty("value").EnumerateArray())
@@ -720,7 +758,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/definitions" +
             $"?name={Uri.EscapeDataString(name)}&api-version={ApiVersion}",
-            null, null, null, ct);
+            null, null, ct);
 
         var value = defs.RootElement.GetProperty("value");
         if (value.GetArrayLength() == 0) return new();
@@ -733,7 +771,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds/{buildId}?api-version={ApiVersion}",
-            null, null, null, ct);
+            null, null, ct);
         return MapBuild(doc.RootElement, project);
     }
 
@@ -742,7 +780,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds/{buildId}/timeline?api-version={ApiVersion}",
-            null, null, null, ct);
+            null, null, ct);
 
         if (!doc.RootElement.TryGetProperty("records", out var records))
             return new();
@@ -896,7 +934,13 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     private string RequireOrg() =>
         ctx.Org ?? throw new AdoException(401, "Not connected to an Azure DevOps organization.");
 
-    private HttpRequestMessage BuildRequest(HttpMethod method, string url, string? org, string? pat, object? jsonBody)
+    /// <summary>
+    /// <paramref name="pat"/> is non-null only at connect time, before a session exists to read one
+    /// from; every other call passes null and authenticates as the signed-in user. The org is not a
+    /// parameter because it is always already baked into <paramref name="url"/>, via
+    /// <see cref="OrgBase"/> or the caller's own literal.
+    /// </summary>
+    private HttpRequestMessage BuildRequest(HttpMethod method, string url, string? pat, object? jsonBody)
     {
         var effectivePat = pat ?? ctx.Pat
             ?? throw new AdoException(401, "No Azure DevOps credentials on this request.");
@@ -913,10 +957,10 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     }
 
     private async Task<JsonDocument> SendJsonAsync(
-        HttpMethod method, string url, string? org, string? pat, object? jsonBody, CancellationToken ct)
+        HttpMethod method, string url, string? pat, object? jsonBody, CancellationToken ct)
     {
         var client = httpFactory.CreateClient("ado");
-        using var req = BuildRequest(method, url, org, pat, jsonBody);
+        using var req = BuildRequest(method, url, pat, jsonBody);
         using var resp = await client.SendAsync(req, ct);
         var content = await resp.Content.ReadAsStringAsync(ct);
 
@@ -933,7 +977,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     private async Task<string> SendTextAsync(HttpMethod method, string url, CancellationToken ct)
     {
         var client = httpFactory.CreateClient("ado");
-        using var req = BuildRequest(method, url, null, null, null);
+        using var req = BuildRequest(method, url, null, null);
         req.Headers.Accept.Clear();
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain"));
         using var resp = await client.SendAsync(req, ct);
@@ -969,7 +1013,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         string project, string repoId, int prId, CancellationToken ct)
     {
         using var doc = await SendJsonAsync(HttpMethod.Get,
-            $"{PrBase(project, repoId, prId)}?api-version={ApiVersion}", null, null, null, ct);
+            $"{PrBase(project, repoId, prId)}?api-version={ApiVersion}", null, null, ct);
         return Str(doc.RootElement, "description");
     }
 
@@ -987,7 +1031,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         try
         {
             using var links = await SendJsonAsync(HttpMethod.Get,
-                $"{PrBase(project, repoId, prId)}/workitems?api-version={ApiVersion}", null, null, null, ct);
+                $"{PrBase(project, repoId, prId)}/workitems?api-version={ApiVersion}", null, null, ct);
             ids = links.RootElement.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Array
                 ? v.EnumerateArray().Select(w => Str(w, "id")).Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList()
                 : [];
@@ -1000,7 +1044,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         {
             using var items = await SendJsonAsync(HttpMethod.Get,
                 $"{OrgBase}/_apis/wit/workitems?ids={string.Join(",", ids)}" +
-                $"&fields=System.Title&api-version={ApiVersion}", null, null, null, ct);
+                $"&fields=System.Title&api-version={ApiVersion}", null, null, ct);
 
             if (!items.RootElement.TryGetProperty("value", out var v) || v.ValueKind != JsonValueKind.Array)
                 return ids.Select(id => (id, "")).ToList();
@@ -1030,7 +1074,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
                   $"&versionDescriptor.version={Uri.EscapeDataString(commitId)}" +
                   $"&versionDescriptor.versionType=commit&api-version={ApiVersion}";
 
-        using var doc = await SendJsonAsync(HttpMethod.Get, url, null, null, null, ct);
+        using var doc = await SendJsonAsync(HttpMethod.Get, url, null, null, ct);
         if (!doc.RootElement.TryGetProperty("value", out var items) || items.ValueKind != JsonValueKind.Array)
             return [];
 
@@ -1076,7 +1120,7 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
 
         try
         {
-            using var doc = await SendJsonAsync(HttpMethod.Post, url, null, null, body, ct);
+            using var doc = await SendJsonAsync(HttpMethod.Post, url, null, body, ct);
             if (!doc.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
                 return [];
 

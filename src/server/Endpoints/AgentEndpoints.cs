@@ -251,8 +251,7 @@ public static class AgentEndpoints
             PullRequestDto? pr;
             try
             {
-                var pulls = await ado.GetPullRequestsAsync(project, repoId, "all", 200, ct);
-                pr = pulls.FirstOrDefault(p => p.Id == prId);
+                pr = await ado.GetPullRequestAsync(project, repoId, prId, ct);
                 if (pr is null)
                 {
                     await Send(http, "error", new { code = "upstream", detail = "That pull request could not be read from Azure DevOps." }, ct);
@@ -307,6 +306,14 @@ public static class AgentEndpoints
             var budget = new AgentBudget();
             var scope = new RepoScope(project, repoId, pr.SourceCommit ?? "");
             var reads = new List<string>();
+
+            /* Everything that closed before the stream ended, kept so a failed or stopped answer can
+               still be written down. §5.5 and §6 both require the partial answer to survive beside
+               its error, and without this it survived only until the reviewer reloaded: `answer` is
+               assigned from a Complete event, which is exactly the event a failure or a Stop means
+               never arrives. The prose list is the mode-3 equivalent. */
+            var streamedSegments = new List<AnswerSegment>();
+            var streamedProse = new StringBuilder();
             // What a citation is allowed to name (§5.2). The changed files; the conversation adds
             // whatever the agent actually read to it, since a citation to a caller it looked up is a
             // legitimate answer rather than an invented path.
@@ -323,11 +330,13 @@ public static class AgentEndpoints
                         // rendered the moment it closes rather than a string growing a character at a
                         // time under a badge that can't be decided yet.
                         case ConversationEvent.Segment s:
+                            streamedSegments.Add(s.Value);
                             await Send(http, "segment", ToSegmentDto(s.Value), ct);
                             break;
 
                         // Mode 3 only — prose from a connector that asserted nothing.
                         case ConversationEvent.Delta d:
+                            streamedProse.Append(d.Text);
                             await Send(http, "delta", new { text = d.Text }, ct);
                             break;
 
@@ -357,6 +366,14 @@ public static class AgentEndpoints
                 stopped = true;
             }
 
+            /* A stopped or failed answer keeps what it managed to say.
+             *
+             * The claims below closed and were rendered; discarding them because the turn never
+             * reached Complete is what made a reload erase an answer the reviewer had already read.
+             * `Stopped`/`ErrorCode` still travel with the turn, so it renders beside its error and
+             * ThreadStore.IsPostable still refuses it — the partial is preserved, not promoted. */
+            answer ??= PartialAnswer(streamedSegments, streamedProse.ToString());
+
             var turn = await threads.AppendAsync(
                 thread, question, answer, connector, pr.SourceCommit, usage,
                 stopped, failure?.Code, failure?.Detail,
@@ -368,7 +385,7 @@ public static class AgentEndpoints
             {
                 await Send(http, "error", new
                 {
-                    code = failure.Code.ToString().ToLowerInvariant(),
+                    code = AgentErrorNames.ToWire(failure.Code),
                     httpStatus = failure.HttpStatus,
                     detail = failure.Detail,
                     retryAfter = failure.RetryAfterSeconds,
@@ -400,6 +417,24 @@ public static class AgentEndpoints
         turns.Select(ToTurnDto).ToList(),
         a.CreatedAt,
         a.UpdatedAt);
+
+    /// <summary>
+    /// What a stream had produced before it broke, as an answer worth storing — or null when it had
+    /// produced nothing, which stays a bare failure rather than becoming an empty answer.
+    ///
+    /// Segments win over prose: a connector that emitted structure and then died is still mode 1, and
+    /// downgrading it would relabel claims the agent did assert. Prose alone is mode 3, the same rung
+    /// <see cref="SegmentStreamParser"/> would have put it on.
+    /// </summary>
+    private static CanonicalAnswer? PartialAnswer(List<AnswerSegment> segments, string prose)
+    {
+        if (segments.Count > 0) return new CanonicalAnswer([..segments]);
+
+        var trimmed = prose.Trim();
+        return trimmed.Length == 0
+            ? null
+            : new CanonicalAnswer([new AnswerSegment(trimmed, null, [], null)], StructuredMode.Unverified);
+    }
 
     /// <summary>One turn as the panel renders it. Postability is decided here so the rule has one home.</summary>
     private static AgentTurnDto ToTurnDto(Data.AgentThreadTurn t) => new(
@@ -461,7 +496,7 @@ public static class AgentEndpoints
         }
         else
         {
-            connector.LastErrorCode = probe.Error?.Code.ToString().ToLowerInvariant();
+            connector.LastErrorCode = probe.Error is { } pe ? AgentErrorNames.ToWire(pe.Code) : null;
             connector.LastErrorAt = DateTime.UtcNow;
         }
     }
@@ -470,7 +505,7 @@ public static class AgentEndpoints
         probe.Ok,
         probe.LatencyMs,
         probe.Models,
-        probe.Error?.Code.ToString().ToLowerInvariant(),
+        probe.Error is { } e ? AgentErrorNames.ToWire(e.Code) : null,
         probe.Error?.HttpStatus,
         probe.Error?.Detail,
         probe.Error?.RetryAfterSeconds);

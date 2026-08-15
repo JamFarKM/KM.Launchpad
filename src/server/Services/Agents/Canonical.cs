@@ -196,6 +196,31 @@ public enum AgentErrorCode
 }
 
 /// <summary>
+/// Wire names for <see cref="AgentErrorCode"/>, kept next to the enum that declares them — the same
+/// arrangement as <see cref="ProvenanceNames"/> and <see cref="SeverityNames"/>.
+///
+/// <b>Not <c>ToString().ToLowerInvariant()</c>.</b> That yields <c>ratelimited</c> and
+/// <c>notfound</c>, while §4 — and every client written against it — names them
+/// <c>rate_limited</c> and <c>not_found</c>. The two drifted apart silently, because a code that
+/// matches no branch still renders: it just falls through to the generic copy §4 calls a defect.
+/// One conversion in one place is what stops that recurring.
+/// </summary>
+public static class AgentErrorNames
+{
+    public static string ToWire(AgentErrorCode code) => code switch
+    {
+        AgentErrorCode.NotFound => "not_found",
+        AgentErrorCode.RateLimited => "rate_limited",
+        AgentErrorCode.NotOpenAi => "not_openai",
+        AgentErrorCode.OAuthDenied => "oauth_denied",
+        AgentErrorCode.OAuthExpired => "oauth_expired",
+        AgentErrorCode.NoSeat => "no_seat",
+        // The single-word codes are already their own wire form.
+        _ => code.ToString().ToLowerInvariant(),
+    };
+}
+
+/// <summary>
 /// A typed failure. <paramref name="Detail"/> carries only values the §4 table says may be shown —
 /// a host, a status, a duration — never a credential and never a raw exception.
 /// </summary>

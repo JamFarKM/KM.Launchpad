@@ -232,8 +232,17 @@ public class RepoTools(AdoService ado)
         (JsonNode.Parse(string.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson)
             as JsonObject) ?? new JsonObject();
 
+    /// <summary>
+    /// A scalar argument, or null when it is absent or the wrong shape.
+    ///
+    /// Matched as a <see cref="JsonValue"/> rather than read with <c>GetValue&lt;object&gt;()</c>,
+    /// which throws <see cref="InvalidOperationException"/> on an object or an array. That is not a
+    /// <see cref="JsonException"/>, so it escaped <see cref="ExecuteAsync"/>'s catches and killed
+    /// the answer stream mid-flight — a model that sends <c>"path": {"file": "…"}</c> should be told
+    /// its arguments were wrong, like every other bad call, not sever the response.
+    /// </summary>
     private static string? Str(JsonObject args, string name) =>
-        args[name]?.GetValue<object>() is null ? null : args[name]!.ToString();
+        args[name] is JsonValue v ? v.ToString() : null;
 
     private static int? Int(JsonObject args, string name) =>
         args[name] is JsonValue v && v.TryGetValue<int>(out var n) ? n : null;

@@ -38,7 +38,13 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     private const string AnthropicVersion = "2023-06-01";
 
     private const string ToolName = "record_pr_answer";
-    private const int MaxTokens = 2048;
+
+    /// <summary>
+    /// Ceiling on one answer. 2048 was cutting long ones off mid-segment: a truncated tool-input JSON
+    /// never closes its element, so the parser drops the segment that was in flight and the answer
+    /// simply ends early rather than saying it was cut.
+    /// </summary>
+    private const int MaxTokens = 8192;
 
     public string Provider => ConnectorProviders.Anthropic;
 
@@ -308,7 +314,24 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                 var remaining = deadline - DateTime.UtcNow;
                 if (remaining <= TimeSpan.Zero) { failure = new AgentError(AgentErrorCode.Timeout); break; }
 
-                var finished = await Task.WhenAny(readTask, Task.Delay(remaining, ct));
+                /* Linked and cancelled once the race resolves, for two reasons.
+                 *
+                 * The timer: an uncancelled `Task.Delay` stays armed for its full span after the read
+                 * wins, so a stream emitting deltas every few milliseconds left thousands of live
+                 * 60-second timers rooted at once.
+                 *
+                 * The token: `whole` is linked to `ct`, so pressing Stop completed *both* tasks and
+                 * whichever `WhenAny` happened to observe first decided whether the turn recorded as
+                 * Stopped or as a timeout telling the reviewer to try again. Cancellation is checked
+                 * explicitly below so it always wins that race. */
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var finished = await Task.WhenAny(readTask, Task.Delay(remaining, idle.Token));
+                idle.Cancel();
+
+                // The reviewer pressed Stop. Thrown rather than reported, so it reaches the endpoint
+                // as cancellation and the turn is marked Stopped — not silence past a budget.
+                ct.ThrowIfCancellationRequested();
+
                 if (finished != readTask)
                 {
                     // Silence past the budget. §6: this must reach the panel as a typed error, not
@@ -334,6 +357,14 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             string? answerFragment = null;
             string? proseFragment = null;
+            /* Any content fragment at all, including tool arguments the reviewer never sees. The idle
+               clock was previously reset only by answer or prose fragments, so a model spelling out a
+               `read_file` path was indistinguishable from a model that had stopped talking — and a
+               slow or repeated tool call died on a budget meant for silence. */
+            var progressed = false;
+            /* Set from `stop_reason`, acted on at the end of the loop body. See
+               AgentErrorMapper.Truncated for why this is read rather than inferred. */
+            var truncated = false;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
@@ -350,6 +381,13 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
                     case "message_delta":
                         completionTokens = ReadTokens(root, "output_tokens") ?? completionTokens;
+                        // The provider's own verdict on why it stopped. Acted on after this frame's
+                        // fragments are processed, so nothing that did arrive is thrown away.
+                        if (root.TryGetProperty("delta", out var md)
+                            && md.TryGetProperty("stop_reason", out var sr)
+                            && sr.ValueKind == JsonValueKind.String
+                            && sr.GetString() == "max_tokens")
+                            truncated = true;
                         break;
 
                     case "content_block_start":
@@ -377,6 +415,8 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
                             if (!string.IsNullOrEmpty(fragment))
                             {
+                                progressed = true;
+
                                 if (index >= 0 && blocks.TryGetValue(index, out var b))
                                 {
                                     b.Args.Append(fragment);
@@ -421,19 +461,23 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             if (failure is not null) break;
 
+            // One place, and it covers tool arguments as well as the two visible kinds.
+            if (progressed) deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
+
             if (!string.IsNullOrEmpty(answerFragment))
             {
-                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
                 foreach (var segment in parser.Feed(answerFragment))
                     yield return new AgentEvent.Segment(segment);
             }
 
             if (!string.IsNullOrEmpty(proseFragment))
             {
-                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
                 prose.Append(proseFragment);
                 yield return new AgentEvent.Delta(proseFragment);
             }
+
+            // Last, so this frame's content is delivered before the answer is called incomplete.
+            if (truncated) { failure = AgentErrorMapper.Truncated(); break; }
         }
 
         var usage = new AgentUsage(promptTokens, completionTokens);

@@ -258,6 +258,53 @@ public class AnthropicAdapterTests
         Assert.Empty(events.OfType<AgentEvent.Delta>());
     }
 
+    /// <summary>
+    /// Truncation is read from the provider, not inferred from a segment that never closed.
+    ///
+    /// The stream below closes one claim and is cut off partway through the second, then reports
+    /// `stop_reason: "max_tokens"`. Without reading that, the unterminated element is simply dropped
+    /// and the turn completes with one segment — a short answer that looks finished, which is the one
+    /// thing §6 says a broken stream must never look like.
+    /// </summary>
+    [Fact]
+    public async Task Reports_a_max_tokens_stop_as_a_failure_and_keeps_what_closed()
+    {
+        const string truncatedStream = """
+            event: message_start
+            data: {"type":"message_start","message":{"id":"msg_1","role":"assistant"}}
+
+            event: content_block_start
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_1","name":"record_pr_answer","input":{}}}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"segments\":[{\"text\":\"It adds five procedures.\",\"provenance\":\"code\",\"citations\":[],\"inference_note\":null},"}}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"text\":\"The second claim never fin"}}
+
+            event: message_delta
+            data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":8192}}
+
+            event: message_stop
+            data: {"type":"message_stop"}
+
+            """;
+
+        var handler = new CapturingHandler(_ => Sse(truncatedStream));
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+            .CompleteAsync(Target, Request(), CancellationToken.None));
+
+        // The claim that closed still arrives, and still arrives as a claim.
+        var segment = Assert.Single(events.OfType<AgentEvent.Segment>());
+        Assert.Equal("It adds five procedures.", segment.Value.Text);
+
+        // And the turn ends as a typed failure rather than as a complete answer.
+        var failed = Assert.IsType<AgentEvent.Failed>(events.Last());
+        Assert.Equal(AgentErrorCode.Upstream, failed.Error.Code);
+        Assert.Contains("length limit", failed.Error.Detail);
+        Assert.Empty(events.OfType<AgentEvent.Complete>());
+    }
+
     [Fact]
     public async Task No_anthropic_shaped_event_escapes_the_adapter()
     {

@@ -524,6 +524,12 @@ export function failureCopy(code: string | null | undefined, name: string): stri
     rate_limited: `${name} is rate-limiting us. Wait a moment and try again.`,
     not_found: `${name}'s endpoint returned 404 — check its base URL in Settings.`,
     unsupported: `${name} can't produce structured answers, so sources aren't stated.`,
+    not_openai: `${name}'s endpoint didn't answer with a model list Launchpad recognises — often a proxy or a login page. Check its base URL in Settings.`,
+    /* The three OAuth codes. A seat, not a secret, is what gates Copilot, so "replace the
+       credential" is the wrong next step for all of them. */
+    oauth_denied: `${name}'s authorisation was declined or revoked. Reconnect it in Settings › Connectors.`,
+    oauth_expired: `${name}'s authorisation has expired. Reconnect it in Settings › Connectors.`,
+    no_seat: `This account has no licensed ${name} seat, so it can't answer. Ask whoever administers your subscription.`,
     /* Deliberately vague, because the code is: `upstream` is the taxonomy's catch-all and covers a
        5xx, a mid-stream error envelope, and an answer that came back empty. The `detail` beside it
        is what actually distinguishes those, which is why it is now stored on the turn rather than
