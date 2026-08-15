@@ -273,9 +273,10 @@ export function AgentPanel({
           The glyphs are chosen against the palette, not just for meaning. A1 reserves blue for run
           buttons and list selection, and §7.1 reserves violet for "this connector is answering right
           now" — so 🔍 (blue rim), 🩺 and 🧙 (blue) all put a reserved signal on a secondary control,
-          and 👣 / 🔮 (violet) do the same to the other one. 🧐 and 🧭 are warm, which is exactly the
-          band the design system leaves free. The compass also says the truer thing about the wizard:
-          it is being guided somewhere, not conjuring. */}
+          and 👣 / 🔮 (violet) do the same to the other one. 🧐 and 🎩 stay clear of both: the hat is
+          near-black with a magenta band, which is a different hue from the blue-purple violet and
+          reads as its own thing rather than as activity. Both also hold their shape at 12px, where
+          the wand went spindly. */}
       {!missing && (
         <div className="ag-headctl">
           <button
@@ -294,7 +295,7 @@ export function AgentPanel({
               ? "Open the walkthrough — already generated, costs nothing"
               : "Map this change and walk through it step by step"}
           >
-            {mapping ? "Mapping…" : map ? "🧭 Show walkthrough" : "🧭 Wizard"}
+            {mapping ? "Mapping…" : map ? "🎩 Show walkthrough" : "🎩 Wizard"}
           </button>
         </div>
       )}
