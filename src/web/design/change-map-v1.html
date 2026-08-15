@@ -77,7 +77,7 @@ body {
    float above the cards, which put it in the middle of the space edges route through — arrows ran
    through the words, and the words competed with the cards for attention. Out here it reads as an
    axis tick: quiet, skimmable, and nothing has to route around it. */
-.band { display: grid; grid-template-columns: 82px 1fr; column-gap: 14px; align-items: start; padding: 10px 0 26px; }
+.band { display: grid; grid-template-columns: 82px 1fr; column-gap: 14px; align-items: start; padding: 10px 0 34px; }
 .band + .band { border-top: 1px dashed var(--border-hairline); }
 .band-label {
   text-align: right; padding-top: 9px;
@@ -302,6 +302,46 @@ function cacheRects() {
 }
 const rect = (id) => RECTS[id];
 
+/*
+ * Where the edges already routed have put their segments, so the next one can avoid them.
+ *
+ * Two failure modes, deliberately weighted differently. Two edges running along the *same* line read
+ * as one edge and are the thing that makes a diagram unfollowable — heavily avoided. Two edges
+ * crossing at a right angle is normal diagram grammar and perfectly legible — mildly avoided. The
+ * v1 router knew about cards and nothing about other edges, which is how the violation edge came to
+ * run its corridor straight down the gap the orchestration→validation arrow already occupied.
+ */
+function makeLanes() {
+  const vert = [], horz = [];
+  const overlaps = (a1, a2, b1, b2) =>
+    Math.max(a1, a2) > Math.min(b1, b2) - 4 && Math.min(a1, a2) < Math.max(b1, b2) + 4;
+  const within = (v, a, b) => v > Math.min(a, b) - 3 && v < Math.max(a, b) + 3;
+  return {
+    collinearV: (x, y1, y2) => vert.some(s => Math.abs(s.x - x) < 9 && overlaps(y1, y2, s.y1, s.y2)),
+    collinearH: (y, x1, x2) => horz.some(s => Math.abs(s.y - y) < 9 && overlaps(x1, x2, s.x1, s.x2)),
+    crossV: (x, y1, y2) => horz.filter(s => within(x, s.x1, s.x2) && within(s.y, y1, y2)).length,
+    crossH: (y, x1, x2) => vert.filter(s => within(y, s.y1, s.y2) && within(s.x, x1, x2)).length,
+    add(pts) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p = pts[i], q = pts[i + 1];
+        if (Math.abs(p.x - q.x) < 0.5) vert.push({ x: p.x, y1: p.y, y2: q.y });
+        else horz.push({ y: p.y, x1: p.x, x2: q.x });
+      }
+    },
+  };
+}
+
+/* The gutter is deep enough for a few parallel tracks; pick the one that collides least. */
+function pickGutter(lanes, base, x1, x2) {
+  let best = base, bestCost = Infinity;
+  for (const off of [0, 9, -9, 18, -18]) {
+    const y = base + off;
+    const cost = (lanes.collinearH(y, x1, x2) ? 400 : 0) + lanes.crossH(y, x1, x2) * 12 + Math.abs(off);
+    if (cost < bestCost) { bestCost = cost; best = y; }
+  }
+  return best;
+}
+
 /* Does this path run through a card that isn't one of its own endpoints? Cheap because every
    segment is axis-aligned and a map is capped at 8 groups. */
 function blocked(pts, exclude) {
@@ -386,39 +426,50 @@ function corridors() {
  * cards now drops through the gap beside them instead of touring the whole sheet. The right margin
  * is the last resort, for when no gap between cards is clear.
  */
-function aroundRoute(e) {
+function aroundRoute(e, lanes) {
   const A = rect(e.from), B = rect(e.to), gap = 2;
   const ends = [e.from, e.to];
   const down = B.top > A.top;
 
-  const yA = down ? A.bottom + 13 : A.top - 13;
-  const yB = down ? B.top - 13 : B.bottom + 13;
+  const baseA = down ? A.bottom + 15 : A.top - 15;
+  const baseB = down ? B.top - 15 : B.bottom + 15;
   const xA = clamp(B.cx, A.left + 16, A.right - 16);
   const xB = clamp(A.cx, B.left + 16, B.right - 16);
-  const lo = Math.min(yA, yB), hi = Math.max(yA, yB);
+  const lo = Math.min(baseA, baseB), hi = Math.max(baseA, baseB);
 
+  /* Corridors scored rather than first-fit: sharing a line with an existing edge is far worse than
+     a right-angle crossing, and both matter more than being a few pixels off the ideal x. */
   const ideal = (A.cx + B.cx) / 2;
-  const lane = corridors().sort((p, q) => Math.abs(p - ideal) - Math.abs(q - ideal))
-    .find(x => !blocked([{ x, y: lo }, { x, y: hi }], ends)) ?? map.clientWidth - 24;
+  const lane = corridors()
+    .filter(x => !blocked([{ x, y: lo }, { x, y: hi }], ends))
+    .map(x => ({ x, cost: (lanes.collinearV(x, lo, hi) ? 400 : 0)
+                        + lanes.crossV(x, lo, hi) * 25 + Math.abs(x - ideal) }))
+    .sort((p, q) => p.cost - q.cost)[0]?.x ?? map.clientWidth - 24;
 
   // Corridor already lines up with both ends: one straight vertical, no jogs at all.
-  const straight = Math.abs(lane - xA) < 7 && Math.abs(lane - xB) < 7;
-  const pts = straight
-    ? [{ x: lane, y: down ? A.bottom + gap : A.top - gap },
-       { x: lane, y: down ? B.top - gap : B.bottom + gap }]
-    : [{ x: xA, y: down ? A.bottom + gap : A.top - gap }, { x: xA, y: yA },
-       { x: lane, y: yA }, { x: lane, y: yB }, { x: xB, y: yB },
-       { x: xB, y: down ? B.top - gap : B.bottom + gap }];
+  if (Math.abs(lane - xA) < 7 && Math.abs(lane - xB) < 7) {
+    const pts = [{ x: lane, y: down ? A.bottom + gap : A.top - gap },
+                 { x: lane, y: down ? B.top - gap : B.bottom + gap }];
+    lanes.add(pts);
+    return { d: orthPath(pts), lx: lane + 7, ly: (lo + hi) / 2 };
+  }
 
+  const yA = pickGutter(lanes, baseA, xA, lane);
+  const yB = pickGutter(lanes, baseB, lane, xB);
+  const pts = [{ x: xA, y: down ? A.bottom + gap : A.top - gap }, { x: xA, y: yA },
+               { x: lane, y: yA }, { x: lane, y: yB }, { x: xB, y: yB },
+               { x: xB, y: down ? B.top - gap : B.bottom + gap }];
+  lanes.add(pts);
   return { d: orthPath(pts), lx: lane + 7, ly: (yA + yB) / 2 };
 }
 
-function routeFor(e) {
+function routeFor(e, lanes) {
   const A = rect(e.from), B = rect(e.to), gap = 2;
   const dA = groups[e.from].depth, dB = groups[e.to].depth;
   const ends = [e.from, e.to];
+  const keep = (pts, label) => { lanes.add(pts); return { d: orthPath(pts), ...label }; };
 
-  if (Math.abs(dA - dB) >= 2) return aroundRoute(e);
+  if (Math.abs(dA - dB) >= 2) return aroundRoute(e, lanes);
 
   // Same band, same row: a plain horizontal between facing sides.
   if (dA === dB && Math.abs(A.cy - B.cy) < 4) {
@@ -427,8 +478,8 @@ function routeFor(e) {
     const pts = [{ x: fromLeft ? A.right + gap : A.left - gap, y },
                  { x: fromLeft ? B.left - gap : B.right + gap, y }];
     return blocked(pts, ends)
-      ? aroundRoute(e)
-      : { d: orthPath(pts), lx: (pts[0].x + pts[1].x) / 2, ly: y - 8 };
+      ? aroundRoute(e, lanes)
+      : keep(pts, { lx: (pts[0].x + pts[1].x) / 2, ly: y - 8 });
   }
 
   const down = B.top > A.top;
@@ -442,15 +493,15 @@ function routeFor(e) {
     const x = (x1 + x2) / 2;
     const pts = [{ x, y: y1 }, { x, y: y2 }];
     return blocked(pts, ends)
-      ? aroundRoute(e)
-      : { d: orthPath(pts), lx: x + 7, ly: (y1 + y2) / 2 };
+      ? aroundRoute(e, lanes)
+      : keep(pts, { lx: x + 7, ly: (y1 + y2) / 2 });
   }
 
-  const my = (y1 + y2) / 2;
+  const my = pickGutter(lanes, (y1 + y2) / 2, x1, x2);
   const pts = [{ x: x1, y: y1 }, { x: x1, y: my }, { x: x2, y: my }, { x: x2, y: y2 }];
   return blocked(pts, ends)
-    ? aroundRoute(e)
-    : { d: orthPath(pts), lx: (x1 + x2) / 2, ly: my - 6 };
+    ? aroundRoute(e, lanes)
+    : keep(pts, { lx: (x1 + x2) / 2, ly: my - 6 });
 }
 
 function draw() {
@@ -470,8 +521,10 @@ function draw() {
     ? flow.slice(0, -1).map(([g], i) => ({ from: g, to: flow[i + 1][0], label: String(i + 1), flowarrow: true }))
     : edges;
 
+  // Fresh each draw: lane claims are per-render, and the edge set changes in flow mode.
+  const lanes = makeLanes();
   for (const e of list) {
-    const r = routeFor(e);
+    const r = routeFor(e, lanes);
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", "edge" + (e.flowarrow ? " flowarrow lit" : isViolation(e) ? " viol" : ""));
     g.dataset.from = e.from; g.dataset.to = e.to;
@@ -497,57 +550,92 @@ function draw() {
  * band it doesn't touch.
  */
 function optimizeOrder() {
-  const shortEdges = edges.filter(e => Math.abs(groups[e.from].depth - groups[e.to].depth) <= 1);
   const depths = [...new Set(Object.values(groups).map(g => g.depth))].sort((a, b) => b - a);
-  const order = {};
-  for (const d of depths) order[d] = Object.keys(groups).filter(id => groups[id].depth === d);
+  const byDepth = {};
+  for (const d of depths) byDepth[d] = Object.keys(groups).filter(id => groups[id].depth === d);
 
-  const neighborsIn = (id, depth) => {
-    const s = new Set();
-    for (const e of shortEdges) {
-      if (e.from === id && groups[e.to].depth === depth) s.add(e.to);
-      if (e.to === id && groups[e.from].depth === depth) s.add(e.from);
-    }
-    return [...s];
-  };
+  /*
+   * What "reads better" means, as a number. Four terms, in the order they matter:
+   *
+   * crossings — two edges between the same pair of bands that swap over. The one thing a reader
+   *   genuinely cannot follow, so it dominates everything else.
+   * skipSpan — horizontal distance covered by an edge that jumps a band. Weighted above ordinary
+   *   span because a skip travels a corridor and two gutters to get there: every column it crosses
+   *   is a column its route has to thread past. The v1 pass ignored these entirely, which is why
+   *   Voucher client and Settlement store — whose *only* edges are skips — were left parked at the
+   *   far right with nothing pulling them toward the group they connect to.
+   * span — the same for ordinary edges. Shorter is straighter is easier.
+   * aligned — a reward, not a penalty: neighbouring-band groups in the same column get a single
+   *   straight vertical line, which is the most legible edge there is.
+   */
+  function score(ord) {
+    const pos = {};
+    for (const d of depths) ord[d].forEach((id, i) => { pos[id] = i; });
 
-  function crossings(ord) {
-    let n = 0;
+    let crossings = 0;
     for (let i = 0; i < depths.length - 1; i++) {
       const top = depths[i], bot = depths[i + 1];
-      const pt = Object.fromEntries(ord[top].map((id, ix) => [id, ix]));
-      const pb = Object.fromEntries(ord[bot].map((id, ix) => [id, ix]));
-      const pairs = shortEdges
-        .filter(e => (groups[e.from].depth === top && groups[e.to].depth === bot)
-                  || (groups[e.to].depth === top && groups[e.from].depth === bot))
-        .map(e => groups[e.from].depth === top ? [pt[e.from], pb[e.to]] : [pt[e.to], pb[e.from]]);
+      const pairs = edges
+        .filter(e => {
+          const a = groups[e.from].depth, b = groups[e.to].depth;
+          return (a === top && b === bot) || (a === bot && b === top);
+        })
+        .map(e => groups[e.from].depth === top ? [pos[e.from], pos[e.to]] : [pos[e.to], pos[e.from]]);
       for (let a = 0; a < pairs.length; a++)
         for (let b = a + 1; b < pairs.length; b++)
-          if ((pairs[a][0] - pairs[b][0]) * (pairs[a][1] - pairs[b][1]) < 0) n++;
+          if ((pairs[a][0] - pairs[b][0]) * (pairs[a][1] - pairs[b][1]) < 0) crossings++;
     }
-    return n;
+
+    let span = 0, skipSpan = 0, aligned = 0;
+    for (const e of edges) {
+      const d = Math.abs(pos[e.from] - pos[e.to]);
+      const bands = Math.abs(groups[e.from].depth - groups[e.to].depth);
+      if (bands >= 2) skipSpan += d;
+      else { span += d; if (bands === 1 && d === 0) aligned++; }
+    }
+    return crossings * 100 + skipSpan * 5 + span * 3 - aligned * 6;
   }
 
-  function sweep(fromDepth, toDepth) {
-    const pos = Object.fromEntries(order[fromDepth].map((id, ix) => [id, ix]));
-    const prev = Object.fromEntries(order[toDepth].map((id, ix) => [id, ix]));
-    order[toDepth] = order[toDepth]
-      .map(id => {
-        const nb = neighborsIn(id, fromDepth).map(n => pos[n]);
-        return [id, nb.length ? nb.reduce((a, b) => a + b, 0) / nb.length : prev[id]];
-      })
-      .sort((a, b) => a[1] - b[1] || prev[a[0]] - prev[b[0]])
-      .map(([id]) => id);
+  /*
+   * Exhaustive within a band budget. §2 caps a map at 8 groups, so the arrangement space is small
+   * enough to search outright — and an exact answer beats a heuristic that can stall in a local
+   * minimum, which the v1 barycenter sweeps did. The hill-climb is only there so a raised cap
+   * degrades instead of hanging.
+   */
+  const factorial = n => (n <= 1 ? 1 : n * factorial(n - 1));
+  const total = depths.reduce((acc, d) => acc * factorial(byDepth[d].length), 1);
+  const start = {}; for (const d of depths) start[d] = [...byDepth[d]];
+
+  if (total <= 50000) {
+    const perms = a => (a.length <= 1 ? [a]
+      : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map(p => [x, ...p])));
+    const options = depths.map(d => perms(byDepth[d]));
+    let best = start, bestScore = Infinity;
+    const walk = (i, acc) => {
+      if (i === depths.length) {
+        const ord = {}; depths.forEach((d, k) => { ord[d] = acc[k]; });
+        const s = score(ord);
+        if (s < bestScore) { bestScore = s; best = ord; }
+        return;
+      }
+      for (const p of options[i]) walk(i + 1, [...acc, p]);
+    };
+    walk(0, []);
+    return best;
   }
 
-  let best = structuredClone(order), bestScore = crossings(order);
-  for (let s = 0; s < 6; s++) {
-    const dir = s % 2 === 0 ? depths : [...depths].reverse();
-    for (let i = 1; i < dir.length; i++) sweep(dir[i - 1], dir[i]);
-    const score = crossings(order);
-    if (score < bestScore) { bestScore = score; best = structuredClone(order); }
+  let cur = start, curScore = score(cur);
+  for (let i = 0; i < 4000; i++) {
+    const d = depths[Math.floor(Math.random() * depths.length)];
+    if (byDepth[d].length < 2) continue;
+    const next = {}; for (const k of depths) next[k] = [...cur[k]];
+    const a = Math.floor(Math.random() * next[d].length);
+    const b = Math.floor(Math.random() * next[d].length);
+    [next[d][a], next[d][b]] = [next[d][b], next[d][a]];
+    const s = score(next);
+    if (s <= curScore) { cur = next; curScore = s; }
   }
-  return best;
+  return cur;
 }
 
 for (const [depth, ids] of Object.entries(optimizeOrder()))

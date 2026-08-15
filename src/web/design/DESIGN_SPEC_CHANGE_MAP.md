@@ -142,6 +142,19 @@ the edge, which is what made the violation arrow unreadable in v1.
 other card's rectangle, and a blocked path falls back to the channel — so this is a property of the
 renderer, not something that has to hold by luck of the data.
 
+**And no edge may run along another edge.** Cards are not the only obstacles. Each routed edge
+records its segments, and the next edge scores its options against them, distinguishing two things
+that look similar and are not:
+
+- *Collinear overlap* — two edges sharing a line — reads as one edge and is what actually makes a
+  diagram unfollowable. Heavily avoided.
+- *A right-angle crossing* is ordinary diagram grammar and perfectly legible. Mildly avoided, never
+  at the cost of a worse route.
+
+Gutters are deep enough for several parallel tracks, and a horizontal run picks the track that
+collides least. Without this the violation edge ran its corridor straight down the gap the
+orchestration→validation arrow already occupied: legal by the card check, unreadable on screen.
+
 ### 6.2 Cards are one width, and bands never wrap
 
 All cards share a width, computed so the busiest band fits on one row. Two things follow, and both
@@ -159,19 +172,47 @@ Below a floor width the band is allowed to wrap instead of shrinking cards past 
 Each band label carries a deep bottom margin. That space is a routing lane — an edge arriving from
 the channel comes in through it — and at label-margin defaults it ran through the label text.
 
-### 6.3 Group order minimises crossings
+### 6.3 Group order is searched, not swept
 
-Within each band, groups are ordered by the standard layered-graph barycenter heuristic: sweep the
-bands top-down then bottom-up, placing each group near the average position of the neighbours it
-connects to in the band just fixed. Every sweep is scored by an actual crossing count and the best
-arrangement seen is kept, so a bad sweep can never leave the map worse than it started.
+Because §2 caps a map at 8 groups, the space of arrangements is small enough to search outright, and
+an exact answer beats a heuristic that can stall in a local minimum. Every arrangement is scored;
+the best wins. Above the budget it degrades to a hill-climb rather than hanging.
 
-Only edges spanning one band or staying inside one feed the ordering. A skip edge is already routed
-around the bands between it, so letting it pull groups in a band it merely passes would trade a real
-crossing for an imaginary one.
+The score is what "reads better" means, in priority order:
+
+| Term | Weight | Why |
+|---|---|---|
+| Crossings | ×100 | Two edges between the same band pair that swap over — the one thing a reader genuinely cannot follow |
+| Skip-edge span | ×5 | A skip travels a corridor and two gutters; every column it crosses is a column its route must thread past |
+| Ordinary span | ×3 | Shorter is straighter is easier |
+| Column alignment | −6 (reward) | Neighbouring-band groups in one column get a single straight vertical, the most legible edge there is |
+
+**Skip edges must be in the objective.** Leaving them out — on the reasoning that they route around
+the bands between them anyway — meant the groups whose *only* connections are skips had nothing
+pulling them anywhere, and they sat wherever the model happened to emit them, at the far right, with
+their edges crossing the whole sheet to reach the group they describe. Weighting them above ordinary
+edges is what pulls them home.
 
 DOM order follows the final arrangement, so keyboard traversal and the visual left-to-right order
 stay the same thing.
+
+### 6.4 A note on doing this with a library
+
+This renderer is a small Sugiyama implementation, and there are two mature ones — [dagre] and
+[elkjs] — that do the same work better: crossing minimisation, orthogonal routing with real port
+constraints, obstacle avoidance.
+
+They were dismissed early on for the wrong reason ("no CDN access"). That objection applies to
+*rendering* libraries like mermaid or reactflow, which arrive with their own fonts, palettes and dark
+mode to fight. dagre and elkjs are **layout-only**: they compute coordinates and draw nothing, they
+are bundled by Vite at build time like any other dependency, and no CDN is involved.
+
+The hand-rolled version stays for now — at 8 nodes it is sufficient, and it keeps rendering entirely
+inside our own token vocabulary. But if the cap ever lifts, or nested groups arrive, **elkjs is the
+right answer, and the objection recorded here should not be what stops it.**
+
+[dagre]: https://github.com/dagrejs/dagre/wiki
+[elkjs]: https://eclipse.dev/elk/reference/algorithms/org-eclipse-elk-layered.html
 
 ## 7. Persistence, staleness, failure
 
