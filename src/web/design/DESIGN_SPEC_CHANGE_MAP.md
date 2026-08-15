@@ -97,6 +97,14 @@ Architecture classification is a judgment call, and the UI must not let it sound
   it; pointing at one asks *what it does*. Those are separate questions, and answering both at once
   put five pieces of text on a seven-node graph. Edges carry a 14px transparent hit path, because a
   1.4px line is not a pointer target.
+- **A label's position is searched, not derived.** Every segment of the edge is a candidate at
+  several offsets, plus the strip above and below the two cards; the winner is whichever lands on the
+  fewest cards and routed lines. Deriving it — "beside the longest run" — reliably chose the busiest
+  spot on the map, because the longest run is often the one every other edge also converges on. Cards
+  disqualify a position outright; a line is a cost, since one thin stroke behind a haloed label is
+  legible and a bundle is not. A same-band edge is the case that needs the out-of-band candidates: its
+  label is several times wider than the 22px column gap it belongs to, so no offset beside the line
+  clears both cards.
 - **Nothing is labelled at rest, including the violation.** The warning is carried by the dashed
   amber line and the card's ⚠ pill — both always visible, both wordless. Only the sentence explaining
   it waits to be asked for: a permanent block of amber text read as clutter rather than urgency, and
