@@ -19,8 +19,24 @@ public class FixtureGeneratorTests
     /// Relaxed escaping: these files are read and curl-ed by another team, and the default encoder
     /// turns every <, apostrophe and + into a \uXXXX escape, which makes a prompt unreadable.
     /// "Unsafe" refers to embedding JSON in HTML, which is not what these are for.
-    private static readonly JsonSerializerOptions FixtureJson =
-        new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    private static readonly JsonSerializerOptions FixtureJson = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        // Raw newlines between properties. The escaped ones inside string values are Write's job.
+        NewLine = "\n",
+    };
+
+    /// <summary>
+    /// Serialise and write one fixture, with escaped CRLF normalised to LF.
+    ///
+    /// The prompt and context arrive from C# raw string literals, which carry whatever line endings
+    /// the source file had at compile time — CRLF on an autocrlf Windows checkout, LF elsewhere.
+    /// Without this, running the suite on Windows rewrote every string value in the committed
+    /// fixtures from \n to \r\n: a hundred-line diff carrying no change at all.
+    /// </summary>
+    private static void Write(string path, JsonObject body) =>
+        File.WriteAllText(path, body.ToJsonString(FixtureJson).Replace("\\r\\n", "\\n"));
 
     private static string DesignDir()
     {
@@ -70,7 +86,7 @@ public class FixtureGeneratorTests
             ["stream"] = false,
             // Not max_tokens: that name is deprecated in Chat Completions and rejected outright by
             // some endpoints (§5.A).
-            ["max_completion_tokens"] = 2048,
+            ["max_completion_tokens"] = AgentBudget.MaxAnswerTokens,
             ["messages"] = new JsonArray(
                 new JsonObject
                 {
@@ -97,7 +113,7 @@ public class FixtureGeneratorTests
         };
 
         var path = Path.Combine(DesignDir(), "sample-request.json");
-        File.WriteAllText(path, body.ToJsonString(FixtureJson));
+        Write(path, body);
 
         Assert.True(File.Exists(path));
         Assert.Equal(CanonicalSchema.Name,
@@ -116,7 +132,7 @@ public class FixtureGeneratorTests
         {
             ["model"] = "claude-opus-4",
             ["stream"] = true,
-            ["max_completion_tokens"] = 2048,
+            ["max_completion_tokens"] = AgentBudget.MaxAnswerTokens,
             ["messages"] = new JsonArray(
                 new JsonObject { ["role"] = "system", ["content"] = TaskPrompt.Structured(diffTruncated: false, withRepoTools: false) },
                 new JsonObject { ["role"] = "user", ["content"] = Context + "\n\nWhat does this PR change?" },
@@ -140,7 +156,7 @@ public class FixtureGeneratorTests
         };
 
         var path = Path.Combine(DesignDir(), "sample-request-stream.json");
-        File.WriteAllText(path, body.ToJsonString(FixtureJson));
+        Write(path, body);
 
         var messages = JsonNode.Parse(File.ReadAllText(path))!["messages"]!.AsArray();
         Assert.Equal(4, messages.Count);
@@ -169,7 +185,7 @@ public class FixtureGeneratorTests
         {
             ["model"] = "claude-opus-4",
             ["stream"] = false,
-            ["max_completion_tokens"] = 2048,
+            ["max_completion_tokens"] = AgentBudget.MaxAnswerTokens,
             ["messages"] = new JsonArray(
                 new JsonObject { ["role"] = "system", ["content"] = TaskPrompt.Structured(diffTruncated: false, withRepoTools: false) },
                 new JsonObject { ["role"] = "user", ["content"] = context + "\n\nWhat does this PR change?" }),
@@ -191,7 +207,7 @@ public class FixtureGeneratorTests
         };
 
         var path = Path.Combine(DesignDir(), "injection-fixture.json");
-        File.WriteAllText(path, body.ToJsonString(FixtureJson));
+        Write(path, body);
 
         // The instruction has to survive into the fixture verbatim — a fixture that sanitises the
         // attack tests nothing.

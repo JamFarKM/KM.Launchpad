@@ -37,8 +37,12 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     /// <summary>Pinned deliberately. Bumping it is a tested change, not a drive-by edit.</summary>
     private const string AnthropicVersion = "2023-06-01";
 
-    private const string ToolName = "record_pr_answer";
-    private const int MaxTokens = 2048;
+    private const string AnswerToolName = "record_pr_answer";
+    private const string MapToolName = "record_change_map";
+
+    /// <summary>The tool name that carries this request's response, chosen from its ResponseKind.</summary>
+    private static string ResponseTool(CanonicalRequest request) =>
+        request.ResponseKind == ResponseKind.ChangeMap ? MapToolName : AnswerToolName;
 
     public string Provider => ConnectorProviders.Anthropic;
 
@@ -141,13 +145,15 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             sendFailure = AgentErrorMapper.FromTransport(ex, new Uri(BaseOf(target)).Host);
         }
 
-        if (sendFailure is not null)
+        // `resp is null` cannot coexist with a null sendFailure, but the compiler can't see across
+        // the try/catch split — folding it into this guard is what lets `resp` below drop the `!`.
+        if (sendFailure is not null || resp is null)
         {
-            yield return new AgentEvent.Failed(sendFailure);
+            yield return new AgentEvent.Failed(sendFailure ?? new AgentError(AgentErrorCode.Upstream));
             yield break;
         }
 
-        using (resp!)
+        using (resp)
         {
             if (!resp.IsSuccessStatusCode)
             {
@@ -161,7 +167,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                 yield break;
             }
 
-            await foreach (var ev in ReadStreamAsync(resp, whole, ct))
+            await foreach (var ev in ReadStreamAsync(resp, whole, request.ResponseKind, ResponseTool(request), ct))
                 yield return ev;
         }
     }
@@ -223,13 +229,22 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             });
         }
 
-        var tools = new JsonArray(new JsonObject
-        {
-            ["name"] = ToolName,
-            ["description"] = "Record the answer to the reviewer's question, with where it came from. "
-                            + "Call this once you have everything you need.",
-            ["input_schema"] = CanonicalSchema.Build(),
-        });
+        var responseTool = ResponseTool(request);
+        var tools = new JsonArray(request.ResponseKind == ResponseKind.ChangeMap
+            ? new JsonObject
+            {
+                ["name"] = responseTool,
+                ["description"] = "Record the architecture-grouped map of this pull request's changes. "
+                                + "Call this once you have classified the areas.",
+                ["input_schema"] = ChangeMapSchema.Build(),
+            }
+            : new JsonObject
+            {
+                ["name"] = responseTool,
+                ["description"] = "Record the answer to the reviewer's question, with where it came from. "
+                                + "Call this once you have everything you need.",
+                ["input_schema"] = CanonicalSchema.Build(),
+            });
 
         foreach (var tool in request.Tools ?? [])
             tools.Add(new JsonObject
@@ -242,7 +257,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         return new JsonObject
         {
             ["model"] = request.Model,
-            ["max_tokens"] = MaxTokens,
+            ["max_tokens"] = AgentBudget.MaxAnswerTokens,
             // Top-level, not a message. The one placement difference from §5.A.
             ["system"] = request.SystemPrompt,
             ["messages"] = messages,
@@ -253,18 +268,11 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
             // tools we go back to forcing, which keeps the single-shot path exactly as it was.
             ["tool_choice"] = (request.Tools?.Count ?? 0) > 0
                 ? new JsonObject { ["type"] = "any" }
-                : new JsonObject { ["type"] = "tool", ["name"] = ToolName },
+                : new JsonObject { ["type"] = "tool", ["name"] = responseTool },
             ["stream"] = request.Stream,
         };
     }
 
-    /// <summary>
-    /// Reads Anthropic's SSE stream and yields Launchpad's own events.
-    ///
-    /// The §5.5 budget is enforced here rather than on <see cref="HttpClient.Timeout"/>, which
-    /// applies to the whole operation including the body and would therefore kill a legitimately
-    /// long stream: 20 s to first token, 30 s idle between deltas, 120 s overall.
-    /// </summary>
     /// <summary>
     /// Reads Anthropic's SSE stream and yields Launchpad's own events.
     ///
@@ -279,12 +287,19 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     ///
     /// The §5.5 budget is enforced here rather than on <see cref="HttpClient.Timeout"/>, which
     /// applies to the whole operation including the body and would therefore kill a legitimately
-    /// long stream: 20 s to first token, 30 s idle between deltas, 120 s overall.
+    /// long stream. The budgets live in <see cref="AgentTimeouts"/> — FirstToken to the first
+    /// byte, IdleBetweenDeltas between fragments, WholeCompletion overall — and the figures are
+    /// deliberately not restated here, where an earlier copy of them had already gone stale.
     /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
-        HttpResponseMessage resp, CancellationTokenSource whole, [EnumeratorCancellation] CancellationToken ct)
+        HttpResponseMessage resp, CancellationTokenSource whole, ResponseKind responseKind, string responseTool,
+        [EnumeratorCancellation] CancellationToken ct)
     {
+        // Only the answer shape streams element-by-element (§5.2's whole reason for existing). The
+        // map renders once, complete, as a diagram — so its fragments are just accumulated raw and
+        // parsed once at the end, by ChangeMapParser rather than SegmentStreamParser.
         var parser = new SegmentStreamParser();
+        var rawMap = new StringBuilder();
         var prose = new StringBuilder();
         AgentError? failure = null;
         int? promptTokens = null;
@@ -308,7 +323,24 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                 var remaining = deadline - DateTime.UtcNow;
                 if (remaining <= TimeSpan.Zero) { failure = new AgentError(AgentErrorCode.Timeout); break; }
 
-                var finished = await Task.WhenAny(readTask, Task.Delay(remaining, ct));
+                /* Linked and cancelled once the race resolves, for two reasons.
+                 *
+                 * The timer: an uncancelled `Task.Delay` stays armed for its full span after the read
+                 * wins, so a stream emitting deltas every few milliseconds left thousands of live
+                 * 60-second timers rooted at once.
+                 *
+                 * The token: `whole` is linked to `ct`, so pressing Stop completed *both* tasks and
+                 * whichever `WhenAny` happened to observe first decided whether the turn recorded as
+                 * Stopped or as a timeout telling the reviewer to try again. Cancellation is checked
+                 * explicitly below so it always wins that race. */
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var finished = await Task.WhenAny(readTask, Task.Delay(remaining, idle.Token));
+                idle.Cancel();
+
+                // The reviewer pressed Stop. Thrown rather than reported, so it reaches the endpoint
+                // as cancellation and the turn is marked Stopped — not silence past a budget.
+                ct.ThrowIfCancellationRequested();
+
                 if (finished != readTask)
                 {
                     // Silence past the budget. §6: this must reach the panel as a typed error, not
@@ -334,6 +366,14 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             string? answerFragment = null;
             string? proseFragment = null;
+            /* Any content fragment at all, including tool arguments the reviewer never sees. The idle
+               clock was previously reset only by answer or prose fragments, so a model spelling out a
+               `read_file` path was indistinguishable from a model that had stopped talking — and a
+               slow or repeated tool call died on a budget meant for silence. */
+            var progressed = false;
+            /* Set from `stop_reason`, acted on at the end of the loop body. See
+               AgentErrorMapper.Truncated for why this is read rather than inferred. */
+            var truncated = false;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
@@ -350,6 +390,13 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
                     case "message_delta":
                         completionTokens = ReadTokens(root, "output_tokens") ?? completionTokens;
+                        // The provider's own verdict on why it stopped. Acted on after this frame's
+                        // fragments are processed, so nothing that did arrive is thrown away.
+                        if (root.TryGetProperty("delta", out var md)
+                            && md.TryGetProperty("stop_reason", out var sr)
+                            && sr.ValueKind == JsonValueKind.String
+                            && sr.GetString() == "max_tokens")
+                            truncated = true;
                         break;
 
                     case "content_block_start":
@@ -377,13 +424,15 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
                             if (!string.IsNullOrEmpty(fragment))
                             {
+                                progressed = true;
+
                                 if (index >= 0 && blocks.TryGetValue(index, out var b))
                                 {
                                     b.Args.Append(fragment);
-                                    // Only the answer tool's input is the canonical response. A file
+                                    // Only the response tool's input is the canonical response. A file
                                     // path being spelled out character by character is not something
                                     // to show the reviewer.
-                                    if (b.Name == ToolName) answerFragment = fragment;
+                                    if (b.Name == responseTool) answerFragment = fragment;
                                 }
                                 else if (isToolInput)
                                 {
@@ -421,19 +470,30 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
 
             if (failure is not null) break;
 
+            // One place, and it covers tool arguments as well as the two visible kinds.
+            if (progressed) deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
+
             if (!string.IsNullOrEmpty(answerFragment))
             {
-                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
-                foreach (var segment in parser.Feed(answerFragment))
-                    yield return new AgentEvent.Segment(segment);
+                if (responseKind == ResponseKind.ChangeMap)
+                {
+                    rawMap.Append(answerFragment);
+                }
+                else
+                {
+                    foreach (var segment in parser.Feed(answerFragment))
+                        yield return new AgentEvent.Segment(segment);
+                }
             }
 
             if (!string.IsNullOrEmpty(proseFragment))
             {
-                deadline = DateTime.UtcNow + AgentTimeouts.IdleBetweenDeltas;
                 prose.Append(proseFragment);
                 yield return new AgentEvent.Delta(proseFragment);
             }
+
+            // Last, so this frame's content is delivered before the answer is called incomplete.
+            if (truncated) { failure = AgentErrorMapper.Truncated(); break; }
         }
 
         var usage = new AgentUsage(promptTokens, completionTokens);
@@ -448,13 +508,19 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         // Files requested rather than an answer given. Terminal for this exchange only — the
         // orchestrator services these and asks again.
         var toolCalls = blocks.Values
-            .Where(b => b.Name != ToolName && b.Name.Length > 0)
+            .Where(b => b.Name != responseTool && b.Name.Length > 0)
             .Select(b => new AgentToolCall(b.Id, b.Name, b.Args.ToString()))
             .ToList();
 
         if (toolCalls.Count > 0)
         {
             yield return new AgentEvent.ToolCalls(toolCalls, usage);
+            yield break;
+        }
+
+        if (responseKind == ResponseKind.ChangeMap)
+        {
+            yield return new AgentEvent.MapComplete(rawMap.ToString(), usage);
             yield break;
         }
 

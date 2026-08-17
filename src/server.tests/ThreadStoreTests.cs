@@ -347,7 +347,20 @@ public class ThreadStoreTests : IDisposable
 
         Assert.Single(mine);
         Assert.Empty(theirs);
-        Assert.Null(await _store.FindAnnotationAsync("u2", mine[0].Id, default));
+        Assert.Null(await _store.FindAnnotationAsync("u2", mine[0].Id, "Account", "Account", 80494, default));
+    }
+
+    [Fact]
+    public async Task An_annotation_is_only_found_within_its_own_pull_request()
+    {
+        var annotation = await Annotation();
+
+        // The id alone would accept an annotation from another PR — and then answer it against the
+        // wrong diff and append the turn to the wrong thread. Scope is part of the lookup, so a
+        // mismatched route reads as not-found.
+        Assert.NotNull(await _store.FindAnnotationAsync("u1", annotation.Id, "Account", "Account", 80494, default));
+        Assert.Null(await _store.FindAnnotationAsync("u1", annotation.Id, "Account", "Account", 99999, default));
+        Assert.Null(await _store.FindAnnotationAsync("u1", annotation.Id, "Other", "Account", 80494, default));
     }
 
     [Fact]

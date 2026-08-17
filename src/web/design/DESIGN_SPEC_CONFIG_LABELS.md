@@ -207,3 +207,5 @@ staging    DIFFERS    20
 ```
 
 …with stacked sections reserved for JSON and other multi-line values. This would need a rule for what counts as compact (single line under ~60 chars, perhaps). Judge it against `MaxSelections` in the mockup before deciding — I left it out rather than guessing, since it adds a second rendering path.
+
+**Decided (2026-08-15):** build the compact inline row. A key qualifies when *every* one of its values is a single line under ~60 characters; stacked sections remain for JSON and multi-line values. The second rendering path is accepted as the cost of not spending two collapsible panels on `12` vs `20`. Not yet implemented.

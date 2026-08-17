@@ -3720,13 +3720,17 @@ a {
   transform: rotate(45deg);
 }
 
+/* Also the card's drag handle — horizontal only, since the vertical position is the anchor. The
+   grab cursor is the affordance; the header's own buttons keep their pointer on top of it. */
 .ann-head {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  padding: 9px 10px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border-hairline);
+  cursor: grab;
+  user-select: none;
 }
 
 /* The tag that stops this being mistaken for a posted comment. Stated in a word, not implied by the
@@ -3757,7 +3761,7 @@ a {
    open; this is the flag, not the fix. */
 .ann-stale {
   flex-shrink: 0;
-  padding: 7px 10px;
+  padding: 7px 12px;
   font-size: 11px;
   line-height: 1.5;
   color: var(--ink-secondary);
@@ -3769,13 +3773,22 @@ a {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 10px;
+  padding: 6px 12px;
 }
 
-/* The claim that opened the annotation, in the agent's own words. */
+/* A 620px card is nearly twice the dock's measure, and 12.5px prose across ~95 characters loses
+   the return sweep. Capped in ch so it tracks the type size; badge rows and the composer stay
+   full-width, which keeps the card feeling its size. */
+.ann-body .ag-p,
+.ann-body .ag-ul,
+.ann-body .ag-infer { max-width: 60ch; }
+
+/* The claim that opened the annotation, in the agent's own words. Same rail geometry as the
+   .ag-answer blocks below it, so the seed and the answers share one visible voice line. */
 .ann-seed {
   border-left: 2px solid var(--hue-violet);
-  padding-left: 9px;
+  padding-left: 11px;
+  margin-left: 2px;
 }
 
 .ann-who {
@@ -3786,15 +3799,17 @@ a {
   margin-top: 8px;
 }
 
+/* One question-and-answer exchange. Its rule must read as a stronger break than the hairline
+   between claims inside an answer — a turn is the bigger unit, so it gets air as well as a line. */
 .ann-turn {
   border-top: 1px solid var(--border-hairline);
-  margin-top: 8px;
-  padding-top: 4px;
+  margin-top: 12px;
+  padding-top: 8px;
 }
 
 .ann-foot {
   flex-shrink: 0;
-  padding: 8px 10px 9px;
+  padding: 8px 12px 9px;
   border-top: 1px solid var(--border-hairline);
 }
 
@@ -5560,6 +5575,10 @@ a {
 
 .ag-id { flex: 1; min-width: 0; }
 
+/* §4.1's Review/Map controls. .ag-id already claims flex:1, so this sits flush right without its
+   own positioning. */
+.ag-headctl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
 .ag-name {
   display: flex;
   align-items: center;
@@ -5807,12 +5826,16 @@ a {
    Without the separation a badge reads as belonging to whichever paragraph it happens to sit nearest
    — which is the ambiguity this shape exists to remove. */
 .ag-seg {
-  padding: 8px 0 2px;
+  padding: 9px 0 4px;
 }
 
 .ag-seg + .ag-seg {
   border-top: 1px solid var(--border-hairline);
 }
+
+/* The first claim sits directly under the answer's header (dock) or the reviewer's bubble
+   (annotation card); the full seam belongs between claims, not above the first one. */
+.ag-answer .ag-seg:first-child { padding-top: 2px; }
 
 /* A graded claim gets a stripe as well as its label, so a long answer can be scanned for the two that
    need action without reading all six. `info` gets nothing: it is the baseline, and a baseline that
@@ -5853,9 +5876,12 @@ a {
   background: color-mix(in oklab, var(--status-bad) 14%, transparent);
 }
 
+/* Inside a claim, the badge row hugs its text at 4px; between claims the gap is nearly four times
+   that (2px + 4px + hairline + 9px). Proximity is the only thing telling a reader which text a
+   badge grades — the ratio is the mechanism, not taste. */
 .ag-seg .ag-p:last-of-type,
 .ag-seg .ag-ul:last-child {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 /* Badge and citations on one wrapping row directly under this claim's text — bundled with it rather
@@ -5865,13 +5891,21 @@ a {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
-/* Pushed to the end of the row so the badge and its citations stay adjacent to each other. */
+/* Pushed to the end of the row so the badge and its citations stay adjacent — and quiet at rest.
+   It repeats on every claim, and a column of bordered buttons was the loudest thing in the answer:
+   emphasis belongs to the grade and the evidence, not the tertiary action. The label stays visible
+   (a control that only appears on hover is a control nobody finds); hovering restores the usual
+   .ag-mini chrome. */
 .ag-segfoot .ag-post {
   margin-left: auto;
+  border-color: transparent;
+  color: var(--ink-muted);
 }
+
+.ag-segfoot .ag-post:hover { border-color: var(--border-hairline); }
 
 /* The claim currently being written. Deliberately quiet — a placeholder for something not yet said,
    not a claim of its own. */
@@ -5883,6 +5917,12 @@ a {
 }
 
 .ag-pending .ag-thinking { margin: 0; }
+
+/* The wizard working. `.ag-pending` carries no horizontal padding because it normally sits inside
+   `.ag-answer`, which supplies the indent from its own rail — this one is a direct child of the
+   scroller, where that left it flush against the panel edge, further left than every other row. The
+   12px matches `.ag-chips` and `.ag-slabel`, which is what the eye lines it up against. */
+.ag-mapping { padding: 6px 12px 10px; }
 
 /* ---------- citations ---------- */
 
@@ -5958,10 +5998,14 @@ a {
 
 .ag-mini:hover { background: var(--hover-wash); color: var(--ink-primary); }
 
+/* Margin, not padding: standing alone in the dock this needs space below it, but inside
+   .ag-pending's centered flex row a padding would inflate the text's box downward and push the
+   words off the spinner's axis — the row centers boxes, not glyphs. The .ag-pending override
+   zeroes margins; padding would have slipped past it, and did. */
 .ag-thinking {
   font-size: 11.5px;
   color: var(--ink-muted);
-  padding-bottom: 8px;
+  margin-bottom: 8px;
 }
 
 /* ---------- composer ---------- */
@@ -6088,6 +6132,11 @@ a {
 body.is-col-resizing { cursor: col-resize; user-select: none; }
 body.is-col-resizing * { cursor: col-resize !important; }
 
+/* Sliding the annotation card aside. Same body-level treatment as the column resizers, and for the
+   same reason: without it the pointer flickers between cursors as it crosses the diff mid-drag. */
+body.is-card-sliding { cursor: grabbing; user-select: none; }
+body.is-card-sliding * { cursor: grabbing !important; }
+
 /* The grid animates its columns, which is right for the collapse toggles and wrong for a drag —
    a 160ms transition on every pointermove lags behind the cursor. */
 /* The tracks no longer transition at all, so nothing needs suppressing during a drag. */
@@ -6099,3 +6148,305 @@ body.is-col-resizing * { cursor: col-resize !important; }
   padding-bottom: 6px;
   font-variant-numeric: tabular-nums;
 }
+
+/* ============================================================================================
+   The change map (DESIGN_SPEC_CHANGE_MAP.md). Geometry ported from change-map-v1.html, where the
+   routing, the crossing-minimising order and the label placement were worked out and verified
+   against real data shapes — see ChangeMapSheet.tsx for the layout engine these classes render.
+   ============================================================================================ */
+
+.map-overlay {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklab, black 45%, transparent);
+  padding: 24px;
+}
+
+/* A fixed height, not a max-height, and that is a behavioural decision rather than a stylistic one.
+   With max-height the sheet grew to fit whichever group was selected — a group with 23 files pushed
+   it to the full 88vh and a group with two shrank it back. Two costs: the modal jumped every time
+   you picked a card, and because the diagram re-measures on resize, all fourteen edges re-routed and
+   visibly moved on every selection. Fixed, the geometry is computed once and the panes scroll
+   inside it. */
+.map-sheet {
+  width: 100%; max-width: 1120px; height: min(88vh, 860px);
+  background: var(--bg-surface); border: 1px solid var(--border-hairline);
+  border-radius: 12px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+.map-sheet-head {
+  display: flex; align-items: center; gap: 9px; padding: 10px 14px;
+  border-bottom: 1px solid var(--border-hairline); flex-shrink: 0;
+}
+
+.map-sheet-title { font-size: 13px; font-weight: 700; }
+
+/* Same badge vocabulary as a segment's provenance (§5.2.1) — a reviewer who has learned one has
+   learned both. Aqua for a stated fact, slate for a read of convention. */
+.map-pill {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 100px; white-space: nowrap; cursor: help;
+}
+.map-pill.structure { background: color-mix(in oklab, var(--hue-aqua) 15%, transparent); color: var(--hue-aqua); }
+.map-pill.inferred { background: color-mix(in oklab, var(--hue-slate) 16%, transparent); color: var(--hue-slate); }
+
+.map-commit { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--ink-muted); }
+
+.map-sheet-main { display: flex; min-height: 0; flex: 1; }
+@media (max-width: 899px) { .map-sheet-main { flex-direction: column; overflow-y: auto; } }
+
+/* ---------- the wizard (§8) ---------- */
+
+.wz-sheet {
+  width: 100%; max-width: 1180px; height: min(90vh, 880px);
+  background: var(--bg-surface); border: 1px solid var(--border-hairline);
+  border-radius: 12px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+.wz-main { display: flex; min-height: 0; flex: 1; }
+@media (max-width: 979px) { .wz-main { flex-direction: column; } }
+
+/* The map is the reference, the deck is the reading — so the deck gets the fixed, comfortable
+   measure and the map takes what's left. Narrow enough that the diagram usually overflows, which is
+   what pan is for: shrinking cards until a 4-card band fits would make the names unreadable. */
+.wz-map { flex: 1; min-width: 0; min-height: 0; display: flex; border-right: 1px solid var(--border-hairline); }
+.wz-deck-pane { width: 400px; flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; padding: 14px; }
+@media (max-width: 979px) {
+  .wz-map { border-right: 0; border-bottom: 1px solid var(--border-hairline); min-height: 300px; }
+  .wz-deck-pane { width: auto; }
+}
+
+/* ---------- the pack ---------- */
+
+/* Every slide stays mounted and is placed by its distance from the current one, so moving on is a
+   transition between transforms rather than a mount. That is what makes the departing card visibly
+   travel to the back of the pack instead of simply vanishing and being replaced. */
+.wz-deck { position: relative; flex: 1; min-height: 0; perspective: 1400px; }
+
+/* The bottom 20px is the pack: cards behind the front one sit lower and their edges show there. With
+   the cards filling the deck exactly, the ones behind hid perfectly behind the front card and the
+   whole thing read as a single panel that swapped contents. */
+.wz-card {
+  position: absolute; inset: 0 0 20px; overflow-y: auto;
+  background: var(--bg-surface); border: 1px solid var(--border-hairline);
+  border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 6px 18px color-mix(in oklab, black 12%, transparent);
+  transform-origin: 50% 90%;
+  transition: transform 0.42s cubic-bezier(0.22, 0.7, 0.16, 1), opacity 0.42s ease;
+}
+
+/* The card in hand. */
+.wz-card[data-off="0"] { transform: none; opacity: 1; }
+
+/* Still to come: stacked just behind, enough to read as a pack with depth rather than one panel. */
+.wz-card[data-off="1"] { transform: translateY(9px) scale(0.972); opacity: 0.55; }
+.wz-card[data-off="2"] { transform: translateY(18px) scale(0.944); opacity: 0.28; }
+.wz-card[data-off="deep"] { transform: translateY(24px) scale(0.93); opacity: 0; }
+
+/* Read, and put to the back: lifted, tilted and dropped behind the rest. The rotation is what sells
+   it as a hand movement — a straight fade would just be a card disappearing. */
+.wz-card[data-off="past"] {
+  transform: translateY(-16%) scale(0.9) rotateZ(-4deg);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wz-card { transition: opacity 0.15s ease; }
+  .wz-card[data-off="past"] { transform: none; }
+  .wz-card[data-off="1"], .wz-card[data-off="2"], .wz-card[data-off="deep"] { transform: none; }
+}
+
+.wz-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wz-step {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--hue-violet);
+  background: color-mix(in oklab, var(--hue-violet) 12%, transparent);
+  padding: 2px 7px; border-radius: 100px;
+}
+.wz-find {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--status-warn);
+  background: color-mix(in oklab, var(--status-warn) 14%, transparent);
+  padding: 2px 7px; border-radius: 100px;
+}
+
+.wz-title { margin: 0 0 2px; font-size: 15px; font-weight: 650; line-height: 1.3; }
+.wz-where { font-size: 11px; color: var(--ink-muted); margin-bottom: 10px; }
+/* 62ch is the same measure the annotation card settled on — long enough not to fragment a
+   paragraph, short enough to keep the return sweep. */
+.wz-detail { margin: 0 0 12px; font-size: 12.5px; line-height: 1.6; color: var(--ink-primary); max-width: 62ch; }
+
+.wz-files-label {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--ink-muted); margin-bottom: 5px;
+}
+
+.wz-foot { display: flex; align-items: center; gap: 10px; padding-top: 12px; flex-shrink: 0; }
+.wz-dots { display: flex; align-items: center; gap: 5px; flex: 1; justify-content: center; }
+.wz-dot {
+  width: 7px; height: 7px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--border-hairline); background: transparent;
+}
+.wz-dot.seen { background: color-mix(in oklab, var(--hue-violet) 35%, transparent); border-color: transparent; }
+.wz-dot.on { background: var(--hue-violet); border-color: transparent; transform: scale(1.35); }
+
+.wz-empty { font-size: 12.5px; color: var(--ink-secondary); }
+.wz-empty b { color: var(--ink-primary); }
+.wz-empty p { margin: 6px 0 0; line-height: 1.6; }
+
+/* ---------- diagram ---------- */
+
+.map-diagram {
+  flex: 1; min-width: 0; min-height: 320px; position: relative;
+  padding: 14px 44px 10px 20px; overflow: hidden;
+}
+
+/* Pan rather than scrollbars: the diagram is a picture to move around, and at these sizes a 4-card
+   band shrunk to fit would have unreadable names. */
+.map-diagram.is-pannable { cursor: grab; }
+body.is-map-panning, body.is-map-panning * { cursor: grabbing !important; user-select: none; }
+
+/* Holds the cards and the edge SVG together, so panning cannot move one relative to the other —
+   and so every measurement taken against this element is pan-independent. */
+.map-pan { position: relative; will-change: transform; }
+
+.map-axis {
+  position: absolute; left: 1px; top: 22px; bottom: 18px; width: 13px;
+  color: var(--ink-muted); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg);
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--border-hairline);
+}
+
+/* Row header in its own column, not a caption inside the diagram — the space below it is where
+   edges route, and a label sitting in that space would compete with them for the same pixels. */
+/* The label column is sized for real layer names, which arrive as prose — "Abstractions &
+   Application contracts" is 36 characters. At 82px those overflowed their column and printed over
+   the cards; they wrap here instead, and the column is wide enough that two lines is the worst
+   case. */
+.map-band {
+  display: grid; grid-template-columns: 116px 1fr; column-gap: 14px; align-items: start;
+  padding: 10px 0 42px;
+}
+.map-band + .map-band { border-top: 1px dashed var(--border-hairline); }
+
+/* Not uppercased, unlike every other small label in the app. These are names out of the codebase —
+   `Core.Implementation` is a namespace — and CORE.IMPLEMENTATION both misrepresents it and is wide
+   enough to break mid-word in its own column. Sentence case is the model's own casing, ~15% narrower,
+   and the thing the reviewer would recognise. */
+.map-band-label {
+  text-align: right; padding-top: 9px;
+  font-size: 10px; font-weight: 650;
+  line-height: 1.35; color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+/* stretch (the flex default) keeps every card in a row the same height, so all edges leaving a row
+   leave from one baseline. The wide gap is deliberate: a same-band edge lives in it.
+
+   nowrap is load-bearing, not cosmetic. The router treats the strip between two bands as empty and
+   routes edges through it; a band that wrapped to a second row would put cards in that strip and let
+   an edge pass straight through one. fitNodes() sizes cards to fit a single row where it can, and
+   past that the diagram scrolls horizontally — which is worse to look at and still correct, where
+   wrapping is neither. */
+.map-nodes { display: flex; flex-wrap: nowrap; gap: 22px; align-items: stretch; }
+
+.map-node {
+  text-align: left; background: var(--bg-surface-2); border: 1px solid var(--border-hairline);
+  border-radius: 9px; padding: 8px 10px; cursor: pointer; color: inherit;
+  font: inherit; width: var(--map-node-w, 168px); flex-shrink: 0; position: relative;
+}
+.map-node:hover { border-color: var(--hue-slate); }
+.map-node[aria-pressed="true"] { border-color: var(--hue-violet); box-shadow: 0 0 0 1px var(--hue-violet); }
+
+.map-node-name { font-size: 12px; font-weight: 650; }
+.map-node-meta { display: flex; gap: 8px; margin-top: 3px; font-size: 10.5px; color: var(--ink-muted); white-space: nowrap; }
+.map-node-meta .add { color: var(--hue-aqua); }
+.map-node-meta .del { color: var(--status-bad); }
+
+/* Review findings citing lines in this area — the map doubling as the review's table of contents
+   (§4.1). Neutral ink: the count is navigation, and severity is already carried by the findings
+   themselves back in the thread. */
+.map-node-find { margin-top: 4px; font-size: 10.5px; font-weight: 600; color: var(--ink-secondary); }
+
+/* A pill rather than a fixed circle: a group the flow visits twice carries both its numbers ("1·6"),
+   and a circle sized for one digit clipped the second. Still round at one digit. */
+.map-step {
+  position: absolute; top: -9px; left: -9px; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 100px;
+  background: var(--ink-primary); color: var(--bg-surface); font-size: 10.5px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* dimming: selection and flow mode share one mechanism */
+.map-diagram[data-mode] .map-node, .map-diagram[data-mode] .map-edge { opacity: 0.28; }
+.map-diagram[data-mode] .map-node.lit, .map-diagram[data-mode] .map-node[aria-pressed="true"],
+.map-diagram[data-mode] .map-edge.lit { opacity: 1; }
+
+.map-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.map-edge path.line { fill: none; stroke: var(--hue-slate); stroke-width: 1.4; opacity: 0.75; pointer-events: none; }
+.map-edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+
+/* A verb appears on the edge being pointed at, one at a time — never before.
+
+   Violations used to be exempt, on the reasoning that the one label that matters most shouldn't
+   wait to be asked. That held while a map had one violation. A real one had four, all in the same
+   band gutter, and four labels printed on top of each other read as a single line of gibberish —
+   strictly less informative than none. The dashed amber stroke already says "this points the wrong
+   way" without a word; the footer says how many there are; the label is for the reviewer who asks
+   which one. */
+.map-edge text {
+  display: none;
+  font: 600 9.5px system-ui, sans-serif; fill: var(--ink-muted);
+  paint-order: stroke; stroke: var(--bg-surface); stroke-width: 3px;
+}
+.map-edge:hover text { display: revert; }
+.map-edge text.mid { text-anchor: middle; }
+.map-edge text.side { text-anchor: end; }
+
+.map-edge.viol path.line { stroke: var(--status-warn); stroke-dasharray: 5 4; stroke-width: 1.7; opacity: 1; }
+.map-edge.viol text { fill: var(--status-warn); }
+.map-edge.flowarrow path.line { stroke: var(--ink-primary); stroke-width: 1.8; opacity: 0.9; }
+
+/* ---------- detail rail ---------- */
+
+/* Only the file list scrolls. The group's name and its one-line summary stay put above it, because
+   with 23 files a scrolling rail scrolled away the answer to "which area am I looking at". */
+.map-rail {
+  width: 300px; flex-shrink: 0; border-left: 1px solid var(--border-hairline);
+  padding: 12px 14px; min-height: 0;
+  display: flex; flex-direction: column;
+}
+@media (max-width: 899px) { .map-rail { width: auto; border-left: 0; border-top: 1px solid var(--border-hairline); } }
+
+.map-rail-head { flex-shrink: 0; }
+.map-rail-files { flex: 1; min-height: 0; overflow-y: auto; }
+
+.map-rail h3 { margin: 0 0 4px; font-size: 12.5px; }
+.map-rail-sum { margin: 0 0 10px; font-size: 12px; color: var(--ink-secondary); }
+.map-rail-hint { flex-shrink: 0; margin: 8px 0 0; font-size: 10.5px; color: var(--ink-muted); }
+
+.map-file {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  background: transparent; border: 1px solid var(--border-hairline); border-radius: 6px;
+  padding: 5px 8px; margin-bottom: 6px; cursor: pointer; color: var(--ink-secondary);
+  font: 10.5px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.map-file:hover { border-color: var(--hue-violet); color: var(--hue-violet); }
+.map-file-counts { margin-left: auto; }
+.map-file-counts .add { color: var(--hue-aqua); }
+.map-file-counts .del { color: var(--status-bad); }
+
+.map-flow-sentence {
+  padding: 0 16px 10px 20px; font-size: 11.5px; color: var(--ink-secondary); flex-shrink: 0;
+}
+.map-flow-sentence b { color: var(--ink-primary); }
+
+.map-sheet-foot {
+  padding: 8px 14px; font-size: 10.5px; color: var(--ink-muted);
+  border-top: 1px solid var(--border-hairline); flex-shrink: 0;
+}
+.map-sheet-foot b { color: var(--ink-secondary); font-weight: 600; }

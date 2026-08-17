@@ -121,7 +121,9 @@ public static class AgentEndpoints
                 return;
             }
 
-            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, ct);
+            // Scoped to this route's PR as well as to the user: an id from another pull request
+            // would otherwise be answered against this diff and appended to that PR's thread.
+            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, project, repoId, prId, ct);
             if (annotation is null)
             {
                 http.Response.StatusCode = 404;
@@ -142,9 +144,13 @@ public static class AgentEndpoints
             if (!ctx.IsAuthenticated) return Results.Unauthorized();
 
             var annotations = await threads.AnnotationsAsync(ctx.UserId!, project, repoId, prId, ct);
-            var dtos = new List<AnnotationDto>(annotations.Count);
-            foreach (var a in annotations)
-                dtos.Add(ToAnnotationDto(a, await threads.TurnsAsync(a.Id, ct)));
+
+            // One query for every annotation's turns, not one per annotation — this list refetches
+            // after every answer and every resolve, so an N+1 here was paid constantly.
+            var turnsByThread = await threads.TurnsByThreadAsync(annotations.Select(a => a.Id).ToList(), ct);
+            var dtos = annotations
+                .Select(a => ToAnnotationDto(a, turnsByThread.GetValueOrDefault(a.Id) ?? []))
+                .ToList();
 
             return Results.Ok(dtos);
         });
@@ -169,12 +175,12 @@ public static class AgentEndpoints
         // Resolve, or reopen. Never deletes: same "a record of what was asked survives" principle as
         // §7.5, and `Show resolved` brings a dimmed marker back into rotation.
         api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/annotations/{annotationId}/status", async (
-            string annotationId, AnnotationStatusRequest body,
+            string project, string repoId, int prId, string annotationId, AnnotationStatusRequest body,
             AdoContext ctx, ThreadStore threads, CancellationToken ct) =>
         {
             if (!ctx.IsAuthenticated) return Results.Unauthorized();
 
-            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, ct);
+            var annotation = await threads.FindAnnotationAsync(ctx.UserId!, annotationId, project, repoId, prId, ct);
             if (annotation is null) return Results.NotFound();
 
             await threads.SetStatusAsync(annotation, body.Status, ct);
@@ -194,9 +200,53 @@ public static class AgentEndpoints
                 return Results.Ok(new ThreadDto(null, []));
 
             var turns = await threads.TurnsAsync(thread.Id, ct);
-            return Results.Ok(new ThreadDto(thread.Id, turns.Select(ToTurnDto).ToList()));
+            return Results.Ok(new ThreadDto(thread.Id, turns.Select(ToTurnDto).ToList(), ThreadStore.Map(thread, turns)));
+        });
+
+        /* Review (§4.1). A fixed question through the exact same path as a typed one — same turn
+         * shape, same "Post as comment…", same replay — so a review *is* a turn in the thread rather
+         * than a parallel kind of thing the panel has to render differently.
+         *
+         * It no longer produces the map. The two were one call while there was one button; now that
+         * the wizard owns the walkthrough, tying them meant every review paid for a map whether or
+         * not anyone opened it. */
+        api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/review", async (
+            string project, string repoId, int prId,
+            HttpContext http, AdoContext ctx, AppDbContext db,
+            AgentRegistry registry, AdoService ado, PrContextService contexts,
+            ThreadStore threads, AgentConversation conversation, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) { http.Response.StatusCode = 401; return; }
+
+            var thread = await threads.GetOrCreateAsync(ctx.UserId!, project, repoId, prId, ct);
+
+            await RunAskAsync(project, repoId, prId, ReviewQuestion, thread,
+                http, ctx, db, registry, ado, contexts, threads, conversation, ct);
+        });
+
+        /* The wizard's one call (§8): the map, which is both the diagram and the walkthrough's
+         * script — `flow[].detail` is what the slides read. Stored on the thread, so reopening the
+         * wizard afterwards costs nothing and a Re-map is a deliberate act. */
+        api.MapPost("/review/{project}/{repoId}/pulls/{prId:int}/map", async (
+            string project, string repoId, int prId,
+            HttpContext http, AdoContext ctx, AppDbContext db,
+            AgentRegistry registry, AdoService ado, PrContextService contexts,
+            ThreadStore threads, AgentConversation conversation, CancellationToken ct) =>
+        {
+            if (!ctx.IsAuthenticated) { http.Response.StatusCode = 401; return; }
+
+            var thread = await threads.GetOrCreateAsync(ctx.UserId!, project, repoId, prId, ct);
+
+            StartSse(http);
+            await RunMapAsync(project, repoId, prId, thread,
+                http, ctx, db, registry, ado, contexts, threads, conversation, ct);
         });
     }
+
+    /// <summary>The fixed question behind the Review button (§4.1).</summary>
+    private const string ReviewQuestion =
+        "Review this pull request. Identify concrete problems, risks and notable design decisions — "
+        + "cite specific lines. If nothing stands out, say so plainly.";
 
     /// <summary>
     /// One question, streamed, against one thread — the dock's conversation or an annotation's.
@@ -205,7 +255,13 @@ public static class AgentEndpoints
     /// stopped answer and the rule that nothing reaches the pull request by itself all live here once;
     /// a second copy for annotations would be four places for those to drift apart.
     /// </summary>
-    private static async Task RunAskAsync(
+    /// <returns>
+    /// Whether the review-and-map endpoint (§4.1) should proceed to the map phase: true only when a
+    /// real answer came back, never on a missing connector, a build failure, an Azure DevOps error,
+    /// a Stop, or a §4 failure. Spending a second call on a map for a review that didn't happen would
+    /// just repeat the same failure a second time.
+    /// </returns>
+    private static async Task<bool> RunAskAsync(
         string project, string repoId, int prId, string question, Data.AgentThread thread,
         HttpContext http, AdoContext ctx, AppDbContext db,
         AgentRegistry registry, AdoService ado, PrContextService contexts,
@@ -225,7 +281,7 @@ public static class AgentEndpoints
                 // with nothing assigned is a client bug, so it says so plainly.
                 http.Response.StatusCode = 409;
                 await http.Response.WriteAsJsonAsync(new { error = "No connector is assigned to answer PR questions." }, ct);
-                return;
+                return false;
             }
 
             var adapter = registry.For(connector.Provider);
@@ -242,7 +298,7 @@ public static class AgentEndpoints
                         ? $"No adapter is built for {connector.Provider} yet."
                         : "The stored credential could not be read. Press Replace and paste it again.",
                 }, ct);
-                return;
+                return false;
             }
 
             // Building the context needs several ADO calls; a failure there is Launchpad's, not the
@@ -251,19 +307,18 @@ public static class AgentEndpoints
             PullRequestDto? pr;
             try
             {
-                var pulls = await ado.GetPullRequestsAsync(project, repoId, "all", 200, ct);
-                pr = pulls.FirstOrDefault(p => p.Id == prId);
+                pr = await ado.GetPullRequestAsync(project, repoId, prId, ct);
                 if (pr is null)
                 {
                     await Send(http, "error", new { code = "upstream", detail = "That pull request could not be read from Azure DevOps." }, ct);
-                    return;
+                    return false;
                 }
                 context = await contexts.BuildAsync(project, repoId, pr, question, ct);
             }
             catch (AdoService.AdoException ex)
             {
                 await Send(http, "error", new { code = "upstream", detail = $"Azure DevOps: {ex.Message}" }, ct);
-                return;
+                return false;
             }
 
             await Send(http, "context", new
@@ -307,6 +362,14 @@ public static class AgentEndpoints
             var budget = new AgentBudget();
             var scope = new RepoScope(project, repoId, pr.SourceCommit ?? "");
             var reads = new List<string>();
+
+            /* Everything that closed before the stream ended, kept so a failed or stopped answer can
+               still be written down. §5.5 and §6 both require the partial answer to survive beside
+               its error, and without this it survived only until the reviewer reloaded: `answer` is
+               assigned from a Complete event, which is exactly the event a failure or a Stop means
+               never arrives. The prose list is the mode-3 equivalent. */
+            var streamedSegments = new List<AnswerSegment>();
+            var streamedProse = new StringBuilder();
             // What a citation is allowed to name (§5.2). The changed files; the conversation adds
             // whatever the agent actually read to it, since a citation to a caller it looked up is a
             // legitimate answer rather than an invented path.
@@ -323,11 +386,13 @@ public static class AgentEndpoints
                         // rendered the moment it closes rather than a string growing a character at a
                         // time under a badge that can't be decided yet.
                         case ConversationEvent.Segment s:
+                            streamedSegments.Add(s.Value);
                             await Send(http, "segment", ToSegmentDto(s.Value), ct);
                             break;
 
                         // Mode 3 only — prose from a connector that asserted nothing.
                         case ConversationEvent.Delta d:
+                            streamedProse.Append(d.Text);
                             await Send(http, "delta", new { text = d.Text }, ct);
                             break;
 
@@ -357,6 +422,14 @@ public static class AgentEndpoints
                 stopped = true;
             }
 
+            /* A stopped or failed answer keeps what it managed to say.
+             *
+             * The claims below closed and were rendered; discarding them because the turn never
+             * reached Complete is what made a reload erase an answer the reviewer had already read.
+             * `Stopped`/`ErrorCode` still travel with the turn, so it renders beside its error and
+             * ThreadStore.IsPostable still refuses it — the partial is preserved, not promoted. */
+            answer ??= PartialAnswer(streamedSegments, streamedProse.ToString());
+
             var turn = await threads.AppendAsync(
                 thread, question, answer, connector, pr.SourceCommit, usage,
                 stopped, failure?.Code, failure?.Detail,
@@ -368,7 +441,7 @@ public static class AgentEndpoints
             {
                 await Send(http, "error", new
                 {
-                    code = failure.Code.ToString().ToLowerInvariant(),
+                    code = AgentErrorNames.ToWire(failure.Code),
                     httpStatus = failure.HttpStatus,
                     detail = failure.Detail,
                     retryAfter = failure.RetryAfterSeconds,
@@ -385,7 +458,124 @@ public static class AgentEndpoints
             if (failure is null && !stopped) connector.LastOkAt = DateTime.UtcNow;
             if (failure is not null) connector.LastErrorAt = DateTime.UtcNow;
             await db.SaveChangesAsync(stopped ? CancellationToken.None : ct);
+
+            return failure is null && !stopped && answer is not null;
         }
+    }
+
+    /// <summary>
+    /// The map phase of §4.1's Review button — run only after <see cref="RunAskAsync"/> has produced
+    /// a real review turn on the same stream.
+    ///
+    /// Resolves its own connector and rebuilds context rather than threading them through from the
+    /// review phase: both are a handful of lines and a couple of cheap ADO calls, and reusing them
+    /// would mean <c>RunAskAsync</c> handing back state it has no other reason to expose. A fresh
+    /// <see cref="AgentBudget"/> too — the map's reading should not start already spent by whatever
+    /// the review needed to look at.
+    /// </summary>
+    private static async Task RunMapAsync(
+        string project, string repoId, int prId, Data.AgentThread thread,
+        HttpContext http, AdoContext ctx, AppDbContext db,
+        AgentRegistry registry, AdoService ado, PrContextService contexts,
+        ThreadStore threads, AgentConversation conversation, CancellationToken ct)
+    {
+        /* Every failure here is a `map_error` rather than a silent return. This used to run only as
+           the tail of a review that had already reported any of these, so returning quietly was
+           correct; standing on its own behind the wizard's button, silence would leave the reviewer
+           watching a spinner that never resolves. */
+        var holder = await db.ConnectorCapabilities
+            .FirstOrDefaultAsync(c => c.UserId == ctx.UserId && c.Capability == ConnectorProviders.PrQuestions, ct);
+        var connector = holder is null ? null
+            : await db.Connectors.FirstOrDefaultAsync(c => c.Id == holder.ConnectorId, ct);
+        if (connector is null)
+        {
+            await Send(http, "map_error", new { detail = "No connector is assigned to answer PR questions." }, ct);
+            return;
+        }
+
+        var adapter = registry.For(connector.Provider);
+        var target = registry.TargetFor(connector);
+        if (adapter is null || target is null)
+        {
+            await Send(http, "map_error", new
+            {
+                detail = adapter is null
+                    ? $"No adapter is built for {connector.Provider} yet."
+                    : "The stored credential could not be read. Press Replace and paste it again.",
+            }, ct);
+            return;
+        }
+
+        PullRequestDto? pr;
+        PrContext context;
+        try
+        {
+            pr = await ado.GetPullRequestAsync(project, repoId, prId, ct);
+            if (pr is null) { await Send(http, "map_error", new { detail = "That pull request could not be re-read from Azure DevOps." }, ct); return; }
+            // No reviewer-typed question to prioritise truncation by — the map wants the whole
+            // shape, not whatever the last question happened to be about.
+            context = await contexts.BuildAsync(project, repoId, pr, null, ct);
+        }
+        catch (AdoService.AdoException ex)
+        {
+            await Send(http, "map_error", new { detail = $"Azure DevOps: {ex.Message}" }, ct);
+            return;
+        }
+
+        var request = new CanonicalRequest(
+            SystemPrompt: TaskPrompt.Map(context.Truncated),
+            Context: context.Xml,
+            History: [],
+            Question: "Produce the change map.",
+            Model: connector.Model ?? "",
+            Stream: true,
+            Tools: RepoTools.Definitions,
+            ResponseKind: ResponseKind.ChangeMap);
+
+        var budget = new AgentBudget();
+        var scope = new RepoScope(project, repoId, pr.SourceCommit ?? "");
+        ChangeMap? map = null;
+        AgentError? failure = null;
+
+        try
+        {
+            await foreach (var ev in conversation.RunAsync(adapter, target, request, scope, budget, context.Paths, ct))
+            {
+                switch (ev)
+                {
+                    case ConversationEvent.Reading r:
+                        await Send(http, "reading", new { tool = r.Tool, detail = r.Detail }, ct);
+                        break;
+                    case ConversationEvent.MapComplete m:
+                        map = m.Map;
+                        break;
+                    case ConversationEvent.Failed f:
+                        failure = f.Error;
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopping mid-map leaves whatever review already landed untouched; there is simply no
+            // map this time, which "no Map button yet" already represents honestly.
+            return;
+        }
+
+        if (map is null)
+        {
+            await Send(http, "map_error", new
+            {
+                detail = failure?.Detail ?? "The change map could not be produced. Re-review to try again.",
+            }, ct);
+            return;
+        }
+
+        await threads.SaveMapAsync(thread, map, pr.SourceCommit, ct);
+        var turns = await threads.TurnsAsync(thread.Id, ct);
+        // Read back through the same path a reload uses, rather than constructing the DTO twice —
+        // and it cannot be null here, since SaveMapAsync just wrote what Map is about to parse.
+        await Send(http, "map", ThreadStore.Map(thread, turns)!, ct);
     }
 
     /// <summary>One annotation and its conversation (§7.6).</summary>
@@ -400,6 +590,24 @@ public static class AgentEndpoints
         turns.Select(ToTurnDto).ToList(),
         a.CreatedAt,
         a.UpdatedAt);
+
+    /// <summary>
+    /// What a stream had produced before it broke, as an answer worth storing — or null when it had
+    /// produced nothing, which stays a bare failure rather than becoming an empty answer.
+    ///
+    /// Segments win over prose: a connector that emitted structure and then died is still mode 1, and
+    /// downgrading it would relabel claims the agent did assert. Prose alone is mode 3, the same rung
+    /// <see cref="SegmentStreamParser"/> would have put it on.
+    /// </summary>
+    private static CanonicalAnswer? PartialAnswer(List<AnswerSegment> segments, string prose)
+    {
+        if (segments.Count > 0) return new CanonicalAnswer([..segments]);
+
+        var trimmed = prose.Trim();
+        return trimmed.Length == 0
+            ? null
+            : new CanonicalAnswer([new AnswerSegment(trimmed, null, [], null)], StructuredMode.Unverified);
+    }
 
     /// <summary>One turn as the panel renders it. Postability is decided here so the rule has one home.</summary>
     private static AgentTurnDto ToTurnDto(Data.AgentThreadTurn t) => new(
@@ -461,7 +669,7 @@ public static class AgentEndpoints
         }
         else
         {
-            connector.LastErrorCode = probe.Error?.Code.ToString().ToLowerInvariant();
+            connector.LastErrorCode = probe.Error is { } pe ? AgentErrorNames.ToWire(pe.Code) : null;
             connector.LastErrorAt = DateTime.UtcNow;
         }
     }
@@ -470,7 +678,7 @@ public static class AgentEndpoints
         probe.Ok,
         probe.LatencyMs,
         probe.Models,
-        probe.Error?.Code.ToString().ToLowerInvariant(),
+        probe.Error is { } e ? AgentErrorNames.ToWire(e.Code) : null,
         probe.Error?.HttpStatus,
         probe.Error?.Detail,
         probe.Error?.RetryAfterSeconds);

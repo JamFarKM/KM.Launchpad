@@ -12,6 +12,15 @@ namespace PipelineLaunchpad.Server.Services.Agents;
 public class PrContextService(AdoService ado)
 {
     /// <summary>
+    /// How many Azure DevOps reads may be in flight at once while assembling a context block.
+    ///
+    /// Small on purpose. The point is to stop the round-trips being strictly serial, not to get as
+    /// close to the rate limit as possible — Azure DevOps meters per user, and the PAT doing this
+    /// work is the same one the rest of the app needs.
+    /// </summary>
+    private const int MaxConcurrentReads = 5;
+
+    /// <summary>
     /// Assemble the block for one pull request.
     ///
     /// <paramref name="question"/> feeds the truncation priority in §5.1 — files the reviewer
@@ -27,15 +36,26 @@ public class PrContextService(AdoService ado)
         var workItemsTask = ado.GetPullRequestWorkItemsAsync(project, repoId, pr.Id, ct);
         var threadsTask = SafeThreadsAsync(project, repoId, pr.Id, ct);
 
-        var files = new List<FileDiff>();
-        foreach (var change in changes)
-        {
-            // Sequential on purpose: a PR with 200 files would otherwise open 200 concurrent
-            // connections to Azure DevOps and get itself throttled, which reads as "the agent is
-            // broken" rather than "we were rude".
-            var diff = await FileDiffAsync(project, repoId, pr, change, ct);
-            if (diff is not null) files.Add(diff);
-        }
+        /* Bounded, not sequential and not unbounded.
+         *
+         * Two round-trips per file, all of it on the critical path before the agent sees anything,
+         * so one-at-a-time made a forty-file pull request eighty serial calls to Azure DevOps —
+         * comfortably the slowest thing about asking a question. The original reasoning against
+         * concurrency stands and is preserved: firing all 200 files at once gets the request
+         * throttled, which reads as "the agent is broken" rather than "we were rude". That is an
+         * argument against an unbounded fan-out, not against a small window.
+         *
+         * Results land in their own slot rather than being appended, so file order still follows
+         * `changes` — §5.1's truncation drops from the end, and a reordered list would silently
+         * change which files survive it.
+         */
+        var slots = new FileDiff?[changes.Count];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, changes.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentReads, CancellationToken = ct },
+            async (i, token) => slots[i] = await FileDiffAsync(project, repoId, pr, changes[i], token));
+
+        var files = slots.Where(d => d is not null).Select(d => d!).ToList();
 
         var description = await descriptionTask;
         var workItems = await workItemsTask;
@@ -84,23 +104,34 @@ public class PrContextService(AdoService ado)
             .ToList();
         if (!directories.Contains("")) directories.Add("");
 
-        var nearby = new List<string>();
-        foreach (var dir in directories)
-        {
-            try
+        /* Fetched concurrently, assembled sequentially. The 120-path cap below is order-dependent —
+           it keeps the earliest directories and drops the rest — so the listings are gathered into
+           position first and only then walked in order. Doing the cap inside the parallel loop
+           would make which paths survive depend on which response arrived first. */
+        var listings = new List<(string Path, bool IsFolder)>?[directories.Count];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, directories.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentReads, CancellationToken = ct },
+            async (i, token) =>
             {
-                var entries = await ado.ListRepoItemsAsync(project, repoId, dir, pr.SourceCommit, ct);
-                foreach (var (path, isFolder) in entries)
-                {
-                    // Folders are listed with a trailing slash so the agent can tell what it can
-                    // descend into from what it can read.
-                    var display = isFolder ? path + "/" : path;
-                    if (!isFolder && changed.Contains(path)) continue;   // already in the diff
-                    if (nearby.Count >= 120) return nearby;              // hard stop on orientation
-                    nearby.Add(display);
-                }
+                // A directory we cannot list is not worth failing over.
+                try { listings[i] = await ado.ListRepoItemsAsync(project, repoId, directories[i], pr.SourceCommit, token); }
+                catch (AdoService.AdoException) { listings[i] = null; }
+            });
+
+        var nearby = new List<string>();
+        foreach (var entries in listings)
+        {
+            if (entries is null) continue;
+            foreach (var (path, isFolder) in entries)
+            {
+                // Folders are listed with a trailing slash so the agent can tell what it can
+                // descend into from what it can read.
+                var display = isFolder ? path + "/" : path;
+                if (!isFolder && changed.Contains(path)) continue;   // already in the diff
+                if (nearby.Count >= 120) return nearby;              // hard stop on orientation
+                nearby.Add(display);
             }
-            catch (AdoService.AdoException) { /* a directory we cannot list is not worth failing over */ }
         }
         return nearby;
     }

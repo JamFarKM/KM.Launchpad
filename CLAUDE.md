@@ -26,9 +26,31 @@ silently logged out with their connectors gone and no error anywhere. This is no
 happened, four deploys in a row. `docker logs` now prints the resolved data directory at boot — check
 it says `/data` after any change to how the container is started.
 
-Serves on `http://localhost:8080`. The frontend typechecks with
-`cd src/web && npx tsc --noEmit -p tsconfig.json`; the server builds with
-`cd src/server && dotnet build`.
+Serves on `http://localhost:8080`. Before calling a change done, all four of these pass:
+
+| Check | Command |
+|---|---|
+| Server build — **warnings are errors** | `cd src/server && dotnet build` |
+| Server tests | `cd src/server.tests && dotnet test` |
+| Frontend typecheck | `cd src/web && npm run typecheck` |
+| Frontend tests | `cd src/web && npm test` |
+
+`dotnet test` also **regenerates the three fixtures** in `src/web/design/*.json` from the live code.
+A fixture diff after a schema or prompt change is the system working — commit it. Any other churn
+(line endings, reordering) is a bug in the generator, not something to hand-fix.
+
+## Server conventions
+
+- **Zero warnings is the only steady state.** `TreatWarningsAsErrors` is on in both projects. Fix a
+  new warning at its cause; don't suppress it to get a build through.
+- **An enum that crosses the wire gets a `…Names` class beside it** with `Parse`/`ToWire`
+  (`AgentErrorNames`, `ProvenanceNames`, `SeverityNames` in `Canonical.cs`). Never
+  `ToString().ToLowerInvariant()`: that spells `RateLimited` as `ratelimited` while every client
+  matches `rate_limited`, and the mismatch doesn't fail — it silently renders the generic error copy
+  §4 calls a defect, which is how it went unnoticed the first time.
+- **Shared budgets live in `Canonical.cs`** (`AgentTimeouts`, `AgentBudget` — including
+  `MaxAnswerTokens`) and are referenced, never restated: not as a second constant in an adapter, and
+  not as figures in a doc comment, which is where the last stale copy lived.
 
 ## Design system
 
@@ -42,6 +64,7 @@ Specs live in `src/web/design/`. Read the relevant one **before** changing any U
 | `DESIGN_SPEC_CONFIG_LABELS.md` | Configurations: one row per key, labels stacked in the detail pane — addendum |
 | `DESIGN_SPEC_POLISH.md` | Truncation, iconography, motion, focus, empty states — addendum |
 | `DESIGN_SPEC_CONNECTORS.md` | Settings › Connectors, the provider/adapter architecture, the wire contract, error taxonomy |
+| `DESIGN_SPEC_CHANGE_MAP.md` | The change map: architecture-grouped PR visualisation, opened via the agent panel's Review button. Built — schema/prompt/endpoint in `Canonical.cs`/`TaskPrompt.cs`/`AgentEndpoints.cs`, sheet in `ChangeMapSheet.tsx`. `change-map-v1.html` is the mockup the layout engine was ported from |
 | `BETBOT_INTEGRATION_PLAN.md` | What we asked the BetBot team for — the Custom-adapter (§5.A) half of the contract. Not the whole story: Anthropic and GitHub Copilot are separate adapters with no external counterpart document |
 | `src/lib/truncate.ts` + `components/Truncated.tsx` | Text fitting. Use them; do not hand-roll truncation |
 | `launchpad-tokens.css` | All tokens. Single source of truth for colour, spacing, radii, type |

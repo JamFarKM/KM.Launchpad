@@ -268,3 +268,10 @@ Word-level diff can follow step 2 as its own change; it's the only part needing 
 - **Syntax highlighting engine.** The mockup uses a throwaway regex highlighter for C# and SQL only. If the real page already uses a library, re-theme it against §2 rather than replacing it — the requirement is only that the theme contains no green and no red.
 - **Minimap.** Kept as-is but recoloured to `--diff-*-stripe` at 55% and now shows deletions too. Worth deciding whether it should also mark comment threads (the mockup has a `.cmt` class in accent blue, unused) — and, now that inline agent annotations exist (`DESIGN_SPEC_CONNECTORS.md` §7.6), whether it should mark those too.
 - **Dock height persistence.** Remembered "for the session" is the minimum bar. Worth deciding whether it should persist across sessions (a per-user preference, like the model `<select>` in Settings) or reset each time — leaning toward persisting, but confirm before building storage for it.
+
+**Decided (2026-08-15):**
+
+- *Word-level diff* — resolved by implementation: Monaco's `diffAlgorithm: "advanced"` provides it; no bespoke LCS.
+- *Viewed-state key* — resolved by implementation: keyed on `(prId, sourceCommit)`, so it clears on a push.
+- *Syntax highlighting* — resolved by implementation: Monaco, re-themed per §2.
+- *Minimap* — diff stripes only. No comment-thread or annotation markers: the file tree already carries per-file thread counts, the gutter carries annotation markers, and the mockup's accent-blue `.cmt` class would have violated A1 anyway (a thread marker is not an action). Drop the unused class.

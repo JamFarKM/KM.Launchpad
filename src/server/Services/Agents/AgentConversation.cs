@@ -17,6 +17,10 @@ public abstract record ConversationEvent
     public sealed record Complete(CanonicalAnswer Answer, AgentUsage? Usage, IReadOnlyList<string> Reads)
         : ConversationEvent;
 
+    /// <summary>The change map, already validated against the paths the agent actually had (§2).</summary>
+    public sealed record MapComplete(ChangeMap Map, AgentUsage? Usage, IReadOnlyList<string> Reads)
+        : ConversationEvent;
+
     public sealed record Failed(AgentError Error) : ConversationEvent;
 }
 
@@ -88,7 +92,7 @@ public class AgentConversation(RepoTools tools)
                            provenance badge floating over no text, which tells the reviewer nothing and
                            looks like the agent said something unreadable. As a typed error it says
                            what happened and offers Retry, which is what §6 asks for everywhere else. */
-                        if (c.Answer.Segments.Count == 0 || c.Answer.IsEmpty)
+                        if (c.Answer.IsEmpty)
                         {
                             yield return new ConversationEvent.Failed(new AgentError(
                                 AgentErrorCode.Upstream,
@@ -100,6 +104,26 @@ public class AgentConversation(RepoTools tools)
                         yield return new ConversationEvent.Complete(
                             c.Answer with { Segments = [..c.Answer.Segments.Select(s => Resolve(s, citablePaths))] },
                             usage, tools.Reads);
+                        finished = true;
+                        break;
+
+                    case AgentEvent.MapComplete mc:
+                        usage = Merge(usage, mc.Usage);
+
+                        // Same reasoning as the empty-answer check above, aimed at a graph instead of
+                        // a segment list: no partial diagram, ever (§7). A map that fails to parse or
+                        // validate is reported as a typed failure with Retry, never as an empty sheet.
+                        var map = ChangeMapParser.Parse(mc.Json, KnownPaths(citablePaths));
+                        if (map is null)
+                        {
+                            yield return new ConversationEvent.Failed(new AgentError(
+                                AgentErrorCode.Upstream,
+                                Detail: "The agent's change map could not be read. Asking again usually works."));
+                        }
+                        else
+                        {
+                            yield return new ConversationEvent.MapComplete(map, usage, tools.Reads);
+                        }
                         finished = true;
                         break;
 
@@ -153,9 +177,7 @@ public class AgentConversation(RepoTools tools)
     {
         if (segment.Citations.Count == 0) return segment;
 
-        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in citablePaths) known.Add(Normalise(p));
-        foreach (var p in tools.Reads) known.Add(Normalise(p));
+        var known = KnownPaths(citablePaths);
 
         // No file list at all means nothing to check against, and dropping every citation would be
         // worse than keeping them: they'd all disappear on a PR whose files failed to load.
@@ -163,6 +185,19 @@ public class AgentConversation(RepoTools tools)
 
         var kept = segment.Citations.Where(c => known.Contains(Normalise(c.Path))).ToList();
         return kept.Count == segment.Citations.Count ? segment : segment with { Citations = kept };
+    }
+
+    /// <summary>
+    /// Every path a citation — or a change-map file — may legitimately name: the pull request's
+    /// changed files, plus whatever the agent went and read. Shared between <see cref="Resolve"/> and
+    /// the change-map validation above, since both are the same rule applied to a different shape.
+    /// </summary>
+    private HashSet<string> KnownPaths(IReadOnlyCollection<string> citablePaths)
+    {
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in citablePaths) known.Add(Normalise(p));
+        foreach (var p in tools.Reads) known.Add(Normalise(p));
+        return known;
     }
 
     private static string Normalise(string path) => path.TrimStart('/');

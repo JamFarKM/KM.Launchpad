@@ -713,7 +713,7 @@ OpenAI needed no dedicated mockup state (§3.0). Everything below applies to bot
 {
   "model": "claude-opus-4",
   "stream": true,
-  "max_completion_tokens": 2048,
+  "max_completion_tokens": 8192,
   "messages": [
     { "role": "system", "content": "<the canonical task prompt — §5.3>" },
     { "role": "user",   "content": "<pull-request-context>…</pull-request-context>\n\nWhat does this PR change?" },
@@ -963,6 +963,16 @@ citation the agent ever made, only the ones worth a thread.
 **Resolving.** A `Resolve` action on the card dims its gutter marker and drops it from the cycle count, without
 deleting it — same "never destroy a record of what was asked" principle as §7.5's main thread. A `Show resolved`
 toggle in the cycling control brings dimmed markers back into rotation for a re-read.
+
+**Sliding** *(added 2026-08-15)*. The card inevitably covers some of the code it is about, and the scrim only
+declares that honestly — it doesn't solve it. So the header doubles as a drag handle and the card slides
+**horizontally only**: the vertical position is the anchor (the pointer and the scrim tie the card to its line),
+while the horizontal position carries no meaning and is therefore the reviewer's to take — the same reasoning
+that makes the rail width and dock height theirs. While the card is slid aside the scrim is hidden, since dimming
+the very lines the reviewer moved the card to read would defeat the gesture; sliding it home (or double-clicking
+the header) brings the scrim back. The slide is a peek, not a preference: it resets when the card moves to
+another stop, and it is pointer-only — a keyboard user closes with `Esc` and reopens from the marker, which
+reveals the same lines.
 
 **Data shape**, kept deliberately close to §7.5's conversation shape rather than inventing a parallel model:
 

@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { askAgent } from "../lib/askAgent";
+import { askAgent, askMap, askReview } from "../lib/askAgent";
+import { WizardSheet } from "./WizardSheet";
 import type {
-  AgentCitation, AgentSegment, AgentTurn, Connector, ConnectorProvider, PullRequest,
+  AgentCitation, AgentSegment, AgentTurn, ChangeMap, Connector, ConnectorProvider, PullRequest,
 } from "../types";
 
 const PR_QUESTIONS = "pr.questions";
+
+/** Must match AgentEndpoints.ReviewQuestion server-side — how a review turn is told apart from an
+    ordinary typed question, since nothing else marks one as such once it's stored. */
+const REVIEW_QUESTION = "Review this pull request. Identify concrete problems, risks and notable "
+  + "design decisions — cite specific lines. If nothing stands out, say so plainly.";
 
 /*
  * These are answerable now. "Is anything here not covered by tests?" shipped in the previous step
@@ -73,12 +79,30 @@ export function AgentPanel({
   /* What is being drafted for the pull request: one specific claim, not a whole turn (§7.4). */
   const [posting, setPosting] = useState<{ segment: AgentSegment; connectorName?: string | null } | null>(null);
 
+  /* §4.1's Review button. Separate from the ask() state above rather than reusing it: a Review can
+     run while the composer is untouched, and conflating the two would mean a typed question and a
+     Review fighting over one "streaming" flag. */
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewSegments, setReviewSegments] = useState<AgentSegment[]>([]);
+  const [reviewReading, setReviewReading] = useState<string | null>(null);
+  const [reviewFailure, setReviewFailure] = useState<{ code: string; detail?: string | null } | null>(null);
+  /* The wizard's own call (§8), separate from Review's. Two buttons, two spends, and neither one
+     pays for the other: tying them meant every review produced a walkthrough nobody had asked to
+     see. `wizardOpen` is what the Wizard button does once a map exists. */
+  const [mapping, setMapping] = useState(false);
+  const [map, setMap] = useState<ChangeMap | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const reviewAbort = useRef<AbortController | null>(null);
+  const mapAbort = useRef<AbortController | null>(null);
+
   const abort = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
   // Server-recorded turns are the source of truth; local state mirrors them so a stream can render
   // before the query refetches.
   useEffect(() => { if (threadQ.data) setTurns(threadQ.data.turns); }, [threadQ.data]);
+  useEffect(() => { if (threadQ.data) setMap(threadQ.data.map ?? null); }, [threadQ.data]);
 
   useEffect(() => {
     if (prefill) { setQuestion(prefill); onPrefillConsumed?.(); }
@@ -148,9 +172,83 @@ export function AgentPanel({
     }
   }
 
+  /** Review (§4.1): a fixed question down the same path a typed one takes, so it lands as a turn. */
+  async function runReview() {
+    if (reviewing || !connector) return;
+
+    setReviewSegments([]);
+    setReviewReading(null);
+    setReviewFailure(null);
+    setReviewing(true);
+
+    const controller = new AbortController();
+    reviewAbort.current = controller;
+
+    try {
+      await askReview(project, repoId, pr.id, {
+        onReading: (info) => setReviewReading(info.detail || info.tool),
+        onSegment: (segment) => setReviewSegments((s) => [...s, segment]),
+        onComplete: (turn) => {
+          // A review is a normal turn the moment it lands — same rendering, same "Post as
+          // comment…", same replay — so it joins the thread exactly like a typed question would.
+          setTurns((t) => [...t, turn]);
+          setReviewSegments([]);
+          setReviewReading(null);
+        },
+        onError: (e) => setReviewFailure(e),
+      }, controller.signal);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setReviewFailure({ code: "upstream", detail: "The request could not be completed." });
+      }
+    } finally {
+      setReviewing(false);
+      reviewAbort.current = null;
+      threadQ.refetch();
+    }
+  }
+
+  /**
+   * The Wizard button (§8). One control, three behaviours, and which one it is depends only on
+   * whether a walkthrough already exists — so the label always says what pressing it will do.
+   *
+   * @param force Re-map: throw away the stored walkthrough and ask again on the current commit.
+   */
+  async function runWizard(force = false) {
+    if (mapping || !connector) return;
+
+    // Already have one: opening it is free, and re-running would spend a call to replace something
+    // the reviewer just asked to look at.
+    if (map && !force) { setWizardOpen(true); return; }
+
+    setMapError(null);
+    setMapping(true);
+
+    const controller = new AbortController();
+    mapAbort.current = controller;
+
+    try {
+      await askMap(project, repoId, pr.id, {
+        onReading: (info) => setReviewReading(info.detail || info.tool),
+        onMap: (m) => { setMap(m); setWizardOpen(true); },
+        onError: (detail) => setMapError(detail ?? "The walkthrough could not be produced."),
+      }, controller.signal);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setMapError("The request could not be completed.");
+      }
+    } finally {
+      setMapping(false);
+      setReviewReading(null);
+      mapAbort.current = null;
+      threadQ.refetch();
+    }
+  }
+
   const name = connector?.name ?? "Agent";
   const unreachable = connector?.status === "unreachable";
   const missing = !connectorsQ.isLoading && !connector;
+  const hasReviewed = turns.some((t) => t.question === REVIEW_QUESTION) || map !== null;
 
   /* The panel's header: who is answering, on what model, and whether it is reachable. The status is
      a dot plus a word, and the shape differs per state (A4), so hue is never the only signal. */
@@ -168,6 +266,39 @@ export function AgentPanel({
           {missing ? "Settings › Connectors" : unreachable ? "Unreachable on the last attempt" : connector?.model ?? ""}
         </div>
       </div>
+
+      {/* Two actions, two spends, and each label says what pressing it costs. Review reads the diff
+          and reports problems; Wizard maps the change and walks it. Neither pays for the other.
+
+          The glyphs are chosen against the palette, not just for meaning. A1 reserves blue for run
+          buttons and list selection, and §7.1 reserves violet for "this connector is answering right
+          now" — so 🔍 (blue rim), 🩺 and 🧙 (blue) all put a reserved signal on a secondary control,
+          and 👣 / 🔮 (violet) do the same to the other one. 🧐 and 🎩 stay clear of both: the hat is
+          near-black with a magenta band, which is a different hue from the blue-purple violet and
+          reads as its own thing rather than as activity. Both also hold their shape at 12px, where
+          the wand went spindly. */}
+      {!missing && (
+        <div className="ag-headctl">
+          <button
+            className="ag-mini"
+            onClick={runReview}
+            disabled={reviewing || mapping || unreachable}
+            title={hasReviewed ? "Review again on the current commit" : "Ask for problems, risks and notable decisions"}
+          >
+            {reviewing ? "Reviewing…" : hasReviewed ? "🧐 Re-review" : "🧐 Review"}
+          </button>
+          <button
+            className="ag-mini"
+            onClick={() => runWizard()}
+            disabled={reviewing || mapping || unreachable}
+            title={map
+              ? "Open the walkthrough — already generated, costs nothing"
+              : "Map this change and walk through it step by step"}
+          >
+            {mapping ? "Mapping…" : map ? "🎩 Show walkthrough" : "🎩 Wizard"}
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -290,6 +421,56 @@ export function AgentPanel({
           </div>
         )}
 
+        {/* The review's own claims stream exactly like an ordinary answer's — same card, same
+            badges — because it is one: turn.question just happens to be fixed rather than typed.
+            Hidden once mapping starts, since by then this turn has already joined `turns` above. */}
+        {reviewing && !mapping && (
+          <div className="ag-turn">
+            <div className="ag-you"><div className="ag-bubble">Review this pull request</div></div>
+            <div className="ag-answer">
+              <div className="ag-ahead"><span className="ag-who">{name.toUpperCase()}</span></div>
+
+              {reviewSegments.map((s, i) => <Segment key={i} segment={s} onCite={onCite} />)}
+
+              <div className="ag-pending">
+                <span className="ag-prov pending" title="The source is stated when this part lands.">
+                  CHECKING SOURCES
+                </span>
+                {reviewReading
+                  ? <span className="ag-thinking">reading <code>{reviewReading}</code>…</span>
+                  : reviewSegments.length === 0
+                    ? <span className="ag-thinking">reading the diff and the description…</span>
+                    : null}
+              </div>
+
+              <div className="ag-afoot">
+                <button className="ag-mini" onClick={() => reviewAbort.current?.abort()}>Stop</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* The wizard working. Stoppable, unlike the old map phase — this is now its own request
+            rather than the tail of a review whose turn had already landed, so abandoning it leaves
+            nothing half-recorded. */}
+        {mapping && (
+          <div className="ag-pending ag-mapping">
+            <span className="spin" aria-hidden="true" />
+            <span className="ag-thinking">
+              {reviewReading
+                ? <>mapping — reading <code>{reviewReading}</code>…</>
+                : "working out the shape of the change…"}
+            </span>
+            <button className="ag-mini" onClick={() => mapAbort.current?.abort()}>Stop</button>
+          </div>
+        )}
+
+        {mapError && (
+          <div className="ag-banner ag-note">
+            <div><b>The walkthrough didn't come back.</b> {mapError}</div>
+          </div>
+        )}
+
         {truncation && (
           <div className="ag-banner ag-note">
             <div>
@@ -301,7 +482,19 @@ export function AgentPanel({
         )}
 
         {failure && <FailureRow failure={failure} name={name} />}
+        {reviewFailure && <FailureRow failure={reviewFailure} name={name} />}
       </div>
+
+      {wizardOpen && map && (
+        <WizardSheet
+          map={map}
+          prTitle={pr.title}
+          connectorName={name}
+          onCite={(path, line) => { setWizardOpen(false); onCite(path, line); }}
+          onClose={() => setWizardOpen(false)}
+          onRemap={() => { setWizardOpen(false); runWizard(true); }}
+        />
+      )}
 
       <div className="ag-composer">
         <textarea
@@ -524,6 +717,12 @@ export function failureCopy(code: string | null | undefined, name: string): stri
     rate_limited: `${name} is rate-limiting us. Wait a moment and try again.`,
     not_found: `${name}'s endpoint returned 404 — check its base URL in Settings.`,
     unsupported: `${name} can't produce structured answers, so sources aren't stated.`,
+    not_openai: `${name}'s endpoint didn't answer with a model list Launchpad recognises — often a proxy or a login page. Check its base URL in Settings.`,
+    /* The three OAuth codes. A seat, not a secret, is what gates Copilot, so "replace the
+       credential" is the wrong next step for all of them. */
+    oauth_denied: `${name}'s authorisation was declined or revoked. Reconnect it in Settings › Connectors.`,
+    oauth_expired: `${name}'s authorisation has expired. Reconnect it in Settings › Connectors.`,
+    no_seat: `This account has no licensed ${name} seat, so it can't answer. Ask whoever administers your subscription.`,
     /* Deliberately vague, because the code is: `upstream` is the taxonomy's catch-all and covers a
        5xx, a mid-stream error envelope, and an answer that came back empty. The `detail` beside it
        is what actually distinguishes those, which is why it is now stored on the turn rather than

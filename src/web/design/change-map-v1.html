@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change map — mockup v1</title>
+<style>
+/* Tokens lifted from src/web/src/styles.css — dark authored at :root, light as override,
+   matching the app. Mockup-local CSS is throwaway by design (see DESIGN_SPEC_REVIEW.md §12). */
+:root {
+  --bg-page: #0d0d0d; --bg-surface: #1a1a19; --bg-surface-2: #212120;
+  --border-hairline: rgba(255,255,255,0.11); --hover-wash: rgba(255,255,255,0.06);
+  --ink-primary: #ffffff; --ink-secondary: #c3c2b7; --ink-muted: #8b8a84;
+  --accent: #3987e5; --status-bad: #e66767; --status-warn: #fab219;
+  --hue-violet: #9085e9; --hue-aqua: #35b3c4; --hue-slate: #8b95a3;
+  --shadow-pop: 0 8px 30px rgba(0,0,0,0.5);
+}
+:root[data-theme="light"] {
+  --bg-page: #f7f7f5; --bg-surface: #ffffff; --bg-surface-2: #fbfbf9;
+  --border-hairline: rgba(11,11,11,0.09); --hover-wash: #f2f1ec;
+  --ink-primary: #0b0b0b; --ink-secondary: #52514e; --ink-muted: #8b8a84;
+  --accent: #2a78d6; --status-bad: #d03b3b; --status-warn: #e59400;
+  --hue-violet: #6b5bd6; --hue-aqua: #1097a8; --hue-slate: #5c6672;
+  --shadow-pop: 0 8px 30px rgba(16,24,32,0.16);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 28px 16px; background: var(--bg-page); color: var(--ink-primary);
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ---------- the sheet ---------- */
+.sheet {
+  max-width: 1120px; margin: 0 auto; background: var(--bg-surface);
+  border: 1px solid var(--border-hairline); border-radius: 12px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sheet-head {
+  display: flex; align-items: center; gap: 9px; padding: 10px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.sheet-title { font-size: 13px; font-weight: 700; }
+.pill {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 100px; white-space: nowrap;
+}
+.pill.infer { background: color-mix(in oklab, var(--hue-slate) 16%, transparent); color: var(--hue-slate); cursor: help; }
+.pill.warn  { background: color-mix(in oklab, var(--status-warn) 14%, transparent); color: var(--status-warn); }
+.commit { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--ink-muted); }
+.mini {
+  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px;
+  border-radius: 6px; border: 1px solid var(--border-hairline); background: transparent;
+  color: var(--ink-secondary); font: 600 11px system-ui, sans-serif; cursor: pointer;
+}
+.mini:hover { background: var(--hover-wash); color: var(--ink-primary); }
+.mini[aria-pressed="true"] { border-color: var(--ink-secondary); color: var(--ink-primary); }
+
+.sheet-main { display: flex; min-height: 0; }
+@media (max-width: 899px) { .sheet-main { flex-direction: column; } }
+
+/* ---------- diagram ---------- */
+/* Right padding is the skip-edge channel (see routeFor): edges that jump a band run vertically in
+   here rather than cutting diagonally across the bands between. */
+.map { flex: 1; min-width: 0; position: relative; padding: 14px 44px 10px 20px; }
+.axis {
+  position: absolute; left: 1px; top: 22px; bottom: 18px; width: 13px;
+  color: var(--ink-muted); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg);
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--border-hairline);
+}
+/* The deep bottom padding is the edge gutter. Edges between neighbouring bands make their
+   horizontal run in here, and the next band's label sits below that run — the two used to share
+   ~14px and collided ("builds snapshot" landing on "DOMAIN CORE"). */
+/* The label is a row header in its own column, not a caption sitting inside the diagram. It used to
+   float above the cards, which put it in the middle of the space edges route through — arrows ran
+   through the words, and the words competed with the cards for attention. Out here it reads as an
+   axis tick: quiet, skimmable, and nothing has to route around it. */
+/* The bottom padding is the label gutter: a selected group can light four labels at once, and at
+   10px per track they need ~50px of card-free strip to stack in. */
+.band { display: grid; grid-template-columns: 82px 1fr; column-gap: 14px; align-items: start; padding: 10px 0 42px; }
+.band + .band { border-top: 1px dashed var(--border-hairline); }
+.band-label {
+  text-align: right; padding-top: 9px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-muted);
+}
+/* stretch (the flex default) keeps every card in a row the same height, so all edges leaving a row
+   leave from one baseline. The wide column gap is deliberate: a same-band edge lives in it, and at
+   12px the arrowhead was longer than the line it sat on. */
+.nodes { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: stretch; }
+
+/* Fixed width, so cards form real columns across bands. That is what lets the ordering pass below
+   put connected groups in the same column and give them a genuinely straight vertical edge. */
+/* One shared width, set by fitNodes() so the busiest band fits on a single row and every band's
+   cards line up in the same columns. Columns are what let the ordering pass turn a dependency into
+   a genuinely straight vertical line — and a band that never wraps is what keeps the gutter between
+   bands empty, which is what the router assumes when it runs an edge through it. */
+.node {
+  text-align: left; background: var(--bg-surface-2); border: 1px solid var(--border-hairline);
+  border-radius: 9px; padding: 8px 10px; cursor: pointer; color: inherit;
+  font: inherit; width: var(--node-w, 168px); position: relative;
+}
+.node:hover { border-color: var(--hue-slate); }
+.node[aria-pressed="true"] { border-color: var(--hue-violet); box-shadow: 0 0 0 1px var(--hue-violet); }
+.node-name { font-size: 12px; font-weight: 650; }
+.node-meta { display: flex; gap: 8px; margin-top: 3px; font-size: 10.5px; color: var(--ink-muted); white-space: nowrap; }
+.node-meta .add { color: var(--hue-aqua); }
+.node-meta .del { color: var(--status-bad); }
+/* Review findings citing lines in this area — the map doubling as the review's table of contents.
+   Its own row, because at these card widths it wrapped mid-phrase inside the meta line. Neutral
+   ink: the count is navigation, and severity is already the ⚠ flag's job. */
+.node-find {
+  margin-top: 4px; font-size: 10.5px; font-weight: 600;
+  color: var(--ink-secondary); white-space: nowrap;
+}
+.node .flag {
+  position: absolute; top: -7px; right: 8px; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.04em; padding: 1px 6px; border-radius: 100px;
+  background: color-mix(in oklab, var(--status-warn) 18%, var(--bg-surface));
+  color: var(--status-warn); border: 1px solid color-mix(in oklab, var(--status-warn) 45%, transparent);
+}
+.node .step {
+  position: absolute; top: -9px; left: -9px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--ink-primary); color: var(--bg-surface); font-size: 10.5px; font-weight: 700;
+  display: none; align-items: center; justify-content: center;
+}
+
+/* edges live in one SVG over the whole diagram */
+svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.edge path.line { fill: none; stroke: var(--hue-slate); stroke-width: 1.4; opacity: 0.75; }
+/* A verb appears on the edge you point at, one at a time — never before. Selection lights the shape
+   (which edges belong to this group); pointing asks what one does. Two questions, answered
+   separately, because answering both at once put five pieces of text on a seven-node graph.
+
+   The violation is no exception, and that is the point: the *warning* is carried by the dashed amber
+   line and the ⚠ pill on the card, which are always visible and need no words. Only the sentence
+   explaining it waits to be asked for. A permanent block of amber text was reading as clutter rather
+   than as urgency — the sign that a signal is too loud is that it stops being read. */
+.edge text {
+  display: none;
+  font: 600 9.5px system-ui, sans-serif; fill: var(--ink-muted);
+  paint-order: stroke; stroke: var(--bg-surface); stroke-width: 3px;
+  pointer-events: none;
+}
+.edge:hover text { display: revert; }
+.edge:hover path.line { stroke-width: 2.2; }
+/* Invisible and fat, because a 1.4px line is not a pointer target. */
+.edge path.hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; cursor: help; }
+/* A dimmed edge you are pointing at comes back to full strength — otherwise its label reads as
+   faint too, at the moment it is the one thing being asked for. */
+.map[data-mode] .edge:hover { opacity: 1; }
+/* Channel labels grow leftward into the empty space beside the channel, never off the sheet. */
+.edge text.side { text-anchor: end; }
+.edge text.mid { text-anchor: middle; }
+.edge.viol path.line { stroke: var(--status-warn); stroke-dasharray: 5 4; stroke-width: 1.7; opacity: 1; }
+.edge.viol text { fill: var(--status-warn); }
+.edge.flowarrow path.line { stroke: var(--ink-primary); stroke-width: 1.8; opacity: 0.9; }
+
+/* dimming: selection and flow mode */
+.map[data-mode] .node, .map[data-mode] .edge { opacity: 0.28; transition: none; }
+.map[data-mode] .node.lit, .map[data-mode] .edge.lit { opacity: 1; }
+.map[data-mode="flow"] .node.lit .step { display: flex; }
+
+.map-foot { padding: 4px 16px 12px 44px; font-size: 10.5px; color: var(--ink-muted); }
+.flow-sentence { display: none; padding: 0 16px 10px 44px; font-size: 11.5px; color: var(--ink-secondary); }
+.flow-sentence b { color: var(--ink-primary); }
+.sheet[data-flow="on"] .flow-sentence { display: block; }
+
+/* ---------- detail rail ---------- */
+.rail {
+  width: 300px; flex-shrink: 0; border-left: 1px solid var(--border-hairline);
+  padding: 12px 14px; background: var(--bg-surface);
+}
+@media (max-width: 899px) { .rail { width: auto; border-left: 0; border-top: 1px solid var(--border-hairline); } }
+.rail h3 { margin: 0 0 4px; font-size: 12.5px; }
+.rail .sum { margin: 0 0 10px; font-size: 12px; color: var(--ink-secondary); }
+.file {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  background: transparent; border: 1px solid var(--border-hairline); border-radius: 6px;
+  padding: 5px 8px; margin-bottom: 6px; cursor: pointer; color: var(--ink-secondary);
+  font: 10.5px ui-monospace, Consolas, monospace;
+}
+.file:hover { border-color: var(--hue-violet); color: var(--hue-violet); }
+.file .counts { margin-left: auto; }
+.rail .hint { font-size: 10.5px; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-head">
+    <span class="sheet-title">Change map</span>
+    <span class="pill infer" title="The agent's read of this repo's shape — the folders don't declare it. FROM STRUCTURE (aqua) when they do.">Inferred · clean architecture</span>
+    <span class="commit">a3f9c21</span>
+    <span style="flex:1"></span>
+    <button class="mini" id="flowBtn" aria-pressed="false">Show user flow</button>
+    <button class="mini" id="themeBtn">Dark</button>
+    <button class="mini" title="Close (Esc)">✕</button>
+  </div>
+
+  <div class="sheet-main">
+    <div class="map" id="map">
+      <div class="axis">outer&nbsp;→&nbsp;core</div>
+      <svg class="edges" id="edges"></svg>
+
+      <div class="band" data-depth="2">
+        <div class="band-label">Edge &amp; infrastructure</div>
+        <div class="nodes">
+          <button class="node" id="n-api"><span class="step"></span>
+            <div class="node-name">Bet placement endpoint</div>
+            <div class="node-meta"><span>1 file</span><span class="add">+9</span><span class="del">−2</span></div>
+          </button>
+          <button class="node" id="n-flag"><span class="step"></span>
+            <div class="node-name">Feature flag</div>
+            <div class="node-meta"><span>1 file</span><span class="add">+1</span><span class="del">−0</span></div>
+          </button>
+          <button class="node" id="n-voucher"><span class="step"></span>
+            <div class="node-name">Voucher client</div>
+            <div class="node-meta"><span>1 file</span><span class="add">+3</span><span class="del">−1</span></div>
+          </button>
+          <button class="node" id="n-settle"><span class="step"></span>
+            <div class="node-name">Settlement store</div>
+            <div class="node-meta"><span>1 file</span><span class="add">+14</span><span class="del">−0</span></div>
+          </button>
+        </div>
+      </div>
+
+      <div class="band" data-depth="1">
+        <div class="band-label">Application</div>
+        <div class="nodes">
+          <button class="node" id="n-orch"><span class="step"></span><span class="flag">⚠ check</span>
+            <div class="node-name">Coupon placement orchestration</div>
+            <div class="node-meta"><span>1 file</span><span class="add">+31</span><span class="del">−12</span></div>
+            <div class="node-find">2 review findings</div>
+          </button>
+          <button class="node" id="n-valid"><span class="step"></span>
+            <div class="node-name">Snapshot validation</div>
+            <div class="node-meta"><span>1 file</span><span class="add">+8</span><span class="del">−1</span></div>
+            <div class="node-find">1 review finding</div>
+          </button>
+        </div>
+      </div>
+
+      <div class="band" data-depth="0">
+        <div class="band-label">Domain core</div>
+        <div class="nodes">
+          <button class="node" id="n-snap"><span class="step"></span>
+            <div class="node-name">Coupon snapshot model</div>
+            <div class="node-meta"><span>2 files</span><span class="add">+24</span><span class="del">−1</span></div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="rail" id="rail">
+      <h3>MyBoost — base structure</h3>
+      <p class="sum">Select an area to see its files and the agent's one-line read of what changed there.</p>
+      <p class="hint">Clicking a file in the real sheet closes the map and jumps the diff to it — the citation-chip behaviour, same code path.</p>
+    </div>
+  </div>
+
+  <div class="flow-sentence" id="flowSentence"></div>
+  <div class="map-foot">Point at an edge to see what it does. A <b>dashed amber</b> edge points outward, against this architecture's own rule — arithmetic on the graph, not the model grading itself. Grouping by <b>Claude</b>, from the diff and 4 files it read; not a build-system fact.</div>
+</div>
+
+<script>
+/* What the agent would emit (§2 of the spec): a typed graph, no geometry. */
+const groups = {
+  "n-api":    { name: "Bet placement endpoint", depth: 2, summary: "Accepts the placement request and forwards the coupon; gains the MyBoost pass-through.", files: [["BetsController.cs", "+9 −2"]] },
+  "n-flag":   { name: "Feature flag", depth: 2, summary: "MyBoost is dark-launched behind a flag; nothing reads it yet in production.", files: [["appsettings.features.json", "+1 −0"]] },
+  "n-voucher":{ name: "Voucher client", depth: 2, summary: "Lookup now also returns boost eligibility alongside the voucher.", files: [["VoucherClient.cs", "+3 −1"]] },
+  "n-settle": { name: "Settlement store", depth: 2, summary: "Snapshot persisted with the new fields so settlement sees what placement saw.", files: [["SettlementRepository.cs", "+14 −0"]] },
+  "n-orch":   { name: "Coupon placement orchestration", depth: 1, summary: "Builds the snapshot, then rebuilds it after the voucher lookup — which is where a MyBoost set earlier is silently discarded.", files: [["CouponPlacementOrchestrator.cs", "+31 −12"]] },
+  "n-valid":  { name: "Snapshot validation", depth: 1, summary: "Validates the snapshot; still special-cases IsFreeBet only, no MyBoost equivalent.", files: [["CouponSnapshotValidator.cs", "+8 −1"]] },
+  "n-snap":   { name: "Coupon snapshot model", depth: 0, summary: "The record itself: MyBoost flag and BoostPercentage as two members carrying one concept.", files: [["CouponSnapshot.cs", "+6 −1"], ["MyBoost.cs", "+18 −0"]] },
+};
+const edges = [
+  { from: "n-api",     to: "n-orch",    label: "placement request" },
+  { from: "n-flag",    to: "n-orch",    label: "gates MyBoost" },
+  { from: "n-orch",    to: "n-snap",    label: "builds snapshot" },
+  { from: "n-orch",    to: "n-valid",   label: "runs validation" },
+  { from: "n-valid",   to: "n-snap",    label: "reads snapshot" },
+  { from: "n-settle",  to: "n-snap",    label: "hydrates at settlement" },
+  { from: "n-snap",    to: "n-voucher", label: "⚠ rebuild calls voucher lookup" },
+];
+const flow = [
+  ["n-api",   "Placement request arrives"],
+  ["n-orch",  "Snapshot built from the coupon"],
+  ["n-snap",  "Snapshot rebuilt after voucher lookup — the ⚠ spot"],
+  ["n-valid", "Snapshot validated"],
+  ["n-settle","Stored for settlement"],
+];
+
+const map = document.getElementById("map");
+const svg = document.getElementById("edges");
+const rail = document.getElementById("rail");
+const sheet = document.getElementById("sheet");
+let selected = null, flowOn = false;
+
+/* The dependency-rule overlay (§5): outward = violation, decided by arithmetic, not the model. */
+const isViolation = (e) => groups[e.from].depth < groups[e.to].depth;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+/* Card width that lets the busiest band sit on one row. Floored, because past a point narrow cards
+   are their own readability problem — below the floor the band is allowed to wrap and the router's
+   obstacle check (see `blocked`) catches anything that would then cross a card. */
+function fitNodes() {
+  const bands = [...document.querySelectorAll(".band")];
+  const n = Math.max(...bands.map(b => b.querySelectorAll(".node").length));
+  // The row's own width, which the grid decides independently of the cards inside it.
+  const avail = bands[0].querySelector(".nodes").clientWidth;
+  const w = Math.max(118, Math.min(196, Math.floor((avail - 22 * (n - 1)) / n)));
+  map.style.setProperty("--node-w", w + "px");
+}
+
+let RECTS = {};
+function cacheRects() {
+  const m = map.getBoundingClientRect();
+  for (const id of Object.keys(groups)) {
+    const r = document.getElementById(id).getBoundingClientRect();
+    const left = r.left - m.left, top = r.top - m.top;
+    RECTS[id] = { left, top, right: left + r.width, bottom: top + r.height,
+                  cx: left + r.width / 2, cy: top + r.height / 2 };
+  }
+}
+const rect = (id) => RECTS[id];
+
+/*
+ * Where the edges already routed have put their segments, so the next one can avoid them.
+ *
+ * Two failure modes, deliberately weighted differently. Two edges running along the *same* line read
+ * as one edge and are the thing that makes a diagram unfollowable — heavily avoided. Two edges
+ * crossing at a right angle is normal diagram grammar and perfectly legible — mildly avoided. The
+ * v1 router knew about cards and nothing about other edges, which is how the violation edge came to
+ * run its corridor straight down the gap the orchestration→validation arrow already occupied.
+ */
+function makeLanes() {
+  const vert = [], horz = [];
+  const overlaps = (a1, a2, b1, b2) =>
+    Math.max(a1, a2) > Math.min(b1, b2) - 4 && Math.min(a1, a2) < Math.max(b1, b2) + 4;
+  const within = (v, a, b) => v > Math.min(a, b) - 3 && v < Math.max(a, b) + 3;
+  return {
+    collinearV: (x, y1, y2) => vert.some(s => Math.abs(s.x - x) < 9 && overlaps(y1, y2, s.y1, s.y2)),
+    collinearH: (y, x1, x2) => horz.some(s => Math.abs(s.y - y) < 9 && overlaps(x1, x2, s.x1, s.x2)),
+    crossV: (x, y1, y2) => horz.filter(s => within(x, s.x1, s.x2) && within(s.y, y1, y2)).length,
+    crossH: (y, x1, x2) => vert.filter(s => within(y, s.y1, s.y2) && within(s.x, x1, x2)).length,
+    /* How many routed segments a box would land on. Labels use this: text with a halo can survive
+       grazing one thin line, but the busiest gutter on the map — where three arrows converge into
+       the domain card — is where the violation label kept landing, and no amount of halo saves that. */
+    boxHits(x1, x2, y1, y2) {
+      const pad = 2;
+      return vert.filter(s => s.x > x1 - pad && s.x < x2 + pad
+                           && Math.max(s.y1, s.y2) > y1 - pad && Math.min(s.y1, s.y2) < y2 + pad).length
+           + horz.filter(s => s.y > y1 - pad && s.y < y2 + pad
+                           && Math.max(s.x1, s.x2) > x1 - pad && Math.min(s.x1, s.x2) < x2 + pad).length;
+    },
+    add(pts) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p = pts[i], q = pts[i + 1];
+        if (Math.abs(p.x - q.x) < 0.5) vert.push({ x: p.x, y1: p.y, y2: q.y });
+        else horz.push({ y: p.y, x1: p.x, x2: q.x });
+      }
+    },
+  };
+}
+
+/*
+ * Candidate spots for an edge's label: every one of its own segments, longest first — beside a
+ * vertical, above a horizontal.
+ */
+function labelAnchors(pts) {
+  const out = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p = pts[i], q = pts[i + 1];
+    const len = Math.hypot(q.x - p.x, q.y - p.y);
+    if (len < 16) continue;
+    if (Math.abs(p.x - q.x) < 0.5) out.push({ x: p.x + 8, y: (p.y + q.y) / 2, anchor: "", len });
+    else out.push({ x: (p.x + q.x) / 2, y: Math.min(p.y, q.y) - 5, anchor: "mid", len });
+  }
+  return out.sort((a, b) => b.len - a.len);
+}
+
+/*
+ * Put the label where it can actually be read: try each of the edge's segments at a few offsets and
+ * keep whichever lands on the fewest cards and routed lines.
+ *
+ * Choosing the longest segment and trusting it was the bug. The violation edge's longest run is the
+ * gutter directly above the domain card — which is exactly where three other arrows converge — so
+ * the one label on the map that matters most was placed where it could be read least. Cards
+ * disqualify a spot outright; line segments are counted, because one thin line under a haloed label
+ * is survivable and a bundle of them is not.
+ *
+ * Width is estimated (9.5px system-ui at 600 ≈ 5.8px/char), which is close enough to place by.
+ */
+function placeLabel(lanes, text, pts, label, A, B) {
+  const w = label.length * 5.8;
+  const anchors = labelAnchors(pts);
+
+  /* Two more, for when no segment is long enough to host the text beside it. A same-band edge lives
+     in a 22px column gap and its label is four times that, so every offset beside the line still
+     straddles both cards; the strip under (or over) the pair is gutter, and gutter is clear. Ranked
+     last by the `len: 0`, so they only win when the segments genuinely have no room. */
+  const midX = (A.cx + B.cx) / 2;
+  anchors.push({ x: midX, y: Math.max(A.bottom, B.bottom) + 13, anchor: "mid", len: 0 });
+  anchors.push({ x: midX, y: Math.min(A.top, B.top) - 7, anchor: "mid", len: 0 });
+
+  let best = null;
+  for (const a of anchors) {
+    for (const dy of [0, -13, 13, -26, 26]) {
+      const y = a.y + dy, top = y - 9;
+      const x1 = a.anchor === "mid" ? a.x - w / 2 : a.x;
+      if (x1 < 2 || x1 + w > map.clientWidth - 2) continue;
+      const onCard = Object.values(RECTS).some(r =>
+        x1 < r.right + 3 && x1 + w > r.left - 3 && top < r.bottom + 2 && y > r.top - 2);
+      const cost = (onCard ? 1000 : 0) + lanes.boxHits(x1, x1 + w, top, y) * 10 + Math.abs(dy);
+      if (!best || cost < best.cost) best = { x: a.x, y, anchor: a.anchor, cost };
+      if (cost === 0) break;
+    }
+    if (best?.cost === 0) break;
+  }
+  const spot = best ?? { x: pts[0].x, y: pts[0].y - 8, anchor: "mid" };
+  text.setAttribute("x", spot.x);
+  text.setAttribute("y", spot.y);
+  text.setAttribute("class", spot.anchor);
+}
+
+/* The gutter is deep enough for a few parallel tracks; pick the one that collides least. */
+function pickGutter(lanes, base, x1, x2) {
+  let best = base, bestCost = Infinity;
+  for (const off of [0, 9, -9, 18, -18]) {
+    const y = base + off;
+    const cost = (lanes.collinearH(y, x1, x2) ? 400 : 0) + lanes.crossH(y, x1, x2) * 12 + Math.abs(off);
+    if (cost < bestCost) { bestCost = cost; best = y; }
+  }
+  return best;
+}
+
+/* Does this path run through a card that isn't one of its own endpoints? Cheap because every
+   segment is axis-aligned and a map is capped at 8 groups. */
+function blocked(pts, exclude) {
+  const pad = 5;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p = pts[i], q = pts[i + 1];
+    const vertical = Math.abs(p.x - q.x) < 0.5;
+    for (const id of Object.keys(groups)) {
+      if (exclude.includes(id)) continue;
+      const r = RECTS[id];
+      const L = r.left - pad, R = r.right + pad, T = r.top - pad, Bo = r.bottom + pad;
+      const hit = vertical
+        ? p.x > L && p.x < R && Math.max(p.y, q.y) > T && Math.min(p.y, q.y) < Bo
+        : p.y > T && p.y < Bo && Math.max(p.x, q.x) > L && Math.min(p.x, q.x) < R;
+      if (hit) return true;
+    }
+  }
+  return false;
+}
+
+/*
+ * Orthogonal path through axis-aligned waypoints, with the corners rounded.
+ *
+ * Right angles rather than curves, because that is the idiom a layered diagram reads in: a bezier
+ * between two bands leaves at a slant, and a slant is the one thing that makes a reader hunt for
+ * which box an edge actually came from. Corner radius is capped at half the shorter adjoining
+ * segment so a short leg can't produce a corner that overshoots its own line.
+ */
+function orthPath(pts) {
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i], prev = pts[i - 1], next = pts[i + 1];
+    const inLen = Math.hypot(p.x - prev.x, p.y - prev.y);
+    const outLen = Math.hypot(next.x - p.x, next.y - p.y);
+    const r = Math.min(9, inLen / 2, outLen / 2);
+    const ai = { x: p.x - Math.sign(p.x - prev.x) * r, y: p.y - Math.sign(p.y - prev.y) * r };
+    const bo = { x: p.x + Math.sign(next.x - p.x) * r, y: p.y + Math.sign(next.y - p.y) * r };
+    d += ` L ${ai.x} ${ai.y} Q ${p.x} ${p.y} ${bo.x} ${bo.y}`;
+  }
+  const last = pts[pts.length - 1];
+  return d + ` L ${last.x} ${last.y}`;
+}
+
+/*
+ * Three routing shapes, picked by how many bands an edge spans.
+ *
+ * Same row: a straight horizontal line between facing sides. The previous version ran a bezier
+ * here whose control points inverted whenever the gap was small, turning a 4px sideways hop into
+ * a visible squiggle.
+ *
+ * Neighbouring bands: down out of the source, across in the gutter, down into the target — and
+ * when the two are column-aligned (which the ordering pass below tries to arrange) the middle leg
+ * vanishes and the edge is one straight vertical line. Exit x is aimed at the target and clamped
+ * inside the source, so two edges leaving one card separate instead of stacking on a pixel.
+ *
+ * Skipping a band: through the nearest clear vertical corridor between cards (see aroundRoute).
+ * Deliberately not the direct line — the direct line crosses a band that is not party to the edge,
+ * which is what made the old violation arrow unreadable.
+ */
+
+/*
+ * Vertical corridors an edge can travel without hitting a card: the gap between each neighbouring
+ * pair, plus just outside the outermost card in each band. These are the lanes a person drawing this
+ * by hand would reach for — the space between two boxes.
+ */
+function corridors() {
+  const xs = new Set();
+  for (const band of document.querySelectorAll(".band")) {
+    const rs = [...band.querySelectorAll(".node")].map(n => RECTS[n.id]).sort((a, b) => a.left - b.left);
+    for (let i = 0; i < rs.length - 1; i++) xs.add((rs[i].right + rs[i + 1].left) / 2);
+    if (rs.length) xs.add(rs[rs.length - 1].right + 13);
+  }
+  return [...xs];
+}
+
+/*
+ * The way round for an edge that cannot go straight: out into the band gutter, down (or up) the
+ * nearest clear corridor, and back in through the gutter at the far end.
+ *
+ * Corridors are tried nearest-to-ideal first, which is the fix for edges that used to swing out to
+ * the far right margin however close their two cards actually were: an edge between two left-hand
+ * cards now drops through the gap beside them instead of touring the whole sheet. The right margin
+ * is the last resort, for when no gap between cards is clear.
+ */
+function aroundRoute(e, lanes) {
+  const A = rect(e.from), B = rect(e.to), gap = 2;
+  const ends = [e.from, e.to];
+  const down = B.top > A.top;
+
+  const baseA = down ? A.bottom + 15 : A.top - 15;
+  const baseB = down ? B.top - 15 : B.bottom + 15;
+  const xA = clamp(B.cx, A.left + 16, A.right - 16);
+  const xB = clamp(A.cx, B.left + 16, B.right - 16);
+  const lo = Math.min(baseA, baseB), hi = Math.max(baseA, baseB);
+
+  /* Corridors scored rather than first-fit: sharing a line with an existing edge is far worse than
+     a right-angle crossing, and both matter more than being a few pixels off the ideal x. */
+  const ideal = (A.cx + B.cx) / 2;
+  const lane = corridors()
+    .filter(x => !blocked([{ x, y: lo }, { x, y: hi }], ends))
+    .map(x => ({ x, cost: (lanes.collinearV(x, lo, hi) ? 400 : 0)
+                        + lanes.crossV(x, lo, hi) * 25 + Math.abs(x - ideal) }))
+    .sort((p, q) => p.cost - q.cost)[0]?.x ?? map.clientWidth - 24;
+
+  // Corridor already lines up with both ends: one straight vertical, no jogs at all.
+  if (Math.abs(lane - xA) < 7 && Math.abs(lane - xB) < 7) {
+    const pts = [{ x: lane, y: down ? A.bottom + gap : A.top - gap },
+                 { x: lane, y: down ? B.top - gap : B.bottom + gap }];
+    lanes.add(pts);
+    return { d: orthPath(pts), pts };
+  }
+
+  const yA = pickGutter(lanes, baseA, xA, lane);
+  const yB = pickGutter(lanes, baseB, lane, xB);
+  const pts = [{ x: xA, y: down ? A.bottom + gap : A.top - gap }, { x: xA, y: yA },
+               { x: lane, y: yA }, { x: lane, y: yB }, { x: xB, y: yB },
+               { x: xB, y: down ? B.top - gap : B.bottom + gap }];
+  lanes.add(pts);
+
+  return { d: orthPath(pts), pts };
+}
+
+function routeFor(e, lanes) {
+  const A = rect(e.from), B = rect(e.to), gap = 2;
+  const dA = groups[e.from].depth, dB = groups[e.to].depth;
+  const ends = [e.from, e.to];
+  const keep = (pts) => { lanes.add(pts); return { d: orthPath(pts), pts }; };
+
+  if (Math.abs(dA - dB) >= 2) return aroundRoute(e, lanes);
+
+  // Same band, same row: a plain horizontal between facing sides. The label goes UNDER the pair,
+  // centred on the gap — beside the line it started at the gap's midpoint and ran on beneath the
+  // target card, which hid all but its first letters.
+  if (dA === dB && Math.abs(A.cy - B.cy) < 4) {
+    const fromLeft = A.cx <= B.cx;
+    const y = A.cy;
+    const pts = [{ x: fromLeft ? A.right + gap : A.left - gap, y },
+                 { x: fromLeft ? B.left - gap : B.right + gap, y }];
+    return blocked(pts, ends)
+      ? aroundRoute(e, lanes)
+      : keep(pts);
+  }
+
+  const down = B.top > A.top;
+  const y1 = down ? A.bottom + gap : A.top - gap;
+  const y2 = down ? B.top - gap : B.bottom + gap;
+  const x1 = clamp(B.cx, A.left + 16, A.right - 16);
+  const x2 = clamp(A.cx, B.left + 16, B.right - 16);
+
+  // Column-aligned: one straight vertical, no dog-leg, label beside it.
+  if (Math.abs(x1 - x2) < 7) {
+    const x = (x1 + x2) / 2;
+    const pts = [{ x, y: y1 }, { x, y: y2 }];
+    return blocked(pts, ends)
+      ? aroundRoute(e, lanes)
+      : keep(pts);
+  }
+
+  const my = pickGutter(lanes, (y1 + y2) / 2, x1, x2);
+  const pts = [{ x: x1, y: y1 }, { x: x1, y: my }, { x: x2, y: my }, { x: x2, y: y2 }];
+  return blocked(pts, ends)
+    ? aroundRoute(e, lanes)
+    : keep(pts);
+}
+
+function draw() {
+  fitNodes();
+  cacheRects();
+  svg.setAttribute("width", map.clientWidth);
+  svg.setAttribute("height", map.clientHeight);
+  /* markerUnits="userSpaceOnUse" is the fix for arrowheads that swallowed their own line: markers
+     scale with stroke-width by default, so a 1.4px stroke drew a ~10px head on a 6px line and all
+     you saw was a triangle. Fixed at 8px, the head stays a head however heavy the stroke. */
+  svg.innerHTML = `<defs>
+    <marker id="arr" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="8" markerHeight="8"
+            markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+      <path d="M0.5 0.5 L7.5 4 L0.5 7.5 z" fill="context-stroke"/></marker></defs>`;
+
+  const list = flowOn
+    ? flow.slice(0, -1).map(([g], i) => ({ from: g, to: flow[i + 1][0], label: String(i + 1), flowarrow: true }))
+    : edges;
+
+  // Fresh each draw: lane claims are per-render, and the edge set changes in flow mode.
+  const lanes = makeLanes();
+  const labelled = [];
+  for (const e of list) {
+    const r = routeFor(e, lanes);
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("class", "edge" + (e.flowarrow ? " flowarrow lit" : isViolation(e) ? " viol" : ""));
+    g.dataset.from = e.from; g.dataset.to = e.to;
+    // Flow arrows carry no text of their own: the cards already wear numbered step chips, and the
+    // duplicate digits were the only labels that ever collided with each other.
+    if (e.flowarrow) {
+      g.innerHTML = `<path class="line" d="${r.d}" marker-end="url(#arr)"/>`;
+    } else {
+      // The hit path sits under the visible one and carries the hover; the label is inert so moving
+      // onto it can't steal the hover from the line and make the text flicker.
+      g.innerHTML = `<path class="hit" d="${r.d}"/><path class="line" d="${r.d}" marker-end="url(#arr)"/>`
+        + `<text>${e.label}</text>`;
+      labelled.push({ text: g.querySelector("text"), pts: r.pts, label: e.label, from: e.from, to: e.to });
+    }
+    svg.appendChild(g);
+  }
+  // After every edge is routed, so a label can be judged against the finished picture rather than
+  // against however much of it happened to exist when its own edge was drawn.
+  for (const l of labelled) placeLabel(lanes, l.text, l.pts, l.label, rect(l.from), rect(l.to));
+  relight();
+}
+
+/*
+ * Reorders nodes within each band to cut down how often edges cross — the classic layered-graph
+ * "barycenter" pass (Sugiyama et al.): sweep the bands top-down then bottom-up a few times,
+ * each pass placing a node near the average position of the neighbours it already has an edge to
+ * in the band just fixed. It's a heuristic, not an optimum, so every pass is scored by an actual
+ * crossing count and the best-scoring arrangement seen is the one kept — cheap insurance at the
+ * handful of nodes a map is capped at (§2: 8 groups), and it means a bad sweep can't make the
+ * on-screen result worse than where it started.
+ *
+ * Only edges spanning one band or staying within one feed this — a skip edge is already routed
+ * around the intervening band (see routeFor) and its two ends have no business pulling nodes in a
+ * band it doesn't touch.
+ */
+function optimizeOrder() {
+  const depths = [...new Set(Object.values(groups).map(g => g.depth))].sort((a, b) => b - a);
+  const byDepth = {};
+  for (const d of depths) byDepth[d] = Object.keys(groups).filter(id => groups[id].depth === d);
+
+  /*
+   * What "reads better" means, as a number. Four terms, in the order they matter:
+   *
+   * crossings — two edges between the same pair of bands that swap over. The one thing a reader
+   *   genuinely cannot follow, so it dominates everything else.
+   * skipSpan — horizontal distance covered by an edge that jumps a band. Weighted above ordinary
+   *   span because a skip travels a corridor and two gutters to get there: every column it crosses
+   *   is a column its route has to thread past. The v1 pass ignored these entirely, which is why
+   *   Voucher client and Settlement store — whose *only* edges are skips — were left parked at the
+   *   far right with nothing pulling them toward the group they connect to.
+   * span — the same for ordinary edges. Shorter is straighter is easier.
+   * aligned — a reward, not a penalty: neighbouring-band groups in the same column get a single
+   *   straight vertical line, which is the most legible edge there is.
+   */
+  function score(ord) {
+    const pos = {};
+    for (const d of depths) ord[d].forEach((id, i) => { pos[id] = i; });
+
+    let crossings = 0;
+    for (let i = 0; i < depths.length - 1; i++) {
+      const top = depths[i], bot = depths[i + 1];
+      const pairs = edges
+        .filter(e => {
+          const a = groups[e.from].depth, b = groups[e.to].depth;
+          return (a === top && b === bot) || (a === bot && b === top);
+        })
+        .map(e => groups[e.from].depth === top ? [pos[e.from], pos[e.to]] : [pos[e.to], pos[e.from]]);
+      for (let a = 0; a < pairs.length; a++)
+        for (let b = a + 1; b < pairs.length; b++)
+          if ((pairs[a][0] - pairs[b][0]) * (pairs[a][1] - pairs[b][1]) < 0) crossings++;
+    }
+
+    let span = 0, skipSpan = 0, aligned = 0;
+    for (const e of edges) {
+      const d = Math.abs(pos[e.from] - pos[e.to]);
+      const bands = Math.abs(groups[e.from].depth - groups[e.to].depth);
+      if (bands >= 2) skipSpan += d;
+      else { span += d; if (bands === 1 && d === 0) aligned++; }
+    }
+    return crossings * 100 + skipSpan * 5 + span * 3 - aligned * 6;
+  }
+
+  /*
+   * Exhaustive within a band budget. §2 caps a map at 8 groups, so the arrangement space is small
+   * enough to search outright — and an exact answer beats a heuristic that can stall in a local
+   * minimum, which the v1 barycenter sweeps did. The hill-climb is only there so a raised cap
+   * degrades instead of hanging.
+   */
+  const factorial = n => (n <= 1 ? 1 : n * factorial(n - 1));
+  const total = depths.reduce((acc, d) => acc * factorial(byDepth[d].length), 1);
+  const start = {}; for (const d of depths) start[d] = [...byDepth[d]];
+
+  if (total <= 50000) {
+    const perms = a => (a.length <= 1 ? [a]
+      : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map(p => [x, ...p])));
+    const options = depths.map(d => perms(byDepth[d]));
+    let best = start, bestScore = Infinity;
+    const walk = (i, acc) => {
+      if (i === depths.length) {
+        const ord = {}; depths.forEach((d, k) => { ord[d] = acc[k]; });
+        const s = score(ord);
+        if (s < bestScore) { bestScore = s; best = ord; }
+        return;
+      }
+      for (const p of options[i]) walk(i + 1, [...acc, p]);
+    };
+    walk(0, []);
+    return best;
+  }
+
+  let cur = start, curScore = score(cur);
+  for (let i = 0; i < 4000; i++) {
+    const d = depths[Math.floor(Math.random() * depths.length)];
+    if (byDepth[d].length < 2) continue;
+    const next = {}; for (const k of depths) next[k] = [...cur[k]];
+    const a = Math.floor(Math.random() * next[d].length);
+    const b = Math.floor(Math.random() * next[d].length);
+    [next[d][a], next[d][b]] = [next[d][b], next[d][a]];
+    const s = score(next);
+    if (s <= curScore) { cur = next; curScore = s; }
+  }
+  return cur;
+}
+
+for (const [depth, ids] of Object.entries(optimizeOrder()))
+  ids.forEach((id, ix) => { document.getElementById(id).style.order = ix; });
+
+function relight() {
+  const mode = flowOn ? "flow" : selected ? "sel" : null;
+  if (mode) map.dataset.mode = mode; else delete map.dataset.mode;
+
+  const litNodes = new Set(flowOn ? flow.map(([g]) => g) : []);
+  if (!flowOn && selected) {
+    litNodes.add(selected);
+    for (const e of edges) if (e.from === selected || e.to === selected) { litNodes.add(e.from); litNodes.add(e.to); }
+  }
+  for (const id of Object.keys(groups)) {
+    const el = document.getElementById(id);
+    el.classList.toggle("lit", litNodes.has(id));
+    el.setAttribute("aria-pressed", String(id === selected && !flowOn));
+    const stepIx = flow.findIndex(([g]) => g === id);
+    el.querySelector(".step").textContent = stepIx < 0 ? "" : String(stepIx + 1);
+  }
+  for (const g of svg.querySelectorAll(".edge:not(.flowarrow)"))
+    g.classList.toggle("lit", !!selected && !flowOn && (g.dataset.from === selected || g.dataset.to === selected));
+}
+
+function select(id) {
+  selected = selected === id ? null : id;
+  const g = groups[selected];
+  rail.innerHTML = !g
+    ? `<h3>MyBoost — base structure</h3><p class="sum">Select an area to see its files and the agent's one-line read of what changed there.</p>`
+    : `<h3>${g.name}</h3><p class="sum">${g.summary}</p>` +
+      g.files.map(([f, c]) => `<button class="file">${f}<span class="counts">${c}</span></button>`).join("") +
+      `<p class="hint">Files jump the diff and close the sheet, exactly like a citation chip.</p>`;
+  relight();
+}
+
+for (const id of Object.keys(groups))
+  document.getElementById(id).addEventListener("click", () => select(id));
+
+document.getElementById("flowBtn").addEventListener("click", (e) => {
+  flowOn = !flowOn;
+  e.currentTarget.setAttribute("aria-pressed", String(flowOn));
+  sheet.dataset.flow = flowOn ? "on" : "off";
+  document.getElementById("flowSentence").innerHTML = flowOn
+    ? flow.map(([, t], i) => `<b>${i + 1}</b> ${t}`).join(" &nbsp;→&nbsp; ")
+    : "";
+  draw();
+});
+
+document.getElementById("themeBtn").addEventListener("click", (e) => {
+  const dark = document.documentElement.dataset.theme !== "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  e.currentTarget.textContent = dark ? "Light" : "Dark";
+  draw();
+});
+
+window.addEventListener("resize", draw);
+draw();
+</script>
+</body>
+</html>

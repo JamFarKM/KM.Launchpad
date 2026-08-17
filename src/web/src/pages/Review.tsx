@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
 import { AnnotationCard, type CycleStop } from "../components/AnnotationCard";
 import { LeftResizer, RailResizer, useLeftWidth, useRailWidth } from "../components/RailResizer";
@@ -229,6 +229,19 @@ export function ReviewPage() {
     () => (threadsQ.data ?? []).filter((t) => t.filePath === shown?.path && (t.rightLine ?? 0) > 0),
     [threadsQ.data, shown?.path],
   );
+
+  /* Thread counts for the file tree, resolved once per thread rather than once per (file, thread)
+     pair. The count used to be a full scan of every thread inside the row loop, which the PR filter
+     box re-ran on every keystroke — 200 files against 150 threads is 30,000 comparisons per render,
+     for a number that only changes when threadsQ does. */
+  const threadCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of threadsQ.data ?? []) {
+      if (!t.filePath || (t.rightLine ?? 0) <= 0) continue;
+      counts.set(t.filePath, (counts.get(t.filePath) ?? 0) + 1);
+    }
+    return counts;
+  }, [threadsQ.data]);
 
   const onReply = useCallback(async (threadId: number, content: string) => {
     await api.prReply(project, repoId, prId!, threadId, content);
@@ -486,9 +499,19 @@ export function ReviewPage() {
    * claim that cited the line: the agent's own words, copied rather than referenced, so a later
    * re-ask replacing that turn can't silently change what the card says it is about.
    */
+  /* Ids this session has already created, keyed by PR + line. `refreshAnnotations` is a refetch,
+     not an await — so on a follow-up question in the same card `openCard.annotation` is often still
+     null, and without this each follow-up re-POSTed the (idempotent) create and paid a round-trip
+     before it could start streaming. */
+  const createdAnnotations = useRef(new Map<string, string>());
+
   const ensureAnnotation = useCallback(async (): Promise<string | null> => {
     if (!openCard || !prId) return null;
     if (openCard.annotation) return openCard.annotation.id;
+
+    const key = `${prId}:${openCard.path}:${openCard.line}`;
+    const known = createdAnnotations.current.get(key);
+    if (known) return known;
 
     const created = await api.createAnnotation(project, repoId, prId, {
       path: openCard.path,
@@ -496,6 +519,7 @@ export function ReviewPage() {
       commitSha: pr?.sourceCommit ?? null,
       seed: openCard.seed,
     });
+    createdAnnotations.current.set(key, created.id);
     refreshAnnotations();
     return created.id;
   }, [openCard, prId, project, repoId, pr?.sourceCommit, refreshAnnotations]);
@@ -807,7 +831,7 @@ export function ReviewPage() {
 
                   {!collapsed && files.map((c) => {
                     const cl = changeLabel(c.changeType);
-                    const n = (threadsQ.data ?? []).filter((t) => t.filePath === c.path && (t.rightLine ?? 0) > 0).length;
+                    const n = threadCounts.get(c.path) ?? 0;
                     const isViewed = viewed.has(c.path);
                     return (
                       <div key={c.path} className={`file-item ${c.path === path ? "active" : ""} ${isViewed ? "is-viewed" : ""}`}>

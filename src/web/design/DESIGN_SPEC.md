@@ -171,3 +171,9 @@ Small, independently reviewable steps. Each should be visually verifiable on its
 - **Step renaming.** §2.3 assumes per-step display names. If that feature isn't in yet, the prefix-stripping fallback is fine for now — but flag it rather than shipping verbose names, since the short names are what make the sequence cards fit.
 - **Accent persistence.** Shelf accent and the per-card project-label toggle both need somewhere to live in the view config. Check whether the existing view export/import schema round-trips unknown fields, or whether it needs a version bump.
 - **Glyph shape.** The mockup ships rounded squares with a circle variant behind a toggle (`--r-glyph`: `4.5px` vs `8px`). Confirm the final call before removing the variable.
+
+**Decided (2026-08-15):**
+
+- *Step renaming* — resolved by implementation: steps carry an explicit `Alias` (`SequenceStepDto.Alias`), which the cards render with `Name` as the fallback.
+- *Accent persistence* — the export/import schema will preserve unknown fields via `[JsonExtensionData]` on the config document, so new view properties (shelf accent, the project-label toggle) round-trip without a version bump and an older Launchpad importing a newer file keeps the data instead of silently dropping it. Not yet implemented.
+- *Glyph shape* — rounded squares stay (`--r-glyph: 4.5px`). Keep the variable: it costs nothing, and tokens carrying their variants is the same posture A6 takes for dark values.

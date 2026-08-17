@@ -1,0 +1,7 @@
+# One line-ending story on every platform.
+#
+# Compiled raw-string literals (TaskPrompt, the fixture generator's context block) inherit the
+# checkout's line endings, so a CRLF working tree quietly changed what the app sent to providers
+# and what `dotnet test` regenerated into src/web/design/*.json. An LF working tree makes both
+# deterministic; every toolchain here (dotnet, node, Docker) is happy with LF on Windows.
+* text=auto eol=lf

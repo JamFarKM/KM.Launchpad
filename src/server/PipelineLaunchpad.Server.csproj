@@ -6,6 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>PipelineLaunchpad.Server</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- A warning that sits in the build log gets read once and then never again. Failing the build
+         keeps zero the only steady state, so any new warning is unmissable signal. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

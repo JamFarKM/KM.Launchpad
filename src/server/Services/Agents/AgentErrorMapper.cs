@@ -150,6 +150,27 @@ public static class AgentErrorMapper
         }
     }
 
+    /// <summary>
+    /// The model ran out of room mid-answer, as the provider itself reported it — Anthropic's
+    /// <c>stop_reason: "max_tokens"</c> or an OpenAI-compatible <c>finish_reason: "length"</c>.
+    ///
+    /// <b>Asserted, never inferred.</b> Under a forced tool call the answer arrives as tool-input
+    /// JSON, so truncation cuts an element before its braces balance;
+    /// <see cref="SegmentStreamParser"/> then drops the segment that was in flight and the answer
+    /// simply ends. Nothing about that looks like a failure — it reads as a complete answer that
+    /// happened to be short, which is the one thing §6 says a broken stream must never look like.
+    /// The partial segments are kept and rendered beside this, and the turn stays unpostable
+    /// because it carries an error code.
+    ///
+    /// <c>Upstream</c> rather than a fifteenth code: §4's taxonomy is closed at fourteen, and this
+    /// is exactly the catch-all's documented job — the <c>Detail</c> is what distinguishes it, and
+    /// that is now stored on the turn rather than only streamed.
+    /// </summary>
+    public static AgentError Truncated() => new(
+        AgentErrorCode.Upstream,
+        Detail: "The answer reached its length limit before it finished, so the last part is missing. "
+              + "Ask a narrower question, or ask for the rest.");
+
     private static bool Mentions(string? value, string needle) =>
         value is not null && value.Contains(needle, StringComparison.OrdinalIgnoreCase);
 

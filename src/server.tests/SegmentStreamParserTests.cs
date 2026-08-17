@@ -70,6 +70,22 @@ public class SegmentStreamParserTests
         Assert.Equal(Provenance.Doc, answer.Segments[1].Provenance);
     }
 
+    /// <summary>
+    /// The schema says every element is an object, but the parser exists for payloads that miss the
+    /// schema. A bare string between elements used to be scanned untracked, so a ']' inside it read
+    /// as the array closing — and every real segment after it was thrown away.
+    /// </summary>
+    [Fact]
+    public void A_bracket_inside_a_stray_string_element_does_not_close_the_array()
+    {
+        var (streamed, answer) = FeedByChar(
+            """{"segments": ["see lines [12] and ]", {"text":"Real claim.","provenance":"code","citations":[],"inference_note":null}]}""");
+
+        var segment = Assert.Single(streamed);
+        Assert.Equal("Real claim.", segment.Text);
+        Assert.Equal(["Real claim."], answer.Segments.Select(s => s.Text));
+    }
+
     [Fact]
     public void A_brace_in_a_segments_prose_does_not_look_like_a_nested_object()
     {
