@@ -285,7 +285,7 @@ export function AnnotationCard({
                     {t.errorDetail && <> {t.errorDetail}</>}
                   </p>
                 )}
-                {t.segments.map((s, i) => (
+                {(t.segments ?? []).map((s, i) => (
                   <Segment
                     key={i}
                     segment={s}

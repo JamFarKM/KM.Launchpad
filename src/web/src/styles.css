@@ -6450,3 +6450,44 @@ body.is-map-panning, body.is-map-panning * { cursor: grabbing !important; user-s
   border-top: 1px solid var(--border-hairline); flex-shrink: 0;
 }
 .map-sheet-foot b { color: var(--ink-secondary); font-weight: 600; }
+
+/* ---------- render faults (components/ErrorBoundary.tsx) ---------- */
+
+/* Built on the existing empty state rather than a new surface: a page that failed to draw and a page
+   with nothing to draw are the same shape of moment, and the reviewer should not have to learn a
+   second one. The message is the only part that wants monospace — it is a machine's words. */
+.crash { max-width: 620px; margin: 0 auto; }
+
+.crash-msg code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: var(--r-small);
+  background: color-mix(in oklab, var(--status-bad) 10%, transparent);
+  color: var(--ink-primary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.crash-stack {
+  margin-top: 14px;
+  text-align: left;
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+}
+
+.crash-stack summary { cursor: pointer; }
+
+.crash-stack pre {
+  margin: 8px 0 0;
+  padding: 9px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-small);
+  background: var(--bg-surface-2);
+  font-size: 11px;
+  line-height: 1.5;
+}

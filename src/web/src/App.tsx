@@ -8,6 +8,7 @@ import { KeyVaultPage } from "./pages/KeyVault";
 import { ReviewPage } from "./pages/Review";
 import { TopBar, type Page } from "./components/TopBar";
 import * as deeplink from "./lib/deeplink";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import type { User } from "./types";
 
 export function App() {
@@ -94,12 +95,12 @@ function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void
           setPage("views");
         }}
       />
-      {page === "views" && <Dashboard />}
+      {page === "views" && <ErrorBoundary where="The board"><Dashboard /></ErrorBoundary>}
       {/* Sequences are authored in the board's editor panel now (SEQUENCES §5). The old page is
           no longer routed to: nav dropped it in §1, and the drawer opens the panel instead. */}
-      {page === "configurations" && <ConfigurationsPage />}
-      {page === "review" && <ReviewPage />}
-      {page === "keyvault" && <KeyVaultPage />}
+      {page === "configurations" && <ErrorBoundary where="Configurations"><ConfigurationsPage /></ErrorBoundary>}
+      {page === "review" && <ErrorBoundary where="The review page"><ReviewPage /></ErrorBoundary>}
+      {page === "keyvault" && <ErrorBoundary where="Key Vault"><KeyVaultPage /></ErrorBoundary>}
       <footer className="app-footer">
         Launchpad · by James Farrugia
       </footer>

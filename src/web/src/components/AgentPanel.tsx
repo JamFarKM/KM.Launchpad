@@ -557,7 +557,7 @@ function Turn({ turn, onCite, onPost }: {
           </p>
         )}
 
-        {turn.segments.map((s, i) => (
+        {(turn.segments ?? []).map((s, i) => (
           <Segment
             key={i}
             segment={s}
@@ -623,7 +623,7 @@ export function Segment({ segment, onCite, onPost }: {
 
         {/* Hidden on an unverified claim — the agent asserted no source, so there is nothing to
             point at, and showing a strip would imply otherwise. */}
-        {!unverified && segment.citations.map((c, i) => (
+        {!unverified && (segment.citations ?? []).map((c, i) => (
           <button key={i} className="ag-cite" onClick={() => onCite(c.path, c.line)}
             title={`${c.path}:${c.line}${c.endLine ? `–${c.endLine}` : ""} — jump to this line`}>
             {fileName(c.path)}:{c.line}
@@ -763,7 +763,7 @@ export function PostSheet({ segment, connectorName, project, repoId, prId, onClo
   prId: number;
   onClose: () => void;
 }) {
-  const anchor = segment.citations[0];
+  const anchor = (segment.citations ?? [])[0];
   const [text, setText] = useState(
     `${segment.text}\n\n— via ${connectorName ?? "an agent"}`);
   const [busy, setBusy] = useState(false);

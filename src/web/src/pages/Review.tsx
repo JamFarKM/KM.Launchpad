@@ -375,10 +375,15 @@ export function ReviewPage() {
     enabled: !!project && !!repoId && !!prId,
   });
 
+  /* Every claim in the thread that cites a line — the source of the gutter markers.
+     Defensive at both hops on purpose. A turn recorded by an older server, or one whose answer was a
+     change map rather than a list of claims, has no `segments`; `flatMap` then puts an `undefined`
+     in the list and the `citations` read throws, which takes the whole review page down with it.
+     Data that crosses a version boundary is exactly where a render should degrade rather than throw. */
   const citedSegments = useMemo(
     () => (agentThreadQ.data?.turns ?? [])
-      .flatMap((t) => t.segments)
-      .filter((s) => s.citations.length > 0),
+      .flatMap((t) => t.segments ?? [])
+      .filter((s) => s?.citations?.length),
     [agentThreadQ.data],
   );
   const refreshAnnotations = useCallback(
