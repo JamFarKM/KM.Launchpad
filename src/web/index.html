@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20100%20100%27%3E%3Ctext%20y%3D%27.9em%27%20font-size%3D%2790%27%3E%F0%9F%A7%A0%3C%2Ftext%3E%3C%2Fsvg%3E"
-    />
+    <!-- One file, not an inline emoji. The old data-URI drew the icon as SVG *text*, so the tab
+         showed whatever emoji font the machine happened to have — and nothing at all where the
+         renderer would not load one. -->
+    <link rel="icon" type="image/png" href="/icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0d0d0d" />
     <script>
