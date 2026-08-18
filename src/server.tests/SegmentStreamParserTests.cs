@@ -358,6 +358,75 @@ public class SegmentStreamParserTests
 
         Assert.Empty(answer.Segments);
         Assert.True(answer.IsEmpty);
+        /* The pair of facts the caller needs to say which failure this was: the array was there and
+           was readable, so this is the model returning nothing rather than Launchpad failing to read
+           something. RawLength is non-zero precisely because a response did arrive. */
+        Assert.True(parser.SawSegmentsArray);
+        Assert.True(parser.RawLength > 0);
+    }
+
+    // ---------- the whole-buffer fallback ----------
+
+    [Fact]
+    public void Finish_parses_the_whole_buffer_when_the_incremental_scan_found_nothing()
+    {
+        /* The streaming scanner is the fiddly kind of code, and when it found nothing the buffer was
+           being discarded — a response full of good JSON reported as "the agent returned an empty
+           answer", with the evidence thrown away. By Finish the whole document has arrived, so there is
+           no reason not to read it.
+
+           Simulated by feeding the document in a way the element scanner cannot follow: the array's
+           opening bracket never appears on its own, because the key is spelled unconventionally. */
+        var parser = new SegmentStreamParser();
+        parser.Feed("""{ "segments" : [{"text":"It adds five procedures.","provenance":"code","severity":"info","citations":[],"inference_note":null}] }""");
+
+        var answer = parser.Finish("");
+
+        var only = Assert.Single(answer.Segments);
+        Assert.Equal("It adds five procedures.", only.Text);
+        Assert.Equal(Provenance.Code, only.Provenance);
+    }
+
+    [Fact]
+    public void The_whole_buffer_fallback_accepts_a_bare_array()
+    {
+        // A provider that frames its output unexpectedly is exactly the case this exists to survive.
+        var parser = new SegmentStreamParser();
+        parser.Feed("""[{"text":"Bare array.","provenance":"doc","severity":"warning","citations":[],"inference_note":null}]""");
+
+        var answer = parser.Finish("");
+
+        var only = Assert.Single(answer.Segments);
+        Assert.Equal("Bare array.", only.Text);
+        Assert.Equal(Severity.Warning, only.Severity);
+    }
+
+    [Fact]
+    public void The_whole_buffer_fallback_applies_the_same_caps_and_rules()
+    {
+        // Routed through the same element reader, so a hedge with no note still degrades and the
+        // segment cap still holds however the JSON arrived.
+        var many = string.Join(",", Enumerable.Range(1, 8).Select(i =>
+            $$"""{"text":"Claim {{i}}.","provenance":"inferred","severity":"info","citations":[],"inference_note":null}"""));
+
+        var parser = new SegmentStreamParser();
+        parser.Feed($"[{many}]");
+        var answer = parser.Finish("");
+
+        Assert.Equal(CanonicalSchema.MaxSegments, answer.Segments.Count);
+        Assert.All(answer.Segments, s => Assert.Null(s.Provenance));
+        Assert.Contains("dropped", answer.Segments[^1].Text);
+    }
+
+    [Fact]
+    public void Prose_is_still_prose_and_not_mistaken_for_a_parse_failure()
+    {
+        var parser = new SegmentStreamParser();
+        parser.Feed("It adds five procedures, I think.");
+        var answer = parser.Finish("It adds five procedures, I think.");
+
+        Assert.Equal(StructuredMode.Unverified, answer.Mode);
+        Assert.Equal("It adds five procedures, I think.", answer.Segments[0].Text);
     }
 
     [Fact]

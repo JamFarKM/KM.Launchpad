@@ -32,8 +32,12 @@ namespace PipelineLaunchpad.Server.Services.Agents;
 /// <c>max_tokens</c> is required rather than being an optional field with a deprecated sibling, so
 /// unlike §5.A there is no fallback dance here — one field, always sent.
 /// </summary>
-public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAdapter
+public sealed class AnthropicAdapter(IHttpClientFactory httpFactory, ILogger<AnthropicAdapter> log) : IAgentAdapter
 {
+    // Held in a field because the streaming method is an iterator, and an iterator cannot touch a
+    // primary constructor parameter.
+    private readonly ILogger<AnthropicAdapter> _log = log;
+
     /// <summary>Pinned deliberately. Bumping it is a tested change, not a drive-by edit.</summary>
     private const string AnthropicVersion = "2023-06-01";
 
@@ -167,7 +171,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
                 yield break;
             }
 
-            await foreach (var ev in ReadStreamAsync(resp, whole, request.ResponseKind, ResponseTool(request), ct))
+            await foreach (var ev in ReadStreamAsync(resp, whole, request.ResponseKind, ResponseTool(request), _log, ct))
                 yield return ev;
         }
     }
@@ -293,7 +297,7 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
     /// </summary>
     private static async IAsyncEnumerable<AgentEvent> ReadStreamAsync(
         HttpResponseMessage resp, CancellationTokenSource whole, ResponseKind responseKind, string responseTool,
-        [EnumeratorCancellation] CancellationToken ct)
+        ILogger log, [EnumeratorCancellation] CancellationToken ct)
     {
         // Only the answer shape streams element-by-element (§5.2's whole reason for existing). The
         // map renders once, complete, as a diagram — so its fragments are just accumulated raw and
@@ -527,7 +531,36 @@ public sealed class AnthropicAdapter(IHttpClientFactory httpFactory) : IAgentAda
         // The finished list is authoritative regardless of what streamed: a stream that couldn't be
         // split into elements still renders here, in one go, rather than blocking on a boundary that
         // may never arrive (§5.2).
-        yield return new AgentEvent.Complete(parser.Finish(prose.ToString()), usage);
+        var answer = parser.Finish(prose.ToString());
+
+        /* Nothing usable, reported from here rather than upstream because this is the only place that
+           knows *how* nothing. Three faults wear the same face — the model sent nothing, the model sent
+           a well-formed answer with nothing in it, or it sent something Launchpad could not read — and
+           only the last is a bug here. Collapsing them into one "asking again usually works" sent two
+           thirds of the reports round the same loop, so each says what it actually was. */
+        if (answer.IsEmpty)
+        {
+            var detail = parser.RawLength == 0
+                ? "The agent produced no answer at all — no text and no tool call. Asking again usually works."
+                : parser.SawSegmentsArray
+                    ? "The agent returned an answer with nothing in it. Asking again, or asking something "
+                      + "more specific, usually works."
+                    : $"The agent sent {parser.RawLength:N0} characters that could not be read as an answer. "
+                      + "That is a bug in Launchpad rather than something retrying will fix — the server "
+                      + "log has the detail.";
+
+            // Only the unreadable case is logged, and the buffer goes with it. Told to look in the log,
+            // someone has to find something there; the other two cases have nothing to add beyond what
+            // the reviewer already read on screen. Capped, because a full response is not a log line.
+            if (parser.RawLength > 0 && !parser.SawSegmentsArray)
+                log.LogWarning("Unreadable agent response ({Length} chars), first 2000: {Buffer}",
+                    parser.RawLength, parser.Raw[..Math.Min(2000, parser.RawLength)]);
+
+            yield return new AgentEvent.Failed(new AgentError(AgentErrorCode.Upstream, Detail: detail));
+            yield break;
+        }
+
+        yield return new AgentEvent.Complete(answer, usage);
     }
 
     /// <summary>Reads a token count out of an Anthropic `usage` object, if it is there.</summary>

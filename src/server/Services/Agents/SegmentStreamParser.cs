@@ -51,6 +51,29 @@ public sealed class SegmentStreamParser
     public bool ArrayClosed { get; private set; }
 
     /// <summary>
+    /// How much the provider actually sent, for telling two very different failures apart.
+    ///
+    /// "The model returned nothing" and "the model returned something we could not read" both used to
+    /// surface as *the agent returned an empty answer*, which sent every investigation down the wrong
+    /// path — including several of mine. A character count separates them in one glance.
+    /// </summary>
+    public int RawLength => _raw.Length;
+
+    /// <summary>What arrived, for the log when it could not be read. Not for parsing — that is what
+    /// this class is for.</summary>
+    public string Raw => _raw.ToString();
+
+    /// <summary>
+    /// Whether a <c>segments</c> array was recognised at all, however few segments it held.
+    ///
+    /// The third state, and the one that makes the other two meaningful. With this true and no
+    /// segments, the provider answered in the right shape and put nothing in it — retrying is
+    /// reasonable. With it false and a non-empty buffer, it sent something we could not read, and
+    /// retrying will produce the same thing.
+    /// </summary>
+    public bool SawSegmentsArray { get; private set; }
+
+    /// <summary>
     /// Feed the next fragment. Returns the segments that closed within it — usually none, since a
     /// segment spans many fragments.
     /// </summary>
@@ -72,6 +95,18 @@ public sealed class SegmentStreamParser
     /// </summary>
     public CanonicalAnswer Finish(string? fallbackProse = null)
     {
+        /* Last resort before giving up: parse the whole buffer at once.
+
+           The scanner above is incremental — it finds array elements as their braces balance, which is
+           what makes segment-at-a-time rendering possible. But incremental scanning is the fiddly kind
+           of code, and when it finds nothing the buffer was being *discarded*: a response full of
+           perfectly good JSON reported as "the agent returned an empty answer", with the evidence
+           thrown away. That is both a wrong diagnosis and an unnecessary failure, since by this point
+           the whole document has arrived and JsonDocument can read it in one go.
+
+           So the streaming path is now an optimisation over a reliable one, rather than the only one. */
+        if (_segments.Count == 0) ReadWholeBuffer();
+
         if (_segments.Count == 0)
         {
             var prose = (fallbackProse ?? _raw.ToString()).Trim();
@@ -133,6 +168,7 @@ public sealed class SegmentStreamParser
             if (at < 0) return closed;
             _cursor = at;
             _inArray = true;
+            SawSegmentsArray = true;
         }
 
         while (_cursor < text.Length)
@@ -201,6 +237,57 @@ public sealed class SegmentStreamParser
     /// One element, validated. Returns null for an element that isn't a claim at all — a segment with
     /// no prose has nothing to render and nothing to badge.
     /// </summary>
+    /// <summary>
+    /// Read the segments out of the completed buffer, ignoring the incremental scan entirely.
+    ///
+    /// Accepts either the schema's object or a bare array, because a provider that frames its output
+    /// unexpectedly is exactly the case this exists to survive. Silent on failure: the buffer genuinely
+    /// not being the schema is the normal mode-3 path, which the caller handles.
+    /// </summary>
+    private void ReadWholeBuffer()
+    {
+        var text = _raw.ToString().Trim();
+        if (text.Length == 0) return;
+
+        JsonElement root;
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(text);
+            root = doc.RootElement;
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        using (doc)
+        {
+            var array = root.ValueKind switch
+            {
+                JsonValueKind.Array => root,
+                JsonValueKind.Object when root.TryGetProperty("segments", out var s)
+                    && s.ValueKind == JsonValueKind.Array => s,
+                _ => default,
+            };
+
+            if (array.ValueKind != JsonValueKind.Array) return;
+
+            // The shape was right, whatever it turns out to hold. Recorded before enumerating,
+            // so an empty array is reported as an empty answer rather than as something unreadable.
+            SawSegmentsArray = true;
+
+            foreach (var element in array.EnumerateArray())
+            {
+                if (_segments.Count >= CanonicalSchema.MaxSegments) { _overflowed = true; break; }
+                // Routed through the same element reader as the streaming path, so the caps and the
+                // per-segment honesty rules apply identically however the JSON arrived.
+                var segment = Read(element.GetRawText());
+                if (segment is not null) _segments.Add(segment);
+            }
+        }
+    }
+
     private static AnswerSegment? Read(string json)
     {
         JsonElement root;

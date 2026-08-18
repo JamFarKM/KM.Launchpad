@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -62,7 +63,7 @@ public class AnthropicAdapterTests
     public async Task Authenticates_with_x_api_key_and_a_pinned_version_not_bearer()
     {
         var handler = new CapturingHandler(_ => Json(HttpStatusCode.OK, """{"data":[{"id":"claude-sonnet-4-5"}]}"""));
-        var adapter = new AnthropicAdapter(new FakeFactory(handler));
+        var adapter = new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance);
 
         await adapter.ProbeAsync(Target, CancellationToken.None);
 
@@ -79,7 +80,7 @@ public class AnthropicAdapterTests
     {
         var handler = new CapturingHandler(_ => Json(HttpStatusCode.OK,
             """{"data":[{"id":"claude-opus-4-1"},{"id":"claude-sonnet-4-5"}],"has_more":false}"""));
-        var probe = await new AnthropicAdapter(new FakeFactory(handler)).ProbeAsync(Target, CancellationToken.None);
+        var probe = await new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).ProbeAsync(Target, CancellationToken.None);
 
         Assert.True(probe.Ok);
         Assert.Equal(["claude-opus-4-1", "claude-sonnet-4-5"], probe.Models);
@@ -91,7 +92,7 @@ public class AnthropicAdapterTests
     {
         var handler = new CapturingHandler(_ => Json(HttpStatusCode.Unauthorized,
             """{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"""));
-        var probe = await new AnthropicAdapter(new FakeFactory(handler)).ProbeAsync(Target, CancellationToken.None);
+        var probe = await new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).ProbeAsync(Target, CancellationToken.None);
 
         Assert.False(probe.Ok);
         Assert.Equal(AgentErrorCode.Auth, probe.Error!.Code);
@@ -102,7 +103,7 @@ public class AnthropicAdapterTests
     public async Task Probe_treats_a_200_with_no_models_as_a_failure_not_an_empty_dropdown()
     {
         var handler = new CapturingHandler(_ => Json(HttpStatusCode.OK, """{"data":[]}"""));
-        var probe = await new AnthropicAdapter(new FakeFactory(handler)).ProbeAsync(Target, CancellationToken.None);
+        var probe = await new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).ProbeAsync(Target, CancellationToken.None);
 
         Assert.False(probe.Ok);
         Assert.Equal(AgentErrorCode.Upstream, probe.Error!.Code);
@@ -112,7 +113,7 @@ public class AnthropicAdapterTests
     public async Task Sends_the_prompt_as_a_top_level_system_field_never_as_a_message()
     {
         var handler = new CapturingHandler(_ => Sse("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"));
-        await Drain(new AnthropicAdapter(new FakeFactory(handler)).CompleteAsync(Target, Request(), CancellationToken.None));
+        await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).CompleteAsync(Target, Request(), CancellationToken.None));
 
         var body = JsonNode.Parse(handler.LastBody!)!.AsObject();
         Assert.Equal("the task prompt", body["system"]!.GetValue<string>());
@@ -126,7 +127,7 @@ public class AnthropicAdapterTests
     public async Task Obtains_structure_by_forcing_a_tool_call_and_sends_no_response_format()
     {
         var handler = new CapturingHandler(_ => Sse("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"));
-        await Drain(new AnthropicAdapter(new FakeFactory(handler)).CompleteAsync(Target, Request(), CancellationToken.None));
+        await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).CompleteAsync(Target, Request(), CancellationToken.None));
 
         var body = JsonNode.Parse(handler.LastBody!)!.AsObject();
 
@@ -147,7 +148,7 @@ public class AnthropicAdapterTests
     public async Task Always_sends_max_tokens_because_anthropic_requires_it()
     {
         var handler = new CapturingHandler(_ => Sse("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"));
-        await Drain(new AnthropicAdapter(new FakeFactory(handler)).CompleteAsync(Target, Request(), CancellationToken.None));
+        await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).CompleteAsync(Target, Request(), CancellationToken.None));
 
         var body = JsonNode.Parse(handler.LastBody!)!.AsObject();
         Assert.True(body["max_tokens"]!.GetValue<int>() > 0);
@@ -161,7 +162,7 @@ public class AnthropicAdapterTests
         var handler = new CapturingHandler(_ => Sse("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"));
         var history = new[] { new AgentTurn("What does this PR change?", "It adds five procedures.") };
 
-        await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(history), CancellationToken.None));
 
         var messages = JsonNode.Parse(handler.LastBody!)!["messages"]!.AsArray();
@@ -218,7 +219,7 @@ public class AnthropicAdapterTests
     public async Task Accumulates_partial_json_into_a_canonical_answer()
     {
         var handler = new CapturingHandler(_ => Sse(ToolUseStream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         var complete = Assert.IsType<AgentEvent.Complete>(events.Last());
@@ -243,7 +244,7 @@ public class AnthropicAdapterTests
     public async Task Emits_each_segment_as_it_closes_rather_than_the_whole_answer_at_once()
     {
         var handler = new CapturingHandler(_ => Sse(ToolUseStream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         var segments = events.OfType<AgentEvent.Segment>().ToList();
@@ -291,7 +292,7 @@ public class AnthropicAdapterTests
             """;
 
         var handler = new CapturingHandler(_ => Sse(truncatedStream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         // The claim that closed still arrives, and still arrives as a claim.
@@ -309,7 +310,7 @@ public class AnthropicAdapterTests
     public async Task No_anthropic_shaped_event_escapes_the_adapter()
     {
         var handler = new CapturingHandler(_ => Sse(ToolUseStream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         // Everything is one of Launchpad's own events. message_start, ping, content_block_* and
@@ -337,7 +338,7 @@ public class AnthropicAdapterTests
             """;
 
         var handler = new CapturingHandler(_ => Sse(stream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         // §6: the partial answer *and* an error row — never a partial that looks complete.
@@ -362,7 +363,7 @@ public class AnthropicAdapterTests
         var handler = new CapturingHandler(_ => Json(HttpStatusCode.BadRequest,
             """{"type":"error","error":{"type":"invalid_request_error","message":"tools not supported"}}"""));
 
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         var failed = Assert.IsType<AgentEvent.Failed>(Assert.Single(events));
@@ -383,7 +384,7 @@ public class AnthropicAdapterTests
             """;
 
         var handler = new CapturingHandler(_ => Sse(stream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         var complete = Assert.IsType<AgentEvent.Complete>(events.Last());
@@ -412,7 +413,7 @@ public class AnthropicAdapterTests
             """;
 
         var handler = new CapturingHandler(_ => Sse(stream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         // The old flat shape asked providers to emit `answer` first so prose could render while the
@@ -434,7 +435,7 @@ public class AnthropicAdapterTests
             """;
 
         var handler = new CapturingHandler(_ => Sse(stream));
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler))
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance)
             .CompleteAsync(Target, Request(), CancellationToken.None));
 
         Assert.Equal("fine", Assert.IsType<AgentEvent.Complete>(events.Last()).Answer.PlainText);
@@ -448,7 +449,7 @@ public class AnthropicAdapterTests
         var handler = new CapturingHandler(_ => Sse("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"));
         var request = Request() with { ResponseKind = ResponseKind.ChangeMap };
 
-        await Drain(new AnthropicAdapter(new FakeFactory(handler)).CompleteAsync(Target, request, CancellationToken.None));
+        await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).CompleteAsync(Target, request, CancellationToken.None));
 
         var body = JsonNode.Parse(handler.LastBody!)!;
         var tools = body["tools"]!.AsArray();
@@ -476,7 +477,7 @@ public class AnthropicAdapterTests
 
         var handler = new CapturingHandler(_ => Sse(stream));
         var request = Request() with { ResponseKind = ResponseKind.ChangeMap };
-        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler)).CompleteAsync(Target, request, CancellationToken.None));
+        var events = await Drain(new AnthropicAdapter(new FakeFactory(handler), NullLogger<AnthropicAdapter>.Instance).CompleteAsync(Target, request, CancellationToken.None));
 
         // Raw JSON, not run through the segment parser — a map has no segments to close.
         var complete = Assert.IsType<AgentEvent.MapComplete>(Assert.Single(events));
