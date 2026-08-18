@@ -81,7 +81,7 @@ const prUrl = (project: string, repoId: string, prId: number) =>
 
 export const api = {
   // config + auth
-  config: () => req<{ defaultOrg: string }>("/api/config"),
+  config: () => req<{ defaultOrg: string; publicUrl: string }>("/api/config"),
   me: () => req<User>("/api/auth/me"),
   connect: (pat: string, org?: string) =>
     req<User>("/api/auth/connect", {

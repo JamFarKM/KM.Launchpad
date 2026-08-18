@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
+import * as deeplink from "../lib/deeplink";
 import type { DiffStats } from "../components/MonacoDiff";
 import type {
   Annotation, Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite,
@@ -97,10 +98,22 @@ const viewedKey = (prId: number, sourceCommit?: string | null) =>
 export function ReviewPage() {
   const qc = useQueryClient();
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
-  const [project, setProject] = useState("");
+
+  /* What the URL asked for, read once at mount (lib/deeplink.ts). Held in a ref rather than state
+     because it is an instruction, not a value: it is consumed as the project and repository lists
+     arrive and must not be re-applied afterwards, or every later selection would snap back. */
+  const requested = useRef(deeplink.read());
+  const pendingRepo = useRef(requested.current.repo ?? null);
+
+  const [project, setProject] = useState(requested.current.project ?? "");
   const [repoId, setRepoId] = useState("");
-  const [prId, setPrId] = useState<number | null>(null);
+  const [prId, setPrId] = useState<number | null>(requested.current.prId ?? null);
   const [prFilter, setPrFilter] = useState("");
+
+  /* Whether this deployment knows its own shareable address, and the brief acknowledgement after a
+     copy. Cached across the app, so this costs nothing. */
+  const config = useQuery({ queryKey: ["config"], queryFn: api.config, staleTime: Infinity });
+  const [copied, setCopied] = useState(false);
   const [path, setPath] = useState<string | null>(null);
   const [inline, setInline] = useState(false);
   const [stats, setStats] = useState<DiffStats | null>(null);
@@ -136,8 +149,30 @@ export function ReviewPage() {
 
   useEffect(() => {
     const repos = reposQ.data ?? [];
-    if (repos.length && !repos.some((r) => r.id === repoId)) setRepoId(repos[0].id);
+    if (!repos.length || repos.some((r) => r.id === repoId)) return;
+
+    /* A link names the repository, not its id — an id in a URL would be a guid nobody can read or
+       type. Resolved once here, and the first-repository fallback only applies when the link named
+       none, or named one this project does not have. */
+    const wanted = pendingRepo.current;
+    pendingRepo.current = null;
+    const match = wanted ? repos.find((r) => r.name === wanted) : undefined;
+    setRepoId((match ?? repos[0]).id);
   }, [reposQ.data, repoId]);
+
+  /* Named, not id-keyed: a link is written with the repository name so it stays readable, and the
+     starred-repos mutation wants the same value. Empty string rather than undefined, because both
+     callers treat "no repository yet" as nothing to write. */
+  const repoName = (reposQ.data ?? []).find((r) => r.id === repoId)?.name ?? "";
+
+  useEffect(() => {
+    deeplink.write({
+      page: "review",
+      project: project || undefined,
+      repo: repoName || undefined,
+      prId: prId ?? undefined,
+    });
+  }, [project, repoName, prId]);
 
   const prsQ = useQuery<PullRequest[]>({
     queryKey: ["prs", project, repoId],
@@ -159,7 +194,7 @@ export function ReviewPage() {
   const pr = all.find((p) => p.id === prId) ?? null;
 
   // Reset the file selection and its stats whenever the PR changes.
-  useEffect(() => { setPath(null); setStats(null); }, [prId]);
+  useEffect(() => { setPath(null); setStats(null); setCopied(false); }, [prId]);
   useEffect(() => { setStats(null); setViewLocked(false); }, [path]);
 
   const changesQ = useQuery<PrChange[]>({
@@ -551,7 +586,6 @@ export function ReviewPage() {
   const favouritesQ = useQuery<RepoFavourite[]>({ queryKey: ["repo-favourites"], queryFn: api.repoFavourites });
   const favourites = favouritesQ.data ?? [];
   const currentFavourite = favourites.find((f) => f.project === project && f.repoId === repoId);
-  const repoName = (reposQ.data ?? []).find((r) => r.id === repoId)?.name ?? "";
 
   const toggleFavourite = useMutation({
     mutationFn: async () => {
@@ -644,6 +678,38 @@ export function ReviewPage() {
           <span className="pr-bar-refs">
             {branchShort(pr.sourceRef)} <span className="pr-arrow">→</span> {branchShort(pr.targetRef)}
           </span>
+          {/* The link a reviewer can paste somewhere. Absolute rather than relative, because the
+              whole point is that it leaves the app — and built from the deployment's configured
+              public URL when it has one, since a "localhost:8080" link resolves to the *reader's*
+              machine and quietly opens their own Launchpad, or nothing at all. */}
+          <button
+            className="iconbtn"
+            title={config.data?.publicUrl
+              ? "Copy a link to this pull request in Launchpad"
+              : "Copy a link to this pull request in Launchpad — this deployment has no public "
+                + "address configured, so the link will point at whatever host you're on"}
+            onClick={() => {
+              const url = deeplink.shareable(
+                { page: "review", project, repo: repoName || undefined, prId: pr.id },
+                config.data?.publicUrl,
+              );
+              navigator.clipboard?.writeText(url);
+              setCopied(true);
+            }}
+          >
+            {copied ? (
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+                strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3.5 8.5l3 3 6-7" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+                strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
+                <rect x="5.5" y="5.5" width="9" height="9" rx="1.8" />
+                <path d="M10.5 5.5v-3a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h3" />
+              </svg>
+            )}
+          </button>
           <span style={{ flex: 1 }} />
           {pr.myVote !== 0 && (
             <span className={`pr-vote-state v${pr.myVote > 0 ? "pos" : "neg"}`}>{voteLabel(pr.myVote)}</span>

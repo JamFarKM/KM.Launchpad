@@ -15,8 +15,16 @@ public static class ApiEndpoints
         var api = app.MapGroup("/api");
 
         // ---------------------------------------------------------- config
+        /* publicUrl is how this deployment is reachable by *other people* — the address to put in a
+           link that leaves the app, for a Slack post or a Jira comment. Unset by default and
+           deliberately not guessed: the browser's origin is right for the reviewer's own bookmark and
+           wrong for anything shared, because "localhost:8080" resolves to the reader's own machine. */
         api.MapGet("/config", (IConfiguration cfg) =>
-            Results.Ok(new { defaultOrg = cfg["ADO_DEFAULT_ORG"] ?? "" }));
+            Results.Ok(new
+            {
+                defaultOrg = cfg["ADO_DEFAULT_ORG"] ?? "",
+                publicUrl = (cfg["PL_PUBLIC_URL"] ?? "").TrimEnd('/'),
+            }));
 
         // ------------------------------------------------------------ auth
         api.MapPost("/auth/connect", async (

@@ -7,6 +7,7 @@ import { ConfigurationsPage } from "./pages/Configurations";
 import { KeyVaultPage } from "./pages/KeyVault";
 import { ReviewPage } from "./pages/Review";
 import { TopBar, type Page } from "./components/TopBar";
+import * as deeplink from "./lib/deeplink";
 import type { User } from "./types";
 
 export function App() {
@@ -56,7 +57,16 @@ export function App() {
 
 function AppShell({ user, onDisconnect }: { user: User; onDisconnect: () => void }) {
   const qc = useQueryClient();
-  const [page, setPage] = useState<Page>("views");
+  /* The URL decides which page opens, so a pull request can be linked to (lib/deeplink.ts). Read
+     once at mount rather than subscribed to: nothing in the app navigates by changing the URL, and
+     watching popstate would fight the replaceState that keeps the address bar in step. */
+  const [page, setPage] = useState<Page>(() => deeplink.read().page);
+
+  /* Written whenever the page changes, but only the page — the review page owns the rest of its own
+     path, because it is the only thing that knows which pull request is open. */
+  useEffect(() => {
+    if (page !== "review") deeplink.write({ page });
+  }, [page]);
   /* Configurations and Key Vault are only useful once a store is registered, and an empty page
      behind a nav tab reads as a broken feature rather than an unconfigured one. Both queries are
      cheap and cached, so the tabs appear the moment the first registry is added. Nothing is
