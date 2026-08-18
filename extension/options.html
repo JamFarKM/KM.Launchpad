@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pull requests in Launchpad</title>
+<style>
+  /* Deliberately plain and self-contained. An extension popup that imports the app's design tokens
+     would need them copied here and kept in step, and this is four controls. */
+  :root { color-scheme: light dark; }
+  body {
+    width: 320px;
+    margin: 0;
+    padding: 14px 15px 15px;
+    font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { margin: 0 0 3px; font-size: 13px; }
+  p.sub { margin: 0 0 13px; font-size: 11.5px; opacity: .7; }
+  label { display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; }
+  input[type="url"] {
+    width: 100%; box-sizing: border-box; padding: 6px 8px;
+    font: inherit; font-size: 12.5px;
+    border: 1px solid rgba(128,128,128,.45); border-radius: 6px;
+    background: Canvas; color: CanvasText;
+  }
+  .hint { margin: 6px 0 0; font-size: 11px; opacity: .7; }
+  .row { display: flex; align-items: center; gap: 7px; margin-top: 13px; }
+  .row label { margin: 0; font-weight: 400; font-size: 12.5px; }
+  #saved { margin: 11px 0 0; font-size: 11.5px; min-height: 1.4em; opacity: 0; transition: opacity .12s; }
+  #saved.on { opacity: .8; }
+</style>
+
+<h1>Pull requests in Launchpad</h1>
+<p class="sub">Azure DevOps pull request links open here instead — from Slack, Jira, email, anywhere.</p>
+
+<label for="base">Launchpad address</label>
+<input id="base" type="url" placeholder="http://localhost:8080" spellcheck="false">
+<p class="hint">
+  Where <em>your</em> browser reaches Launchpad. Nothing is sent here — the link is rewritten before
+  the request leaves the browser.
+</p>
+
+<div class="row">
+  <input id="enabled" type="checkbox">
+  <label for="enabled">Redirect pull request links</label>
+</div>
+<p class="hint">
+  Turn this off to go back to Azure DevOps — for branch policies, work items, or anything Launchpad
+  doesn't show. Everything else on the host is untouched either way.
+</p>
+
+<p id="saved" role="status"></p>
+<script src="options.js"></script>

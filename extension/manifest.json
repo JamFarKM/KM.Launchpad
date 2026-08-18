@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Pull requests in Launchpad",
+  "version": "1.0.0",
+  "description": "Opens Azure DevOps pull request links in Pipeline Launchpad instead — from Slack, Jira, email, anywhere.",
+  "permissions": ["declarativeNetRequest", "storage"],
+  "host_permissions": [
+    "https://dev.azure.com/*",
+    "https://*.visualstudio.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "options_ui": { "page": "options.html", "open_in_tab": false },
+  "action": { "default_popup": "options.html", "default_title": "Pull requests in Launchpad" }
+}
