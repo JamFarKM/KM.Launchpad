@@ -1,53 +1,20 @@
 /*
  * The only test this extension can have, and the one that matters.
  *
- * There is no build step and no framework — the whole extension is four regexes and a storage read,
- * so `node extension/rules.test.mjs` is the test suite. The rules are parsed out of background.js
- * rather than restated here: a copy would pass while the shipped rule was broken, which is the one
- * failure mode a test like this must not have.
+ * There is no build step and no framework — the whole extension is four regexes, a storage read and a
+ * navigation listener — so `node extension/rules.test.mjs` is the test suite.
  *
- * RE2 (what Chrome uses) and JS regexes agree on patterns this simple, so exercising them here
- * genuinely covers what the browser will do.
+ * It imports `rules.js` directly, which is why that module exists separately from background.js: the
+ * assertions run against the *shipped* matcher, not a reimplementation of it. An earlier version of
+ * this file parsed the rules out of the source and resolved the backreferences itself, which would
+ * have passed happily while the shipped code was broken.
+ *
+ * RE2 (what Chrome uses for `regexFilter`) and JS regexes agree on patterns this simple, so exercising
+ * them here genuinely covers what the browser will do.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(join(here, "background.js"), "utf8");
-
-const shapes = [...source.matchAll(
-  /filter:\s*String\.raw`([^`]+)`,\s*\n\s*substitution:\s*String\.raw`([^`]+)`/g,
-)].map((m) => ({ filter: m[1], substitution: m[2] }));
+import { SHAPES, launchpadUrlFor } from "./rules.js";
 
 const BASE = "http://localhost:8080";
-
-/* A backslash, spelled without writing one. Every layer between here and the file — shell, heredoc,
-   editor — has its own opinion about doubled backslashes, and two of them silently halved the escape
-   while this was a regex literal. A char code cannot be misread by any of them. */
-const BACKSLASH = String.fromCharCode(92);
-
-/**
- * What Chrome's `regexSubstitution` would produce for a URL, or null if no rule matches.
- *
- * A substitution looks like `\1/\2/\3`: splitting on the backslash leaves the leading literal, then
- * one part per backreference whose first character is the group number and whose remainder is literal
- * text. Reassembling that way needs no pattern of its own.
- */
-function redirect(url) {
-  for (const shape of shapes) {
-    const match = url.match(new RegExp(shape.filter));
-    if (!match) continue;
-
-    const substituted = shape.substitution
-      .split(BACKSLASH)
-      .map((part, i) => (i === 0 ? part : match[Number(part[0])] + part.slice(1)))
-      .join("");
-
-    return `${BASE}/review/${substituted}`;
-  }
-  return null;
-}
 
 const cases = [
   ["the usual shape",
@@ -89,16 +56,19 @@ const cases = [
   ["the pull request *list*", "https://dev.azure.com/BetagyDevOps/Account/_git/Repo/pullrequests?_a=mine", null],
   ["a work item", "https://dev.azure.com/BetagyDevOps/Account/_workitems/edit/4245", null],
   ["another host entirely", "https://example.com/x/_git/y/pullrequest/1", null],
+
+  // A Launchpad URL must not match, or the webNavigation fallback would redirect its own redirect.
+  ["a Launchpad URL", `${BASE}/review/Account/Repo/7`, null],
 ];
 
-if (shapes.length !== 4) {
-  console.error(`expected 4 rules in background.js, parsed ${shapes.length}`);
+if (SHAPES.length !== 4) {
+  console.error(`expected 4 rule shapes, found ${SHAPES.length}`);
   process.exit(1);
 }
 
 let failed = 0;
 for (const [name, url, want] of cases) {
-  const got = redirect(url);
+  const got = launchpadUrlFor(url, BASE);
   if (got === want) {
     console.log(`ok    ${name}`);
   } else {

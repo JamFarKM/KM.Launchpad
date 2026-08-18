@@ -15,6 +15,9 @@ app never sees the click. Only something sitting in the browser can intervene, w
 
 No build step, no dependencies, nothing to compile — the folder is the extension.
 
+After changing any file here, press **Reload** on the extension's card. The rules are rebuilt from the
+options on install and on browser start, and a reload is what re-runs that.
+
 ## What it does
 
 | You click | You get |
@@ -34,16 +37,30 @@ a space in its name survives.
 
 ## Design notes
 
-**The redirect is declarative.** A `declarativeNetRequest` rule rewrites the URL before the request
-leaves the browser, so no ADO page loads first and nothing flashes. `background.js` runs no code on
-the hot path — it exists only to keep the rules in step with the options, because a static rule file
-would have to hardcode the Launchpad address, and that address is the one thing that genuinely varies.
+**Two paths, and both are needed.** The primary is declarative: a `declarativeNetRequest` rule
+rewrites the URL before the request leaves the browser, so no ADO page loads first and nothing flashes.
+`background.js` runs no code on that path — it only keeps the rules in step with the options, because a
+static rule file would have to hardcode the Launchpad address, and that address is the one thing that
+genuinely varies.
+
+**The fallback exists because the rule alone does not work from Slack.** Chrome silently skips a
+`redirect` rule when the extension has no host access to the *initiator* of the request. A link clicked
+inside a web app — Slack in a tab, Jira, Outlook on the web — has that app as its initiator, so the rule
+does nothing, while the very same URL pasted into the address bar redirects perfectly. No error, no
+warning, nothing in any console: the rules are installed and simply never fire.
+
+The alternative was requesting every site you might click a link from, which for a link rewriter is far
+more access than it deserves. `webNavigation` has no initiator rule — it reports navigations for the
+hosts this extension already has permission for, which is exactly Azure DevOps. It stays the fallback
+because it is worse when the rule does work: by then ADO has begun loading, so there is a brief flash.
+When the rule fires first, the fallback sees a Launchpad URL, matches nothing, and does nothing.
 
 **Scoped to `main_frame`.** Only a link someone clicked is ever affected. Azure DevOps's own API
 calls, iframes and assets are untouched, and every other page on the host works normally.
 
 **Nothing is sent anywhere.** No content script, no analytics, no network access of its own. The two
-host permissions exist because `declarativeNetRequest` needs them to redirect requests to those hosts.
+host permissions exist because both paths need them to act on those hosts, and they are the only two
+hosts named anywhere in the extension.
 
 **Off means off, not broken.** With the checkbox cleared, or no address set, the rules are removed
 rather than pointed somewhere useless — so links go to Azure DevOps exactly as they did before. That
@@ -55,11 +72,13 @@ matters because ADO is still where branch policies, work items and completion li
 node extension/rules.test.mjs
 ```
 
-Twelve cases over the URL shapes ADO actually serves, including the ones that must *not* redirect —
-the pull request **list** page is the trap, since its path is the singular form plus one character.
+Thirteen cases over the URL shapes ADO actually serves, including the ones that must *not* redirect —
+the pull request **list** page is the trap, since its path is the singular form plus one character, and
+a Launchpad URL must not match either or the fallback would redirect its own redirect.
 
-The test parses the rules out of `background.js` rather than restating them. A copy would pass while
-the shipped rule was broken, which is the one failure mode a test like this must not have.
+It imports `rules.js` directly, which is why that module is separate from `background.js`: the
+assertions run against the shipped matcher. An earlier version parsed the rules out of the source and
+resolved the backreferences itself, which would have passed happily while the shipped code was broken.
 
 ## Known limitation
 
