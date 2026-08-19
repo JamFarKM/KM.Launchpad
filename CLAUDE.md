@@ -10,7 +10,7 @@ Azure DevOps pipelines, shipped as a single Docker image. See `README.md` for wh
 | `src/server` | ASP.NET Core API. Endpoints in `Endpoints/`, ADO and Azure clients in `Services/`, EF Core + SQLite in `Data/` |
 | `src/web` | React SPA. Pages in `src/pages`, shared UI in `src/components`, all styling in `src/styles.css` |
 | `src/web/design` | Design specs and mockups — see below |
-| `extension` | Browser extension that redirects Azure DevOps pull request links to Launchpad. No build step; `node extension/rules.test.mjs` is its test suite |
+| `extension` | Browser extension that offers an "Open in Launchpad" link on Azure DevOps pull request pages. No build step; `node extension/rules.test.mjs` is its test suite |
 
 ## Build and run
 

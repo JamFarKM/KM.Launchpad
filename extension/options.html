@@ -28,22 +28,22 @@
 </style>
 
 <h1>Pull requests in Launchpad</h1>
-<p class="sub">Azure DevOps pull request links open here instead — from Slack, Jira, email, anywhere.</p>
+<p class="sub">Azure DevOps pull request pages offer a link here — from Slack, Jira, email, anywhere.</p>
 
 <label for="base">Launchpad address</label>
 <input id="base" type="url" placeholder="http://localhost:8080" spellcheck="false">
 <p class="hint">
-  Where <em>your</em> browser reaches Launchpad. Nothing is sent here — the link is rewritten before
-  the request leaves the browser.
+  Where <em>your</em> browser reaches Launchpad. Nothing is sent anywhere — the address is only used to
+  build the link you click.
 </p>
 
 <div class="row">
   <input id="enabled" type="checkbox">
-  <label for="enabled">Redirect pull request links</label>
+  <label for="enabled">Offer a Launchpad link on pull requests</label>
 </div>
 <p class="hint">
-  Turn this off to go back to Azure DevOps — for branch policies, work items, or anything Launchpad
-  doesn't show. Everything else on the host is untouched either way.
+  Turn this off and Azure DevOps looks exactly as it did. Nothing is redirected either way — the link
+  is an offer, so the page you asked for is still the page you get.
 </p>
 
 <p id="saved" role="status"></p>

@@ -23,16 +23,16 @@ chrome.storage.sync.get(DEFAULTS).then((s) => {
 
 base.addEventListener("change", () => {
   const value = base.value.trim().replace(/\/+$/, "");
-  // An address that isn't one would produce a rule that redirects nowhere, which strands the link.
-  // Better to say so and keep the last good value than to accept it silently.
+  // An address that isn't one would produce a link that goes nowhere. Better to say so and keep the
+  // last good value than to accept it silently.
   if (value && !/^https?:\/\/[^\s/]+/i.test(value)) {
     acknowledged("That doesn't look like a URL — not saved.");
     return;
   }
-  chrome.storage.sync.set({ baseUrl: value }).then(() => acknowledged(value ? "Saved." : "Cleared — links go to Azure DevOps."));
+  chrome.storage.sync.set({ baseUrl: value }).then(() => acknowledged(value ? "Saved." : "Cleared — no link is offered."));
 });
 
 enabled.addEventListener("change", () => {
   chrome.storage.sync.set({ enabled: enabled.checked })
-    .then(() => acknowledged(enabled.checked ? "Redirecting." : "Off — links go to Azure DevOps."));
+    .then(() => acknowledged(enabled.checked ? "On." : "Off — nothing is added to the page."));
 });

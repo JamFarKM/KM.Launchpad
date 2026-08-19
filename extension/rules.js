@@ -1,11 +1,10 @@
 /**
  * What counts as a pull request link, and where it goes.
  *
- * A module of its own so two things can share it without either restating it: the declarative rules
- * in background.js, and the `webNavigation` fallback beside them. It is also the only part worth
- * testing, and being importable means `rules.test.mjs` exercises the shipped code rather than a copy
- * of it — a copy would pass while the shipped rule was broken, which is the one failure mode a test
- * like this must not have.
+ * A module of its own because it is the only part worth testing, and being importable means
+ * `rules.test.mjs` exercises the shipped matcher rather than a copy of it — a copy would pass
+ * happily while the shipped one was broken, which is the one failure mode a test like this must
+ * not have.
  *
  * Nothing here touches `chrome.*`, which is what keeps it importable from plain Node.
  */
@@ -23,7 +22,8 @@
  *
  * Anything after the id — `?_a=files`, a `discussionId`, a fragment — is deliberately dropped rather
  * than carried over: those are Azure DevOps's own view state and mean nothing to Launchpad. The
- * trailing `.*` is what consumes them.
+ * trailing `.*` is what consumes them, and it is also what keeps the offer in place while somebody
+ * clicks around the tabs of one pull request.
  */
 export const SHAPES = [
   // org / project / _git / repo / pullrequest / id
@@ -53,10 +53,12 @@ const BACKSLASH = String.fromCharCode(92);
 /**
  * The Launchpad URL for an Azure DevOps URL, or null if it isn't a pull request.
  *
- * This resolves the same `\1`-style backreferences Chrome's `regexSubstitution` does, so the
- * declarative rule and the fallback agree by construction rather than by review. A substitution looks
- * like `\1/\2/\3`: splitting on the backslash leaves the leading literal, then one part per
- * backreference whose first character is the group number and whose remainder is literal text.
+ * The substitutions are written in Chrome's `regexSubstitution` form and resolved here, which is a
+ * leftover from the version that installed them as `declarativeNetRequest` rules. It stays because
+ * it is a compact way to say "these groups, in this order", and rewriting it now would be churn for
+ * its own sake. A substitution looks like `\1/\2/\3`: splitting on the backslash leaves the leading
+ * literal, then one part per backreference whose first character is the group number and whose
+ * remainder is literal text.
  *
  * The backslash comes from a char code because every layer between source and disk — shell, heredoc,
  * editor — has its own opinion about doubled backslashes, and two of them silently halved the escape
