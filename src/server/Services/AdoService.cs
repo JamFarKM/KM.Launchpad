@@ -373,8 +373,19 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             }
         }
 
+        /* Built rather than read: the payload's `url` is the REST resource, not the page, and it carries
+           no web link of its own. Both names are on every PR payload, list and single alike. */
+        var prNumber = p.TryGetProperty("pullRequestId", out var pid) ? pid.GetInt32() : 0;
+        string? webUrl = null;
+        if (p.TryGetProperty("repository", out var repo)
+            && Str(repo, "name") is { } repoName
+            && repo.TryGetProperty("project", out var proj) && Str(proj, "name") is { } projName)
+        {
+            webUrl = $"{OrgBase}/{Uri.EscapeDataString(projName)}/_git/{Uri.EscapeDataString(repoName)}/pullrequest/{prNumber}";
+        }
+
         return new PullRequestDto(
-            p.TryGetProperty("pullRequestId", out var id) ? id.GetInt32() : 0,
+            prNumber,
             Str(p, "title") ?? "",
             author,
             Str(p, "sourceRefName"),
@@ -385,7 +396,8 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             p.TryGetProperty("lastMergeSourceCommit", out var sc) ? Str(sc, "commitId") : null,
             p.TryGetProperty("lastMergeTargetCommit", out var tc) ? Str(tc, "commitId") : null,
             myVote,
-            Str(p, "mergeStatus"));
+            Str(p, "mergeStatus"),
+            webUrl);
     }
 
     /// <summary>
@@ -789,6 +801,28 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         return await GetRunsAsync(project, id, top, ct);
     }
 
+    /// <summary>
+    /// Every pipeline run that built a pull request, newest first.
+    ///
+    /// Matched on the PR's merge ref rather than its source branch: build-validation policies queue
+    /// against <c>refs/pull/{id}/merge</c>, and so does "Queue" on the PR page, while a run on the
+    /// source branch is a CI build of the branch — related, but not a run <i>of this pull request</i>.
+    /// Scoped to the repository as well, because the merge ref's name repeats across repositories.
+    /// </summary>
+    public async Task<List<RunDto>> GetPullRequestRunsAsync(
+        string project, string repoId, int prId, int top, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(
+            HttpMethod.Get,
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds" +
+            $"?branchName={Uri.EscapeDataString($"refs/pull/{prId}/merge")}" +
+            $"&repositoryId={Uri.EscapeDataString(repoId)}&repositoryType=TfsGit" +
+            $"&$top={top}&queryOrder=queueTimeDescending&api-version={ApiVersion}",
+            null, null, ct);
+
+        return doc.RootElement.GetProperty("value").EnumerateArray().Select(b => MapBuild(b, project)).ToList();
+    }
+
     public async Task<RunDto> GetRunAsync(string project, int buildId, CancellationToken ct)
     {
         using var doc = await SendJsonAsync(
@@ -941,7 +975,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             GetDate(b, "startTime"),
             GetDate(b, "finishTime"),
             webUrl,
-            tags);
+            tags,
+            b.TryGetProperty("definition", out var dn2) ? Str(dn2, "name") : null,
+            Str(b, "reason"));
     }
 
     private static DateTime? GetDate(JsonElement e, string name) =>

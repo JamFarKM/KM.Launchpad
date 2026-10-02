@@ -1,6 +1,10 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentPanel } from "../components/AgentPanel";
 import { AnnotationCard, type CycleStop } from "../components/AnnotationCard";
+import { PrDescription } from "../components/PrDescription";
+import { PrRuns, usePrRuns } from "../components/PrRuns";
+import { groupByPipeline, overallTone } from "../lib/prRuns";
+import { StatusGlyph } from "../components/StatusGlyph";
 import { LeftResizer, RailResizer, useLeftWidth, useRailWidth } from "../components/RailResizer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
@@ -331,6 +335,15 @@ export function ReviewPage() {
      surface the conversation can take over without costing anything. */
   const [leftTab, setLeftTab] = useState<"prs" | "agent">("prs");
 
+  /* Which view of the open pull request fills the middle column. Kept across PR switches: a reviewer
+     checking the build on every PR in turn shouldn't be thrown back to the diff each time. */
+  const [prView, setPrView] = useState<"description" | "code" | "runs">("code");
+
+  /* Read here as well as in the Runs view — same query key, one request — so the tab can carry the
+     PR's build state without being opened. */
+  const prRunsQ = usePrRuns(project, repoId, prId);
+  const runsSummary = useMemo(() => overallTone(groupByPipeline(prRunsQ.data ?? [])), [prRunsQ.data]);
+
   /**
    * The tab is named by whichever connector holds the capability — never a literal (§7.1). With
    * nothing assigned it reads `Agent` and stays neutral, because there is no identity to name yet.
@@ -352,6 +365,8 @@ export function ReviewPage() {
     const match = changes.find((c) => norm(c.path) === norm(citedPath));
     if (!match) return;
     if (match.path !== path) setPath(match.path);
+    // A citation is a line of code, so it always lands in the Code view, whichever is showing.
+    setPrView("code");
     // The nonce makes a repeat click on the same chip a fresh instruction.
     setCite({ line, nonce: Date.now() });
   }, [changes, path]);
@@ -515,6 +530,7 @@ export function ReviewPage() {
     if (!stop) return;
     const match = changes.find((c) => norm(c.path) === stop.path);
     if (match && match.path !== path) setPath(match.path);
+    setPrView("code");
     setOpenStop(`${stop.path}:${stop.line}`);
     setCite({ line: stop.line, nonce: Date.now() });
   }, [changes, path]);
@@ -715,6 +731,23 @@ export function ReviewPage() {
               </svg>
             )}
           </button>
+          {/* For what Launchpad doesn't do — completing the PR, editing reviewers, its policies. A link,
+              not a button: it's navigation, and middle-click / copy-link should work on it. */}
+          {pr.webUrl && (
+            <a
+              className="btn outline small pr-bar-ado"
+              href={pr.webUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              title="Open this pull request in Azure DevOps"
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
+                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" />
+              </svg>
+              Open in Azure DevOps
+            </a>
+          )}
           <span style={{ flex: 1 }} />
           {pr.myVote !== 0 && (
             <span className={`pr-vote-state v${pr.myVote > 0 ? "pos" : "neg"}`}>{voteLabel(pr.myVote)}</span>
@@ -750,7 +783,8 @@ export function ReviewPage() {
       <div
         className="review"
         data-left={leftOpen ? "on" : "off"}
-        data-right={prId && rightOpen ? "on" : "off"}
+        // The file tree is about code; the Description and Runs views get its width instead.
+        data-right={prId && rightOpen && prView === "code" ? "on" : "off"}
         style={{
           "--w-left": `${leftWidth}px`,
           "--w-right": `${railWidth}px`,
@@ -859,7 +893,7 @@ export function ReviewPage() {
         <div className="cfg-col review-files">
           {/* On the rail's left edge, so it sits on the boundary it moves. Hidden when the rail is
               collapsed — there is no edge to drag then. */}
-          {prId && rightOpen && <RailResizer width={railWidth} onWidth={setRailWidth} />}
+          {prId && rightOpen && prView === "code" && <RailResizer width={railWidth} onWidth={setRailWidth} />}
 
           <div className="keys-head rail-head">
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -932,8 +966,44 @@ export function ReviewPage() {
 
         {/* ---------- diff ---------- */}
         <div className="cfg-col review-diff">
-          {/* §9: the toolbar is hidden entirely when there's no PR, so the empty state below is
-              the only message on screen. */}
+          {/* Three views of one pull request. Same tab grammar as the left column, so the two tab rows
+              read as one band across the page; hidden with no PR open, per §9 — the empty state
+              below is then the only message on screen. */}
+          {pr && (
+            <div className="ag-tabs pr-views">
+              <button
+                className={`ag-tab ${prView === "description" ? "on" : ""}`}
+                aria-pressed={prView === "description"}
+                onClick={() => setPrView("description")}
+              >
+                Description
+              </button>
+              <button
+                className={`ag-tab ${prView === "code" ? "on" : ""}`}
+                aria-pressed={prView === "code"}
+                onClick={() => setPrView("code")}
+              >
+                Code {changesQ.isSuccess && <span className="ag-tabn">{changes.length}</span>}
+              </button>
+              <button
+                className={`ag-tab ${prView === "runs" ? "on" : ""}`}
+                aria-pressed={prView === "runs"}
+                onClick={() => setPrView("runs")}
+              >
+                {/* The build state rides on the tab, so "is it green?" doesn't need a click. */}
+                {runsSummary && <StatusGlyph tone={runsSummary.tone} label={runsSummary.label} />}
+                Runs {prRunsQ.isSuccess && <span className="ag-tabn">{prRunsQ.data.length}</span>}
+              </button>
+            </div>
+          )}
+
+          {pr && prView === "description" && <PrDescription project={project} repoId={repoId} pr={pr} />}
+          {pr && prView === "runs" && <PrRuns project={project} repoId={repoId} pr={pr} />}
+
+          {/* The code view stays mounted behind the other two, hidden with `display`: Monaco is the
+              expensive thing on this page to rebuild, and the reviewer's scroll position, open card and
+              part-typed comment all live inside it. */}
+          <div className="pr-view-pane" style={{ display: !pr || prView === "code" ? undefined : "none" }}>
           {pr && (
           <div className="detail-head">
             {/* Both collapse toggles live in the toolbar, left-most and right-most, so they stay
@@ -1125,6 +1195,7 @@ export function ReviewPage() {
                 />
               </Suspense>
             )}
+          </div>
           </div>
         </div>
 

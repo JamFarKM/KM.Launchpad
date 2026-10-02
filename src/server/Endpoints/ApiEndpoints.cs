@@ -187,6 +187,20 @@ public static class ApiEndpoints
             AdoContext ctx, AdoService ado, CancellationToken ct) =>
             Guarded(ctx, () => ado.SetThreadStatusAsync(project, repoId, prId, threadId, body.Status, ct)));
 
+        // The description the PR list deliberately leaves out — one payload, only when it's read.
+        api.MapGet($"{prBase}/description", (
+            string project, string repoId, int prId, AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, async () => new
+            {
+                description = await ado.GetPullRequestDescriptionAsync(project, repoId, prId, ct),
+            }));
+
+        // Pipeline runs that built this pull request's merge ref.
+        api.MapGet($"{prBase}/runs", (
+            string project, string repoId, int prId, int? top,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetPullRequestRunsAsync(project, repoId, prId, Math.Clamp(top ?? 50, 1, 100), ct)));
+
         api.MapPut($"{prBase}/vote", (
             string project, string repoId, int prId, VoteRequest body,
             AdoContext ctx, AdoService ado, CancellationToken ct) =>

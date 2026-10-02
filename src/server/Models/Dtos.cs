@@ -54,7 +54,9 @@ public record RunDto(
     DateTime? StartTime,
     DateTime? FinishTime,
     string WebUrl,
-    IReadOnlyList<string> Tags);
+    IReadOnlyList<string> Tags,
+    string? PipelineName = null,  // the definition's name — a PR's runs span several pipelines
+    string? Reason = null);       // pullRequest | manual | individualCI | ... — why it was queued
 
 public record LogEntryDto(
     int Id, string Name, string State, string? Result, int? LineCount,
@@ -77,7 +79,8 @@ public record PullRequestDto(
     string? SourceCommit,   // the PR's head — the "after" side of a diff
     string? TargetCommit,   // the branch it merges into — the "before" side
     int MyVote,             // 10 approved · 5 with suggestions · 0 none · -5 waiting · -10 rejected
-    string? MergeStatus);   // "conflicts" when the branch no longer merges cleanly
+    string? MergeStatus,    // "conflicts" when the branch no longer merges cleanly
+    string? WebUrl = null); // the PR's page in Azure DevOps
 
 public record VoteRequest(int Vote);
 

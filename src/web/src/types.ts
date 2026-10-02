@@ -73,6 +73,10 @@ export interface Run {
   finishTime?: string | null;
   webUrl: string;
   tags: string[];
+  /** The definition's name. Only worth showing where runs from several pipelines share a list. */
+  pipelineName?: string | null;
+  /** Why ADO queued it: pullRequest, manual, individualCI, schedule, … */
+  reason?: string | null;
 }
 
 export interface LogEntry {
@@ -129,6 +133,8 @@ export interface PullRequest {
   mergeStatus?: string | null;
   /** 10 approved · 5 with suggestions · 0 none · -5 waiting for author · -10 rejected. */
   myVote: number;
+  /** The PR's own page in Azure DevOps. */
+  webUrl?: string | null;
 }
 
 export interface RepoFavourite {
