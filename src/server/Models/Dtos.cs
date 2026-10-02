@@ -53,7 +53,8 @@ public record RunDto(
     DateTime? QueueTime,
     DateTime? StartTime,
     DateTime? FinishTime,
-    string WebUrl);
+    string WebUrl,
+    IReadOnlyList<string> Tags);
 
 public record LogEntryDto(
     int Id, string Name, string State, string? Result, int? LineCount,
@@ -208,7 +209,13 @@ public record UpsertVaultRegistryRequest(string Name, string VaultUri);
 public record VaultSecretValueDto(string Name, string? Value);
 
 // ----- views -----
-public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf, bool? ShowLabel = null);
+/// <summary>
+/// A card on a shelf. <c>Id</c> is the card's identity, since one pipeline can be on several shelves;
+/// it's null on cards saved before ids existed, which the client keys by pipeline instead.
+/// <c>IncludeTags</c>/<c>ExcludeTags</c> filter a pipeline card's runs (see <see cref="Services.RunTagFilter"/>).
+/// </summary>
+public record ViewItemDto(string? Kind, string Project, int PipelineId, string? SequenceId, string Name, string? Shelf, bool? ShowLabel = null,
+    List<string>? IncludeTags = null, List<string>? ExcludeTags = null, string? Id = null);
 /// <summary>A shelf's placement on the dashboard grid, in grid cells (Grafana-style).</summary>
 public record GridPosDto(int X, int Y, int W, int H);
 public record SavedViewDto(string Id, string Name, int SortOrder, List<string> Shelves, Dictionary<string, string> ShelfColors, Dictionary<string, GridPosDto> ShelfLayout, List<ViewItemDto> Items);

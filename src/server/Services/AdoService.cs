@@ -737,18 +737,41 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         return branches.FirstOrDefault(b => b.Mine)?.Name ?? def;
     }
 
-    public async Task<List<RunDto>> GetRunsAsync(string project, int pipelineId, int top, CancellationToken ct)
+    public Task<List<RunDto>> GetRunsAsync(string project, int pipelineId, int top, CancellationToken ct) =>
+        GetRunsAsync(project, pipelineId, top, RunTagFilter.None, ct);
+
+    public async Task<List<RunDto>> GetRunsAsync(string project, int pipelineId, int top, RunTagFilter tags, CancellationToken ct)
     {
         using var doc = await SendJsonAsync(
             HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/builds" +
-            $"?definitions={pipelineId}&$top={top}&queryOrder=queueTimeDescending&api-version={ApiVersion}",
+            $"?definitions={pipelineId}&$top={tags.FetchSize(top)}{tags.QuerySuffix}" +
+            $"&queryOrder=queueTimeDescending&api-version={ApiVersion}",
             null, null, ct);
 
         var list = new List<RunDto>();
         foreach (var b in doc.RootElement.GetProperty("value").EnumerateArray())
-            list.Add(MapBuild(b, project));
+        {
+            var run = MapBuild(b, project);
+            if (!tags.Matches(run.Tags)) continue;
+            list.Add(run);
+            if (list.Count == top) break;
+        }
         return list;
+    }
+
+    /// <summary>Every build tag in use in a project: suggestions for a card's tag filter.</summary>
+    public async Task<List<string>> GetBuildTagsAsync(string project, CancellationToken ct)
+    {
+        using var doc = await SendJsonAsync(
+            HttpMethod.Get,
+            $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/build/tags?api-version={ApiVersion}",
+            null, null, ct);
+        return doc.RootElement.GetProperty("value").EnumerateArray()
+            .Select(t => t.GetString() ?? "")
+            .Where(t => t.Length > 0)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>Resolves a pipeline by name (as declared in a resource's `source`) and lists its recent runs.</summary>
@@ -902,6 +925,9 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         string? requestedFor = null;
         if (b.TryGetProperty("requestedFor", out var rf) && rf.ValueKind == JsonValueKind.Object)
             requestedFor = rf.TryGetProperty("displayName", out var dn) ? dn.GetString() : null;
+        List<string> tags = b.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array
+            ? tg.EnumerateArray().Select(t => t.GetString() ?? "").Where(t => t.Length > 0).ToList()
+            : [];
 
         return new RunDto(
             id,
@@ -914,7 +940,8 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
             GetDate(b, "queueTime"),
             GetDate(b, "startTime"),
             GetDate(b, "finishTime"),
-            webUrl);
+            webUrl,
+            tags);
     }
 
     private static DateTime? GetDate(JsonElement e, string name) =>

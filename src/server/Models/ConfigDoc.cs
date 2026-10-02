@@ -47,4 +47,8 @@ public class CfgViewItem
     public string? Shelf { get; set; }
     /// <summary>Per-card "Show project label" opt-in.</summary>
     public bool? ShowLabel { get; set; }
+    /// <summary>Per-card run filter: show only runs carrying all of these tags.</summary>
+    public List<string>? IncludeTags { get; set; }
+    /// <summary>Per-card run filter: hide runs carrying any of these tags.</summary>
+    public List<string>? ExcludeTags { get; set; }
 }

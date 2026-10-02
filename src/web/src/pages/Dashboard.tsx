@@ -5,6 +5,8 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { api } from "../api/client";
 import { runTone } from "../lib/format";
+import { runsQuery, type TagFilter } from "../lib/tagFilter";
+import { itemKey, newItemId, sameItem, wouldDuplicate } from "../lib/viewItems";
 import { isCleared, onCleared } from "../lib/seqDismiss";
 import type { GridPos, Pipeline, Project, Run, SavedView, Sequence, SequenceRun, ViewItem } from "../types";
 import { PipelinePool } from "../components/PipelinePool";
@@ -43,9 +45,6 @@ const shelfOfItem = (v: SavedView, i: ViewItem): string => {
   const ss = shelvesOf(v);
   return i.shelf && ss.includes(i.shelf) ? i.shelf : ss[0];
 };
-const itemKey = (i: ViewItem): string =>
-  i.kind === "sequence" ? `seq:${i.sequenceId}` : `pipe:${i.project}:${i.pipelineId}`;
-const sameItem = (a: ViewItem, b: ViewItem) => itemKey(a) === itemKey(b);
 
 // Merge stored shelf placements with auto-placement for any shelf that has none yet.
 // Placements saved under an earlier fine-grained (30px) row model are scaled back to whole
@@ -210,10 +209,12 @@ export function Dashboard() {
   async function addPipeline(p: Pipeline, shelf?: string) {
     const base = await ensureView();
     const view = freshest(base.id) ?? base;
-    if (view.items.some((i) => i.kind !== "sequence" && i.project === p.project && i.pipelineId === p.id)) return;
+    // The same pipeline may go on any number of shelves; only an exact duplicate is refused.
+    const to = targetShelf(view, shelf);
+    if (wouldDuplicate(view.items, p.project, p.id, to, (i) => shelfOfItem(view, i))) return;
     commit(view, shelvesOf(view), [
       ...view.items,
-      { kind: "pipeline", project: p.project, pipelineId: p.id, name: p.name, shelf: targetShelf(view, shelf) },
+      { id: newItemId(), kind: "pipeline", project: p.project, pipelineId: p.id, name: p.name, shelf: to },
     ]);
   }
 
@@ -223,7 +224,7 @@ export function Dashboard() {
     if (view.items.some((i) => i.kind === "sequence" && i.sequenceId === s.id)) return;
     commit(view, shelvesOf(view), [
       ...view.items,
-      { kind: "sequence", project: "", pipelineId: 0, sequenceId: s.id, name: s.name, shelf: targetShelf(view, shelf) },
+      { id: newItemId(), kind: "sequence", project: "", pipelineId: 0, sequenceId: s.id, name: s.name, shelf: targetShelf(view, shelf) },
     ]);
   }
 
@@ -250,6 +251,15 @@ export function Dashboard() {
     if (!activeView) return;
     const view = freshest(activeView.id) ?? activeView;
     commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, showLabel } : i)));
+  }
+
+  // Per-card run filter by tag (§2.3). Empty lists are dropped rather than stored as [].
+  function setItemTagFilter(item: ViewItem, f: TagFilter) {
+    if (!activeView) return;
+    const view = freshest(activeView.id) ?? activeView;
+    const includeTags = f.include.length ? f.include : null;
+    const excludeTags = f.exclude.length ? f.exclude : null;
+    commit(view, shelvesOf(view), view.items.map((i) => (sameItem(i, item) ? { ...i, includeTags, excludeTags } : i)));
   }
 
   // Reorder a dragged card to sit before `target` (landing on target's shelf).
@@ -385,10 +395,7 @@ export function Dashboard() {
   const seqItems = items.filter((i) => i.kind === "sequence" && i.sequenceId);
 
   const pipeStatuses = useQueries({
-    queries: pipeItems.map((i) => ({
-      queryKey: ["runs", i.project, i.pipelineId],
-      queryFn: () => api.runs(i.project, i.pipelineId, 4),
-    })),
+    queries: pipeItems.map((i) => runsQuery(i)),
   });
   const seqStatuses = useQueries({
     queries: seqItems.map((i) => ({
@@ -438,11 +445,21 @@ export function Dashboard() {
     });
   }
 
-  const pinnedIds = useMemo(() => {
-    const ids = new Set<number>();
-    activeView?.items.forEach((i) => { if (i.kind !== "sequence" && i.project === activeProject) ids.add(i.pipelineId); });
-    return ids;
+  // Which shelves of this view each pipeline is already on, for the drawer's count and tooltip.
+  const pinnedShelves = useMemo(() => {
+    const m = new Map<number, string[]>();
+    if (!activeView) return m;
+    activeView.items.forEach((i) => {
+      if (i.kind === "sequence" || i.project !== activeProject) return;
+      m.set(i.pipelineId, [...(m.get(i.pipelineId) ?? []), shelfOfItem(activeView, i)]);
+    });
+    return m;
   }, [activeView, activeProject]);
+
+  // The drawer's `+` adds to the first shelf; it's disabled only where that would be an exact copy.
+  const addTarget = activeView ? shelvesOf(activeView)[0] : DEFAULT_SHELF;
+  const addBlocked = (p: Pipeline) =>
+    !!activeView && wouldDuplicate(activeView.items, p.project, p.id, addTarget, (i) => shelfOfItem(activeView, i));
 
   const pinnedSequenceIds = useMemo(() => {
     const ids = new Set<string>();
@@ -467,7 +484,9 @@ export function Dashboard() {
             loading={pipelinesQ.isLoading || projectsQ.isLoading}
             search={search}
             onSearch={setSearch}
-            pinnedIds={pinnedIds}
+            pinnedShelves={pinnedShelves}
+            addTarget={addTarget}
+            addBlocked={addBlocked}
             onAdd={(p) => addPipeline(p)}
             onDragStart={(p) => { poolDrag.current = p; seqDrag.current = null; cardDrag.current = null; }}
             sequences={sequences}
@@ -692,6 +711,7 @@ export function Dashboard() {
                                       onRemove={removeItem}
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
+                                      onSetTagFilter={setItemTagFilter}
                                       shelfHealth={i === 0 ? hp : undefined}
                                       onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
                                       onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}

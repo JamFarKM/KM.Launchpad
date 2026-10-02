@@ -110,9 +110,15 @@ public static class ApiEndpoints
             string project, int id, RunRequest body, AdoContext ctx, AdoService ado, CancellationToken ct) =>
             Guarded(ctx, () => ado.RunPipelineAsync(project, id, body, ct)));
 
+        // `include`/`exclude` repeat once per tag: a shelf card's tag filter (RunTagFilter).
         api.MapGet("/projects/{project}/pipelines/{id:int}/runs", (
-            string project, int id, int? top, AdoContext ctx, AdoService ado, CancellationToken ct) =>
-            Guarded(ctx, () => ado.GetRunsAsync(project, id, Math.Clamp(top ?? 15, 1, 100), ct)));
+            string project, int id, int? top, string[]? include, string[]? exclude,
+            AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetRunsAsync(
+                project, id, Math.Clamp(top ?? 15, 1, 100), RunTagFilter.From(include, exclude), ct)));
+
+        api.MapGet("/projects/{project}/build-tags", (string project, AdoContext ctx, AdoService ado, CancellationToken ct) =>
+            Guarded(ctx, () => ado.GetBuildTagsAsync(project, ct)));
 
         api.MapGet("/projects/{project}/runs/{buildId:int}", (
             string project, int buildId, AdoContext ctx, AdoService ado, CancellationToken ct) =>

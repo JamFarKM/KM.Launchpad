@@ -12,7 +12,12 @@ interface Props {
   loading: boolean;
   search: string;
   onSearch: (s: string) => void;
-  pinnedIds: Set<number>;
+  /** Shelves of the current view each pipeline is already on, by pipeline id. */
+  pinnedShelves: Map<number, string[]>;
+  /** The shelf `+` adds to. */
+  addTarget: string;
+  /** True where `+` would only add an exact copy of a card already on `addTarget`. */
+  addBlocked: (p: Pipeline) => boolean;
   onAdd: (p: Pipeline) => void;
   onDragStart: (p: Pipeline) => void;
   // sequences
@@ -42,7 +47,7 @@ function PencilIcon() {
  */
 export function PipelinePool({
   projects, activeProject, onProject, pipelines, loading, search, onSearch,
-  pinnedIds, onAdd, onDragStart,
+  pinnedShelves, addTarget, addBlocked, onAdd, onDragStart,
   sequences, pinnedSequenceIds, onAddSequence, onDragStartSequence,
   onEditSequence, onNewSequence, collapsed,
 }: Props) {
@@ -139,9 +144,18 @@ export function PipelinePool({
                         vertical list. headRatio 0.5 because a pipeline's head carries real
                         meaning too — `SB.OfferIntegration…` — unlike a branch. */}
                     <Truncated className="name" text={p.name} headRatio={HEAD_RATIO_BALANCED} />
-                    <button className="btn ghost small" disabled={pinnedIds.has(p.id)} onClick={() => onAdd(p)}
-                      title={pinnedIds.has(p.id) ? "Already in this view" : "Add to current shelf"}>
-                      {pinnedIds.has(p.id) ? "✓" : "+"}
+                    {/* A pipeline can be on several shelves, so "on this view" is a count, not a
+                        reason to disable `+`. Tabular figures: these stack down the list. */}
+                    {pinnedShelves.has(p.id) && (
+                      <span className="pool-count" title={`On this view: ${pinnedShelves.get(p.id)!.join(", ")}`}>
+                        ×{pinnedShelves.get(p.id)!.length}
+                      </span>
+                    )}
+                    <button className="btn ghost small" disabled={addBlocked(p)} onClick={() => onAdd(p)}
+                      title={addBlocked(p)
+                        ? `Already on ${addTarget}. Drag it onto another shelf, or filter that card by tag first`
+                        : `Add to ${addTarget}`}>
+                      +
                     </button>
                   </div>
                 ))}

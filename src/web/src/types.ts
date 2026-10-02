@@ -72,6 +72,7 @@ export interface Run {
   startTime?: string | null;
   finishTime?: string | null;
   webUrl: string;
+  tags: string[];
 }
 
 export interface LogEntry {
@@ -93,6 +94,8 @@ export interface LogContent {
 }
 
 export interface ViewItem {
+  /** Per-card identity: one pipeline can be on several shelves (lib/viewItems.ts). */
+  id?: string | null;
   kind?: "pipeline" | "sequence"; // default "pipeline" (legacy items)
   project: string; // pipeline only
   pipelineId: number; // pipeline only
@@ -100,6 +103,8 @@ export interface ViewItem {
   name: string;
   shelf?: string | null;
   showLabel?: boolean | null; // per-card "Show project label" opt-in (§2.3)
+  includeTags?: string[] | null; // pipeline only: show runs carrying all of these tags (§2.3)
+  excludeTags?: string[] | null; // pipeline only: hide runs carrying any of these tags (§2.3)
 }
 
 // ----- pull requests (code review) -----

@@ -1122,6 +1122,14 @@ a {
   white-space: nowrap;
 }
 
+/* How many shelves of this view the pipeline is already on. Muted, like a run group's ×n. */
+.pool-count {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .pool-item.seq-row .name {
   border: none;
   background: transparent;
@@ -4422,6 +4430,117 @@ a {
 .card.show-label .sub {
   display: block;
 }
+
+/* Run filter by tag (§2.3). Always visible when set, unlike the project label: a card showing a
+   subset of runs must say so. Ink, not accent — it's a statement, not a control colour (A1). */
+.card-filter {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 4px;
+  padding: 1px 2px;
+  border: none;
+  border-radius: var(--r-small);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.card-filter:hover {
+  background: var(--hover-wash);
+  color: var(--ink-secondary);
+}
+
+.card-filter-text {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.card-filter-empty {
+  font-size: 12px;
+}
+
+.card-filter-edit {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--ink-secondary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.card-filter-edit:hover { color: var(--ink-primary); }
+
+/* Tag filter dialog: chips and the text input share one field-shaped box. */
+.tagfilter-modal { max-width: 460px; }
+
+.tagfilter-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 4px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+}
+
+.tagfilter-box:focus-within { border-color: var(--accent); }
+
+.tagfilter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px 2px 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-tag);
+  background: var(--bg-surface-2);
+  font-size: 12px;
+  color: var(--ink-primary);
+}
+
+.tagfilter-chip-text {
+  overflow-wrap: anywhere;
+}
+
+.tagfilter-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-small);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.tagfilter-chip-x:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.tagfilter-input {
+  flex: 1 1 120px;
+  min-width: 80px;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.tagfilter-input:focus { outline: none; }
 
 .card .runs {
   display: flex;
