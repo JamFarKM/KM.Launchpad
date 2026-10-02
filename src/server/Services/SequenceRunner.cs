@@ -245,7 +245,7 @@ public class SequenceRunner(IServiceScopeFactory scopeFactory, ILogger<SequenceR
     /// <summary>A run we triggered but could never read back — only used when polling times out
     /// without a single successful fetch, so the step still finishes with an id attached.</summary>
     private static RunDto Unknown(int buildId) =>
-        new(buildId, 0, null, "completed", "failed", null, null, null, null, null, "");
+        new(buildId, 0, null, "completed", "failed", null, null, null, null, null, "", []);
 
     /// <summary>The value an earlier step's run supplies for a named output.</summary>
     private static string OutputOf(RunDto run, string? output)

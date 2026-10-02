@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
 import type { Run, ViewItem } from "../types";
 import { branchShort, duration, runLabel, runTone, timeAgo, timeAgoShort } from "../lib/format";
 import { groupConsecutive } from "../lib/truncate";
 import { notify } from "../lib/notify";
+import { describeTagFilter, isTagFilterEmpty, runsQuery, runTagsSuffix, tagFilterOf, type TagFilter } from "../lib/tagFilter";
 import { CloseIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
+import { TagFilterDialog } from "./TagFilterDialog";
 import { Truncated } from "./Truncated";
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
   onToggleLabel: (item: ViewItem, show: boolean) => void;
+  onSetTagFilter: (item: ViewItem, filter: TagFilter) => void;
   /** Shelf-level health, shown in the footer of the shelf's first card only. */
   shelfHealth?: { failing: number; running: number };
   onDragCard: (item: ViewItem) => void;
@@ -22,13 +24,16 @@ interface Props {
 }
 
 export function PipelineCard({
-  item, onRun, onOpenRun, onRemove, onRename, onToggleLabel, shelfHealth, onDragCard, onReorder,
+  item, onRun, onOpenRun, onRemove, onRename, onToggleLabel, onSetTagFilter, shelfHealth, onDragCard, onReorder,
 }: Props) {
   const [menu, setMenu] = useState(false);
+  const [editingFilter, setEditingFilter] = useState(false);
+  const filter = tagFilterOf(item);
+  const filtered = !isTagFilterEmpty(filter);
+  const filterText = describeTagFilter(filter);
 
   const runsQ = useQuery<Run[]>({
-    queryKey: ["runs", item.project, item.pipelineId],
-    queryFn: () => api.runs(item.project, item.pipelineId, 4),
+    ...runsQuery(item),
     refetchInterval: (q) => {
       const data = q.state.data;
       const active = data?.some((r) => r.state !== "completed");
@@ -96,12 +101,27 @@ export function PipelineCard({
 
       <div className="sub">{item.project}</div>
 
+      {/* A filtered card shows a subset of runs; saying so on the card itself is what stops
+          "why is the latest run missing?" (§2.3). Click to edit, same as the ⋯ menu entry. */}
+      {filtered && (
+        <button className="card-filter" onClick={() => setEditingFilter(true)} aria-label={`Run filter: ${filterText}. Edit`}>
+          <Truncated className="card-filter-text" text={filterText} title={`Run filter: ${filterText}`} />
+        </button>
+      )}
+
       <div className="runs">
         {runsQ.isLoading && (
           <div className="faint" style={{ fontSize: 12 }}><span className="spin" /> loading runs…</div>
         )}
-        {!runsQ.isLoading && runs.length === 0 && (
+        {!runsQ.isLoading && runs.length === 0 && !filtered && (
           <div className="faint" style={{ fontSize: 12 }}>No runs yet.</div>
+        )}
+        {/* Name the scope and offer the way out: the filter is the likely reason it's empty. */}
+        {!runsQ.isLoading && runs.length === 0 && filtered && (
+          <div className="faint card-filter-empty">
+            No recent runs {filterText}.{" "}
+            <button className="card-filter-edit" onClick={() => setEditingFilter(true)}>Edit filter</button>
+          </div>
         )}
         {/* POLISH §1.3: consecutive runs on one branch state it once. On real data all four runs
             on a card usually share a branch, so repeating it four times spent the whole row on
@@ -124,7 +144,7 @@ export function PipelineCard({
                 className="run-line"
                 key={r.id}
                 onClick={() => onOpenRun(item.project, r.id)}
-                title={`${r.branch ?? "—"} — ${timeAgo(r.startTime ?? r.queueTime)}`}
+                title={`${r.branch ?? "—"} — ${timeAgo(r.startTime ?? r.queueTime)}${runTagsSuffix(r)}`}
               >
                 <span className={`rl-dot ${runTone(r)}`} />
                 <span className="rl-dur">
@@ -163,10 +183,21 @@ export function PipelineCard({
                 />
                 Show project label
               </label>
+              <button className="card-menu-item" onClick={() => { setMenu(false); setEditingFilter(true); }}>
+                {filtered ? "Edit run filter…" : "Filter runs by tag…"}
+              </button>
             </div>
           )}
         </div>
       </div>
+
+      {editingFilter && (
+        <TagFilterDialog
+          item={item}
+          onClose={() => setEditingFilter(false)}
+          onSave={(f) => { setEditingFilter(false); onSetTagFilter(item, f); }}
+        />
+      )}
     </div>
   );
 }

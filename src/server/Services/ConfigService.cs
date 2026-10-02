@@ -117,6 +117,8 @@ public class ConfigService(AppDbContext db)
                     Name = Attr(it, "name"),
                     Shelf = Attr(it, "shelf"),
                     ShowLabel = bool.TryParse(Attr(it, "showLabel"), out var sl) ? sl : null,
+                    IncludeTags = TagsAttr(it, "includeTags"),
+                    ExcludeTags = TagsAttr(it, "excludeTags"),
                 });
             }
             doc.Views.Add(view);
@@ -126,6 +128,8 @@ public class ConfigService(AppDbContext db)
 
     private static string Attr(XElement e, string n, string fallback = "") => e.Attribute(n)?.Value ?? fallback;
     private static int IntAttr(XElement e, string n) => int.TryParse(e.Attribute(n)?.Value, out var i) ? i : 0;
+    private static List<string>? TagsAttr(XElement e, string n) =>
+        e.Attribute(n)?.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     private static Dictionary<string, string> KvBag(XElement? bag) =>
         bag?.Elements("param").ToDictionary(p => Attr(p, "key"), p => p.Value) ?? new();
 
@@ -163,7 +167,10 @@ public class ConfigService(AppDbContext db)
                 return new ViewItemDto(
                     isSeq ? "sequence" : "pipeline",
                     it.Project, it.PipelineId, seqId,
-                    it.Name, it.Shelf, it.ShowLabel);
+                    it.Name, it.Shelf, it.ShowLabel, it.IncludeTags, it.ExcludeTags,
+                    // Card ids are local to a view, so an imported card gets a fresh one. A config can
+                    // hold the same pipeline twice, which the pre-id fallback key couldn't tell apart.
+                    Guid.NewGuid().ToString("N"));
             }).ToList();
 
             var shelfLayout = cv.ShelfLayout.ToDictionary(
@@ -223,6 +230,8 @@ public class ConfigService(AppDbContext db)
                     Name = it.Name,
                     Shelf = it.Shelf,
                     ShowLabel = it.ShowLabel,
+                    IncludeTags = it.IncludeTags,
+                    ExcludeTags = it.ExcludeTags,
                 }).ToList(),
             });
         }

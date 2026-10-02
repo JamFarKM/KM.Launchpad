@@ -1,3 +1,4 @@
+import { withViewItemIds } from "../lib/viewItems";
 import type {
   AgentThread,
   Annotation,
@@ -109,10 +110,16 @@ export const api = {
       `/api/projects/${encodeURIComponent(project)}/pipelines/${id}/run`,
       { method: "POST", body: JSON.stringify(body) },
     ),
-  runs: (project: string, id: number, top = 15) =>
-    req<Run[]>(
-      `/api/projects/${encodeURIComponent(project)}/pipelines/${id}/runs?top=${top}`,
-    ),
+  runs: (project: string, id: number, top = 15, tags?: { include: string[]; exclude: string[] }) => {
+    const q = new URLSearchParams({ top: String(top) });
+    for (const t of tags?.include ?? []) q.append("include", t);
+    for (const t of tags?.exclude ?? []) q.append("exclude", t);
+    return req<Run[]>(
+      `/api/projects/${encodeURIComponent(project)}/pipelines/${id}/runs?${q}`,
+    );
+  },
+  buildTags: (project: string) =>
+    req<string[]>(`/api/projects/${encodeURIComponent(project)}/build-tags`),
   resourceRuns: (project: string, name: string, top = 15) =>
     req<Run[]>(
       `/api/projects/${encodeURIComponent(project)}/resource-runs?name=${encodeURIComponent(name)}&top=${top}`,
@@ -173,17 +180,17 @@ export const api = {
     req<void>(`/api/repo-favourites/${id}`, { method: "DELETE" }),
 
   // views
-  views: () => req<SavedView[]>("/api/views"),
+  views: () => req<SavedView[]>("/api/views").then((vs) => vs.map(withViewItemIds)),
   createView: (name: string, sortOrder: number, shelves: string[], shelfColors: Record<string, string>, shelfLayout: Record<string, GridPos>, items: ViewItem[]) =>
     req<SavedView>("/api/views", {
       method: "POST",
       body: JSON.stringify({ name, sortOrder, shelves, shelfColors, shelfLayout, items }),
-    }),
+    }).then(withViewItemIds),
   updateView: (id: string, name: string, sortOrder: number, shelves: string[], shelfColors: Record<string, string>, shelfLayout: Record<string, GridPos>, items: ViewItem[]) =>
     req<SavedView>(`/api/views/${id}`, {
       method: "PUT",
       body: JSON.stringify({ name, sortOrder, shelves, shelfColors, shelfLayout, items }),
-    }),
+    }).then(withViewItemIds),
   deleteView: (id: string) =>
     req<void>(`/api/views/${id}`, { method: "DELETE" }),
 
