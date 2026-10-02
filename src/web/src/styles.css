@@ -5076,20 +5076,22 @@ a {
 }
 
 /* Stage over job, so the hierarchy is legible without indenting every step under it. */
-.log-group-title .lg-stage,
-.log-group-title .lg-job {
+.log-group-title .lg-stage {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.log-group-title .lg-stage {
   font-size: 9.5px;
   opacity: 0.75;
 }
 
-.log-group-title .lg-job { color: var(--ink-muted); }
+/* The job wraps rather than truncating: its distinguishing part is usually at the end, and a
+   240px rail cuts most job names. `anywhere` breaks long unspaced identifiers too. */
+.log-group-title .lg-job {
+  display: block;
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
 
 /* Selects the step's log, so it has to look selectable — a plain div defaults to a text caret,
    which read as "this is a label" rather than "click me". */
