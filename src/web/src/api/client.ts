@@ -165,6 +165,12 @@ export const api = {
     req<PrThread>(`${prUrl(project, repoId, prId)}/threads/${threadId}`,
       { method: "PATCH", body: JSON.stringify({ status }) }),
 
+  prDescription: (project: string, repoId: string, prId: number) =>
+    req<{ description: string | null }>(`${prUrl(project, repoId, prId)}/description`),
+  /** Runs that built the PR's merge ref — build validation and manual queues alike. */
+  prRuns: (project: string, repoId: string, prId: number, top = 50) =>
+    req<Run[]>(`${prUrl(project, repoId, prId)}/runs?top=${top}`),
+
   prVote: (project: string, repoId: string, prId: number, vote: number) =>
     req<{ vote: number }>(`${prUrl(project, repoId, prId)}/vote`,
       { method: "PUT", body: JSON.stringify({ vote }) }),
