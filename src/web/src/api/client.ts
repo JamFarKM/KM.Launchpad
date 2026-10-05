@@ -138,9 +138,9 @@ export const api = {
   // pull requests
   repos: (project: string) =>
     req<Repo[]>(`/api/projects/${encodeURIComponent(project)}/repos`),
-  pullRequests: (project: string, repoId: string, status = "active", top = 30) =>
+  pullRequests: (project: string, repoId: string, status = "active", top = 30, skip = 0) =>
     req<PullRequest[]>(
-      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/pullrequests?status=${status}&top=${top}`,
+      `/api/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repoId)}/pullrequests?status=${status}&top=${top}&skip=${skip}`,
     ),
   prChanges: (project: string, repoId: string, prId: number) =>
     req<PrChange[]>(

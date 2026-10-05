@@ -323,11 +323,11 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
     }
 
     public async Task<List<PullRequestDto>> GetPullRequestsAsync(
-        string project, string repoId, string status, int top, CancellationToken ct)
+        string project, string repoId, string status, int top, int skip, CancellationToken ct)
     {
         using var doc = await SendJsonAsync(HttpMethod.Get,
             $"{OrgBase}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}/pullrequests" +
-            $"?searchCriteria.status={Uri.EscapeDataString(status)}&$top={top}&api-version={ApiVersion}", null, null, ct);
+            $"?searchCriteria.status={Uri.EscapeDataString(status)}&$top={top}&$skip={skip}&api-version={ApiVersion}", null, null, ct);
 
         return doc.RootElement.GetProperty("value").EnumerateArray().Select(ReadPullRequest).ToList();
     }
