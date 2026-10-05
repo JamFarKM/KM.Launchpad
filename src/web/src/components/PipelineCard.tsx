@@ -6,6 +6,7 @@ import { groupConsecutive } from "../lib/truncate";
 import { notify } from "../lib/notify";
 import { describeTagFilter, isTagFilterEmpty, runsQuery, runTagsSuffix, tagFilterOf, type TagFilter } from "../lib/tagFilter";
 import { CloseIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
+import { AnchoredMenu } from "./AnchoredMenu";
 import { TagFilterDialog } from "./TagFilterDialog";
 import { Truncated } from "./Truncated";
 
@@ -27,6 +28,7 @@ export function PipelineCard({
   item, onRun, onOpenRun, onRemove, onRename, onToggleLabel, onSetTagFilter, shelfHealth, onDragCard, onReorder,
 }: Props) {
   const [menu, setMenu] = useState(false);
+  const menuBtn = useRef<HTMLButtonElement>(null);
   const [editingFilter, setEditingFilter] = useState(false);
   const filter = tagFilterOf(item);
   const filtered = !isTagFilterEmpty(filter);
@@ -172,9 +174,9 @@ export function PipelineCard({
         )}
         {shelfHealth && <ShelfHealthPill health={shelfHealth} />}
         <div className="card-menu-wrap">
-          <button className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
+          <button ref={menuBtn} className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
           {menu && (
-            <div className="card-menu" onMouseLeave={() => setMenu(false)}>
+            <AnchoredMenu anchor={menuBtn} prefer="above" className="card-menu" onClose={() => setMenu(false)}>
               <label>
                 <input
                   type="checkbox"
@@ -186,7 +188,7 @@ export function PipelineCard({
               <button className="card-menu-item" onClick={() => { setMenu(false); setEditingFilter(true); }}>
                 {filtered ? "Edit run filter…" : "Filter runs by tag…"}
               </button>
-            </div>
+            </AnchoredMenu>
           )}
         </div>
       </div>

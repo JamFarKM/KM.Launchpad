@@ -11,6 +11,7 @@ import { isCleared, onCleared } from "../lib/seqDismiss";
 import type { GridPos, Pipeline, Project, Run, SavedView, Sequence, SequenceRun, ViewItem } from "../types";
 import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
+import { AnchoredMenu } from "../components/AnchoredMenu";
 import { SequenceCard } from "../components/SequenceCard";
 import { SequenceEditor } from "../components/SequenceEditor";
 import { SequenceRunDialog } from "../components/SequenceRunDialog";
@@ -338,6 +339,7 @@ export function Dashboard() {
   }
 
   const [colorMenu, setColorMenu] = useState<string | null>(null);
+  const colorMenuBtn = useRef<HTMLButtonElement>(null);
 
   // --- grid width measurement (drives the column count so cells stay ~card-sized) ---
   const gridRef = useRef<HTMLDivElement>(null);
@@ -628,9 +630,9 @@ export function Dashboard() {
                           )}
                           <span style={{ flex: 1 }} />
                           <div className="shelf-menu-wrap">
-                            <button className="btn ghost small icon-btn" title="Shelf options" onClick={() => setColorMenu(colorMenu === shelf ? null : shelf)}>⋯</button>
+                            <button ref={colorMenu === shelf ? colorMenuBtn : undefined} className="btn ghost small icon-btn" title="Shelf options" onClick={() => setColorMenu(colorMenu === shelf ? null : shelf)}>⋯</button>
                             {colorMenu === shelf && (
-                              <div className="shelf-menu" onMouseLeave={() => setColorMenu(null)}>
+                              <AnchoredMenu anchor={colorMenuBtn} prefer="below" className="shelf-menu" onClose={() => setColorMenu(null)}>
                                 <button className="menu-item" onClick={() => { setColorMenu(null); renameShelf(shelf); }}>Rename…</button>
                                 <div className="menu-sep" />
                                 {/* POLISH §8: labelled, one row of seven, and the current value
@@ -655,7 +657,7 @@ export function Dashboard() {
                                     />
                                   ))}
                                 </div>
-                              </div>
+                              </AnchoredMenu>
                             )}
                           </div>
                           {canDelete && (
