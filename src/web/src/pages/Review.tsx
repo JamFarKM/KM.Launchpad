@@ -6,14 +6,14 @@ import { PrRuns, usePrRuns } from "../components/PrRuns";
 import { groupByPipeline, overallTone } from "../lib/prRuns";
 import { StatusGlyph } from "../components/StatusGlyph";
 import { LeftResizer, RailResizer, useLeftWidth, useRailWidth } from "../components/RailResizer";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import * as deeplink from "../lib/deeplink";
 import type { DiffStats } from "../components/MonacoDiff";
 import type {
-  Annotation, Connector, PrChange, Project, PrThread, PullRequest, Repo, RepoFavourite,
+  Annotation, Connector, PrChange, Project, PrThread, Repo, RepoFavourite,
 } from "../types";
 
 /** ADO's vote scale, as review actions. */
@@ -99,6 +99,17 @@ const CHANGE_WORD: Record<string, string> = {
 const viewedKey = (prId: number, sourceCommit?: string | null) =>
   `pl-viewed:${prId}:${sourceCommit ?? "head"}`;
 
+/** Pull requests fetched per page — the first load, and each "Load more". */
+const PR_PAGE = 30;
+
+/** A remembered on/off preference. Storage can be unavailable (private window); default to off. */
+function readFlag(key: string): boolean {
+  try { return localStorage.getItem(key) === "1"; } catch { return false; }
+}
+function writeFlag(key: string, on: boolean) {
+  try { localStorage.setItem(key, on ? "1" : "0"); } catch { /* preference just won't persist */ }
+}
+
 export function ReviewPage() {
   const qc = useQueryClient();
   const projectsQ = useQuery<Project[]>({ queryKey: ["projects"], queryFn: api.projects });
@@ -113,6 +124,11 @@ export function ReviewPage() {
   const [repoId, setRepoId] = useState("");
   const [prId, setPrId] = useState<number | null>(requested.current.prId ?? null);
   const [prFilter, setPrFilter] = useState("");
+  // Remembered across visits: someone who never reviews drafts shouldn't have to say so every time.
+  const [hideDrafts, setHideDrafts] = useState(() => readFlag("pl-pr-hide-drafts"));
+  const [hideConflicts, setHideConflicts] = useState(() => readFlag("pl-pr-hide-conflicts"));
+  useEffect(() => { writeFlag("pl-pr-hide-drafts", hideDrafts); }, [hideDrafts]);
+  useEffect(() => { writeFlag("pl-pr-hide-conflicts", hideConflicts); }, [hideConflicts]);
 
   /* Whether this deployment knows its own shareable address, and the brief acknowledgement after a
      copy. Cached across the app, so this costs nothing. */
@@ -178,21 +194,34 @@ export function ReviewPage() {
     });
   }, [project, repoName, prId]);
 
-  const prsQ = useQuery<PullRequest[]>({
+  /* Paged, newest first. Azure DevOps pages PRs by $skip, so a full page means there may be more
+     and a short one means there aren't. The filters below only see what's been loaded. */
+  const prsQ = useInfiniteQuery({
     queryKey: ["prs", project, repoId],
-    queryFn: () => api.pullRequests(project, repoId),
+    queryFn: ({ pageParam }) => api.pullRequests(project, repoId, "active", PR_PAGE, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) =>
+      last.length < PR_PAGE ? undefined : pages.reduce((n, p) => n + p.length, 0),
     enabled: !!project && !!repoId,
   });
 
-  const all = prsQ.data ?? [];
+  const all = useMemo(() => {
+    // A PR opened between two page loads shifts every offset by one, so the next page repeats
+    // the last row of the previous one. Keep the first copy.
+    const seen = new Set<number>();
+    return (prsQ.data?.pages ?? []).flat().filter((p) => !seen.has(p.id) && seen.add(p.id));
+  }, [prsQ.data]);
   const prs = useMemo(() => {
     const q = prFilter.trim().toLowerCase();
-    if (!q) return all;
     return all.filter((p) =>
-      String(p.id).includes(q) ||
-      p.title.toLowerCase().includes(q) ||
-      (p.author ?? "").toLowerCase().includes(q));
-  }, [all, prFilter]);
+      !(hideDrafts && p.isDraft) &&
+      !(hideConflicts && p.mergeStatus === "conflicts") &&
+      (!q ||
+        String(p.id).includes(q) ||
+        p.title.toLowerCase().includes(q) ||
+        (p.author ?? "").toLowerCase().includes(q)));
+  }, [all, prFilter, hideDrafts, hideConflicts]);
+  const prsFiltered = prFilter.trim() !== "" || hideDrafts || hideConflicts;
   // Look the selected PR up in the unfiltered list — filtering it out of the rail shouldn't
   // tear down the diff you're reading.
   const pr = all.find((p) => p.id === prId) ?? null;
@@ -805,7 +834,13 @@ export function ReviewPage() {
               aria-pressed={leftTab === "prs"}
               onClick={() => setLeftTab("prs")}
             >
-              Pull requests <span className="ag-tabn">{prs.length}</span>
+              Pull requests{" "}
+              <span
+                className="ag-tabn"
+                title={prsQ.hasNextPage ? "Only the newest are loaded — more further down the list" : undefined}
+              >
+                {prs.length}{prsQ.hasNextPage ? "+" : ""}
+              </span>
             </button>
             <button
               className={`ag-tab bot ${leftTab === "agent" ? "on" : ""}`}
@@ -834,6 +869,16 @@ export function ReviewPage() {
                 value={prFilter}
                 onChange={(e) => setPrFilter(e.target.value)}
               />
+              <div className="pr-toggles">
+                <label className="pr-toggle">
+                  <input type="checkbox" checked={hideDrafts} onChange={(e) => setHideDrafts(e.target.checked)} />
+                  Exclude drafts
+                </label>
+                <label className="pr-toggle">
+                  <input type="checkbox" checked={hideConflicts} onChange={(e) => setHideConflicts(e.target.checked)} />
+                  Exclude with conflicts
+                </label>
+              </div>
             </div>
 
             <div className="cfg-scroll">
@@ -843,8 +888,22 @@ export function ReviewPage() {
                 {prsQ.error instanceof ApiError ? prsQ.error.message : "Could not load pull requests."}
               </div>
             )}
-            {!prsQ.isLoading && !prsQ.error && prs.length === 0 && (
+            {!prsQ.isLoading && !prsQ.error && all.length === 0 && (
               <div className="faint cfg-note">No active pull requests in this repository.</div>
+            )}
+            {/* Hidden by the filter, not absent — say so and offer the way back, or a reviewer reads
+                an empty list as "nothing to review". */}
+            {!prsQ.isLoading && !prsQ.error && all.length > 0 && prs.length === 0 && prsFiltered && (
+              <div className="faint cfg-note">
+                No pull requests match the current filters ({all.length}
+                {prsQ.hasNextPage ? " newest loaded" : " active in this repository"}).{" "}
+                <button
+                  className="linklike"
+                  onClick={() => { setPrFilter(""); setHideDrafts(false); setHideConflicts(false); }}
+                >
+                  Clear filters
+                </button>
+              </div>
             )}
             {prs.map((p) => (
               <button key={p.id} className={`pr-item ${p.id === prId ? "active" : ""}`} onClick={() => setPrId(p.id)}>
@@ -870,6 +929,19 @@ export function ReviewPage() {
                 </div>
               </button>
             ))}
+            {/* Filters only reach what's loaded, so when they've hidden every row the empty-state
+                note above sits next to this button and both ways out are on screen. */}
+            {prsQ.hasNextPage && (
+              <button
+                className="pr-more"
+                disabled={prsQ.isFetchingNextPage}
+                onClick={() => prsQ.fetchNextPage()}
+              >
+                {prsQ.isFetchingNextPage
+                  ? <><span className="spin" /> loading…</>
+                  : "Load more"}
+              </button>
+            )}
             </div>
           </div>
 

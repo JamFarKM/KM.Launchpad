@@ -142,11 +142,11 @@ public static class ApiEndpoints
             Guarded(ctx, () => ado.GetRepositoriesAsync(project, ct)));
 
         api.MapGet("/projects/{project}/repos/{repoId}/pullrequests", (
-            string project, string repoId, string? status, int? top,
+            string project, string repoId, string? status, int? top, int? skip,
             AdoContext ctx, AdoService ado, CancellationToken ct) =>
             Guarded(ctx, () => ado.GetPullRequestsAsync(
                 project, repoId, string.IsNullOrWhiteSpace(status) ? "active" : status,
-                Math.Clamp(top ?? 30, 1, 100), ct)));
+                Math.Clamp(top ?? 30, 1, 100), Math.Max(skip ?? 0, 0), ct)));
 
         api.MapGet("/projects/{project}/repos/{repoId}/pullrequests/{prId:int}/changes", (
             string project, string repoId, int prId, AdoContext ctx, AdoService ado, CancellationToken ct) =>
