@@ -438,16 +438,28 @@ public class AdoService(IHttpClientFactory httpFactory, AdoContext ctx)
         using var doc = await SendJsonAsync(HttpMethod.Get,
             $"{basePr}/iterations/{iterationId}/changes?api-version={ApiVersion}&$top=1000", null, null, ct);
 
+        return ReadChangeEntries(doc.RootElement);
+    }
+
+    /// <summary>
+    /// An iteration's <c>changeEntries</c> as files. A deleted file has no <c>item.path</c> — ADO
+    /// leaves it null and names the file in the entry's own <c>originalPath</c> — so reading only
+    /// <c>item.path</c> dropped every deletion, and a PR that only deletes files showed no files.
+    /// </summary>
+    public static List<PrChangeDto> ReadChangeEntries(JsonElement root)
+    {
         var list = new List<PrChangeDto>();
-        if (!doc.RootElement.TryGetProperty("changeEntries", out var entries)) return list;
+        if (!root.TryGetProperty("changeEntries", out var entries)) return list;
         foreach (var e in entries.EnumerateArray())
         {
             if (!e.TryGetProperty("item", out var item)) continue;
             // Folders come through as changes too; only files have content to diff.
             if (item.TryGetProperty("isFolder", out var f) && f.ValueKind == JsonValueKind.True) continue;
-            var path = Str(item, "path");
+            var originalPath = Str(e, "originalPath") ?? Str(item, "originalPath");
+            var path = Str(item, "path") ?? originalPath;
             if (string.IsNullOrWhiteSpace(path)) continue;
-            list.Add(new PrChangeDto(path!, Str(e, "changeType") ?? "edit", Str(item, "originalPath")));
+            // Only a rename has an original path distinct from its path; a deletion's is the file itself.
+            list.Add(new PrChangeDto(path!, Str(e, "changeType") ?? "edit", originalPath == path ? null : originalPath));
         }
         return list.OrderBy(c => c.Path, StringComparer.OrdinalIgnoreCase).ToList();
     }
