@@ -3536,6 +3536,20 @@ a {
 .dthread-count {
   font-size: 11px;
   color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dthread.is-collapsed { padding-block: 4px; }
+.dthread.is-collapsed .dthread-head { margin-bottom: 0; }
+
+.dthread-excerpt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--ink-muted);
 }
 
 .dcomment + .dcomment {
@@ -3557,26 +3571,20 @@ a {
 }
 
 .dcomment-body {
-  font-size: 12.5px;
-  color: var(--ink-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
   margin-top: 2px;
 }
 
 .dthread-reply {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 6px;
   margin-top: 8px;
 }
 
-.dthread-input {
-  flex: 1;
-  min-width: 0;
-  resize: vertical;
-  font-family: inherit;
-  font-size: 12.5px;
+.dthread-reply-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .dthread-actions {
@@ -3935,12 +3943,74 @@ a {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-.dc-input {
+/* A comment editor: the toolbar and the text share one bordered field, so the focus ring wraps both
+   and the toolbar reads as belonging to this box rather than to the thread. */
+.md-input {
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.md-input:focus-within { border-color: var(--accent); }
+
+.md-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.md-input-bar markdown-toolbar { margin-left: auto; min-width: 0; }
+.md-input-bar markdown-toolbar[hidden] { display: none; }
+
+.md-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 1px;
+}
+
+.md-tool {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border: none;
+  border-radius: var(--r-small);
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.md-tool:hover {
+  background: var(--hover-wash);
+  color: var(--ink-primary);
+}
+
+.md-tool svg { width: 14px; height: 14px; }
+
+.md-input-field {
+  display: block;
   width: 100%;
-  min-height: 66px;
+  border: none;
+  outline: none;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text);
   resize: vertical;
   font-family: inherit;
   font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.md-input-preview {
+  min-height: 66px;
+  padding: 8px 10px;
 }
 
 .dc-foot {
@@ -5903,6 +5973,22 @@ a {
   color: var(--ink-primary);
   font-weight: 600;
 }
+
+/* A comment inside the diff: the thread's own type size, and spacing that doesn't push the code apart. */
+.md.md-compact {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.md.md-compact > * { margin-bottom: 6px; }
+.md.md-compact > :last-child { margin-bottom: 0; }
+.md.md-compact .md-h { margin: 10px 0 4px; font-size: 12.5px; }
+.md.md-compact > .md-h:first-child { margin-top: 0; }
+.md.md-compact .md-code { padding: 8px 10px; }
+.md.md-compact .md-rule { margin: 10px 0; }
+.md.md-compact .md-table { font-size: 12px; }
+.md.md-compact .md-table th,
+.md.md-compact .md-table td { padding: 4px 8px; }
 
 /* Runs: one group per pipeline, each pipeline's latest run first. */
 .pr-runs {

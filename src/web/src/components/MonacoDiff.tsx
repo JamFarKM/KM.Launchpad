@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import { DiffComposer, DiffThread } from "./DiffThread";
+import { DiffComposer, DiffThread, type HiddenThreads } from "./DiffThread";
 import type { PrThread } from "../types";
 
 /**
@@ -231,6 +231,8 @@ interface Props {
   cite?: { line: number; nonce: number } | null;
   /** Threads anchored to this file. Rendered inline as view zones. */
   threads?: PrThread[];
+  /** Threads the reviewer has hidden on this PR. Mutated by DiffThread; see HiddenThreads. */
+  hiddenThreads?: HiddenThreads;
   onReply?: (threadId: number, content: string) => Promise<void>;
   onSetStatus?: (threadId: number, status: string) => Promise<void>;
   onNewThread?: (line: number, content: string) => Promise<void>;
@@ -257,7 +259,7 @@ interface Props {
 
 export function MonacoDiff({
   path, before, after, inline, stale, wrap, fontSize, onStats,
-  cite, threads, onReply, onSetStatus, onNewThread,
+  cite, threads, hiddenThreads, onReply, onSetStatus, onNewThread,
   annotations, onOpenAnnotation, anchorLine, renderAnchored,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -541,7 +543,10 @@ export function MonacoDiff({
         afterLineNumber,
         domNode: node,
         heightInPx: 0,
-        suppressMouseDown: true, // let the thread's own inputs take the click
+        /* false, despite the name reading like the opposite: `true` makes Monaco claim the mousedown,
+           focus its own hidden textarea and preventDefault — so buttons in the thread still got their
+           click, but the reply box could never take focus. `false` leaves the event to the zone. */
+        suppressMouseDown: false,
       };
       let zoneId = "";
       right.changeViewZones((a) => { zoneId = a.addZone(zone); });
@@ -568,6 +573,7 @@ export function MonacoDiff({
         root.render(
           <DiffThread
             thread={t}
+            hidden={hiddenThreads}
             onReply={async (id, content) => { await onReply?.(id, content); }}
             onSetStatus={async (id, status) => { await onSetStatus?.(id, status); }}
           />,
@@ -585,7 +591,7 @@ export function MonacoDiff({
         setTimeout(() => m.root.unmount(), 0);
       });
     };
-  }, [threads, path, onReply, onSetStatus, onNewThread]);
+  }, [threads, hiddenThreads, path, onReply, onSetStatus, onNewThread]);
 
   /* Both overlays — the comment composer and an annotation card — are overlays rather than view
      zones (§6, confirmed): inserting a row into a long diff reflows everything below it and reads as

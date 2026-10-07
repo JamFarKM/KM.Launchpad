@@ -1,5 +1,5 @@
 /**
- * Markdown for a pull request description, parsed to a small tree that React renders.
+ * Markdown for a pull request description or comment, parsed to a small tree that React renders.
  *
  * Wider than the agent panel's subset (AgentPanel's `Markdown`), because this is text a person wrote
  * in Azure DevOps's own editor — PR templates lean on headings, task lists and tables, and showing
