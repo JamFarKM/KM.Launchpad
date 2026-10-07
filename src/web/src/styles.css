@@ -1586,10 +1586,7 @@ a {
 }
 
 .shelf-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
+  /* Placed by AnchoredMenu — fixed, in a portal, because the shelf clips its contents. */
   z-index: 80;
   min-width: 150px;
   display: flex;
@@ -4953,10 +4950,7 @@ a {
 }
 
 .card-menu {
-  position: absolute;
-  bottom: 100%;
-  right: 0;
-  margin-bottom: 6px;
+  /* Placed by AnchoredMenu — fixed, in a portal, because the shelf clips its contents. */
   z-index: 80;
   min-width: 176px;
   display: flex;
