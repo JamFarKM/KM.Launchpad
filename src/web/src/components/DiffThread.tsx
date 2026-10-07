@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { timeAgo } from "../lib/format";
+import { parseInline } from "../lib/markdown";
+import { MarkdownInput } from "./MarkdownInput";
+import { MarkdownView } from "./MarkdownView";
 import type { PrThread } from "../types";
 
 /**
@@ -10,14 +13,29 @@ import type { PrThread } from "../types";
 const RESOLVED = new Set(["fixed", "closed", "wontfix", "bydesign"]);
 export const isResolved = (t: PrThread) => RESOLVED.has((t.status ?? "").toLowerCase());
 
+/**
+ * Threads the reviewer has hidden, for the current pull request. Owned by the page rather than by
+ * DiffThread because every refetch of the thread list rebuilds the view zones, which would otherwise
+ * reopen every hidden thread the moment anyone replied to anything.
+ */
+export type HiddenThreads = Set<number>;
+
+/** The first line of a comment as plain words, for the hidden thread's one-line summary. */
+function excerpt(content: string) {
+  const line = content.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "";
+  return parseInline(line.replace(/^(#{1,6}|>|[-*+]|\d+[.)])\s+/, "")).map((n) => n.text).join("");
+}
+
 interface Props {
   thread: PrThread;
+  hidden?: HiddenThreads;
   busy?: boolean;
   onReply: (threadId: number, content: string) => Promise<void>;
   onSetStatus: (threadId: number, status: string) => Promise<void>;
 }
 
-export function DiffThread({ thread, busy, onReply, onSetStatus }: Props) {
+export function DiffThread({ thread, hidden, busy, onReply, onSetStatus }: Props) {
+  const [collapsed, setCollapsed] = useState(() => hidden?.has(thread.id) ?? false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const resolved = isResolved(thread);
@@ -38,14 +56,43 @@ export function DiffThread({ thread, busy, onReply, onSetStatus }: Props) {
     }
   }
 
+  function toggle() {
+    const next = !collapsed;
+    if (next) hidden?.add(thread.id); else hidden?.delete(thread.id);
+    setCollapsed(next);
+  }
+
+  const status = (
+    <span className={`dthread-status ${resolved ? "ok" : "open"}`}>
+      {resolved ? "Resolved" : "Active"}
+    </span>
+  );
+  const count = `${comments.length} comment${comments.length === 1 ? "" : "s"}`;
+
+  /* Hidden is one line, not nothing: the glyph in the margin still says a thread is here, and this
+     says whose and what about, so the reviewer can tell which one they're bringing back. */
+  if (collapsed) {
+    const summary = excerpt(comments[0].content);
+    return (
+      <div className={`dthread is-collapsed ${resolved ? "is-resolved" : ""}`}>
+        <div className="dthread-head">
+          {status}
+          <span className="dcomment-author">{comments[0].author ?? "Unknown"}</span>
+          <span className="dthread-excerpt" title={summary}>{summary}</span>
+          <span className="dthread-count">{count}</span>
+          <button className="btn ghost small" onClick={toggle} aria-expanded={false}>Show</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`dthread ${resolved ? "is-resolved" : ""}`}>
       <div className="dthread-head">
-        <span className={`dthread-status ${resolved ? "ok" : "open"}`}>
-          {resolved ? "Resolved" : "Active"}
-        </span>
-        <span className="dthread-count">{comments.length} comment{comments.length === 1 ? "" : "s"}</span>
+        {status}
+        <span className="dthread-count">{count}</span>
         <span style={{ flex: 1 }} />
+        <button className="btn ghost small" onClick={toggle} aria-expanded>Hide</button>
         <button
           className="btn ghost small"
           disabled={busy || sending}
@@ -61,26 +108,29 @@ export function DiffThread({ thread, busy, onReply, onSetStatus }: Props) {
             <span className="dcomment-author">{c.author ?? "Unknown"}</span>
             {c.publishedAt && <span className="faint">{timeAgo(c.publishedAt)}</span>}
           </div>
-          {/* Content is markdown; shown verbatim for now so nothing is silently swallowed. */}
-          <div className="dcomment-body">{c.content}</div>
+          {/* Shifted down three, so an author's `#` never outranks the page's own headings. */}
+          <div className="dcomment-body"><MarkdownView text={c.content} headingShift={3} compact /></div>
         </div>
       ))}
 
-      <div className="dthread-reply">
-        <textarea
-          className="input dthread-input"
-          rows={2}
+      {/* A resolved thread is finished business; Reopen in the header is the way back to replying. */}
+      {!resolved && <div className="dthread-reply">
+        <MarkdownInput
+          minRows={2}
           placeholder="Reply…"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={setDraft}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
           }}
         />
-        <button className="btn primary small" disabled={!draft.trim() || sending} onClick={send}>
-          {sending ? <><span className="spin" /> Sending…</> : "Reply"}
-        </button>
-      </div>
+        <div className="dthread-reply-foot">
+          <span className="dc-hint">{POST_HINT} to reply · Markdown supported</span>
+          <button className="btn primary small" disabled={!draft.trim() || sending} onClick={send}>
+            {sending ? <><span className="spin" /> Sending…</> : "Reply"}
+          </button>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -119,12 +169,12 @@ export function DiffComposer({ line, top, left, onCancel, onSubmit }: {
         <span className="dc-badge">New comment</span>
         <span className="dc-line">line {line}</span>
       </div>
-      <textarea
-        className="input dc-input"
+      <MarkdownInput
         autoFocus
+        minRows={4}
         placeholder="Leave a comment…"
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={setDraft}
         onKeyDown={(e) => {
           if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
           if (e.key === "Escape") { e.preventDefault(); onCancel(); }

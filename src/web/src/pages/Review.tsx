@@ -12,6 +12,7 @@ import { branchShort, timeAgo } from "../lib/format";
 import { Combobox } from "../components/Combobox";
 import * as deeplink from "../lib/deeplink";
 import type { DiffStats } from "../components/MonacoDiff";
+import type { HiddenThreads } from "../components/DiffThread";
 import type {
   Annotation, Connector, PrChange, Project, PrThread, Repo, RepoFavourite,
 } from "../types";
@@ -289,6 +290,9 @@ export function ReviewPage() {
     queryFn: () => api.prThreads(project, repoId, prId!),
     enabled: !!project && !!repoId && !!prId,
   });
+
+  // Which threads the reviewer has hidden. A fresh set per PR: thread ids are only unique within one.
+  const hiddenThreads = useMemo<HiddenThreads>(() => new Set(), [project, repoId, prId]);
 
   const refreshThreads = () => qc.invalidateQueries({ queryKey: ["pr-threads", project, repoId, prId] });
 
@@ -1242,6 +1246,7 @@ export function ReviewPage() {
                   onStats={onStats}
                   cite={cite}
                   threads={fileThreads}
+                  hiddenThreads={hiddenThreads}
                   onReply={onReply}
                   onSetStatus={onSetStatus}
                   onNewThread={onNewThread}
