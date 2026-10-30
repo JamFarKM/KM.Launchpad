@@ -19,11 +19,15 @@ export function App() {
     retry: false,
   });
 
-  // If any request 401s (session lapsed), drop back to the connect screen.
+  // If any request 401s (session lapsed, or Azure DevOps rejected the stored PAT), drop back to
+  // the connect screen and stay there. Only null the cached user — do NOT removeQueries, which
+  // would refetch `me`; that succeeds whenever the app session is still valid (an expired PAT
+  // leaves it valid) and bounces straight back to the dashboard, which 401s again — an endless
+  // flicker between the dashboard and the loading spinner. ConnectPage lets the user supply a
+  // fresh PAT, which is the actual fix.
   useEffect(() => {
     const onUnauthorized = () => {
       qc.setQueryData(["me"], null);
-      qc.removeQueries({ queryKey: ["me"] });
     };
     window.addEventListener("pl-unauthorized", onUnauthorized);
     return () => window.removeEventListener("pl-unauthorized", onUnauthorized);
