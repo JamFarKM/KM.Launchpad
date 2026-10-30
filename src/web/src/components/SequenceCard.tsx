@@ -7,7 +7,7 @@ import { commonPrefix, stepShort, timeAgo } from "../lib/format";
 import { clearLastResult, isCleared, onCleared } from "../lib/seqDismiss";
 import { SequenceRunDialog } from "./SequenceRunDialog";
 import { SequenceLogModal } from "./SequenceLogModal";
-import { CloseIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
+import { CloseIcon, PlayIcon, StatusGlyph } from "./StatusGlyph";
 import type { StatusTone } from "../lib/format";
 
 interface Props {
@@ -16,8 +16,6 @@ interface Props {
   onRemove: (item: ViewItem) => void;
   onRename: (item: ViewItem, name: string) => void;
   onToggleLabel: (item: ViewItem, show: boolean) => void;
-  /** Shelf-level health, shown in the footer of the shelf's first card only. */
-  shelfHealth?: { failing: number; running: number };
   /** This card's sequence is the one the editor panel is pointed at (§5). */
   editing?: boolean;
   onEdit: () => void;
@@ -52,7 +50,7 @@ const isTerminal = (r?: SequenceRun | null) =>
   !!r && (r.status === "succeeded" || r.status === "failed" || r.status === "canceled");
 
 export function SequenceCard({
-  item, sequence, onRemove, onRename, onToggleLabel, shelfHealth, editing, onEdit,
+  item, sequence, onRemove, onRename, onToggleLabel, editing, onEdit,
   onOpenRun, onDragCard, onReorder,
 }: Props) {
   const seqId = item.sequenceId!;
@@ -225,7 +223,6 @@ export function SequenceCard({
             LOGS
           </button>
         )}
-        {shelfHealth && <ShelfHealthPill health={shelfHealth} />}
         <div className="card-menu-wrap">
           <button className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
           {menu && (

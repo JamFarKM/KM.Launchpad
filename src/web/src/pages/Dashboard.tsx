@@ -11,6 +11,7 @@ import { isCleared, onCleared } from "../lib/seqDismiss";
 import type { GridPos, Pipeline, Project, Run, SavedView, Sequence, SequenceRun, ViewItem } from "../types";
 import { PipelinePool } from "../components/PipelinePool";
 import { PipelineCard } from "../components/PipelineCard";
+import { ShelfHealthPill } from "../components/StatusGlyph";
 import { AnchoredMenu } from "../components/AnchoredMenu";
 import { SequenceCard } from "../components/SequenceCard";
 import { SequenceEditor } from "../components/SequenceEditor";
@@ -618,8 +619,12 @@ export function Dashboard() {
                         <div className="shelf-head" title="Drag to move this shelf around the grid">
                           <span className="shelf-grip">⠿</span>
                           <span className="shelf-title" title={shelf}>{shelf}</span>
-                          {/* The health pill lives in the first card's footer, not here — on a
-                              one-card shelf it left the title almost no room. */}
+                          {/* Shelf-level summary belongs on the shelf, not on a card: in the first
+                              card's footer it read as that one pipeline's status (a shelf with one
+                              running pipeline made every other card look like the running one). The
+                              title ellipses and the pill is flex-shrink:0, so a one-card shelf keeps
+                              room for both. */}
+                          {hp && <ShelfHealthPill health={hp} />}
                           {hiddenCount > 0 && (
                             <span
                               className="shelf-hidden"
@@ -700,7 +705,6 @@ export function Dashboard() {
                                       onRemove={removeItem}
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
-                                      shelfHealth={i === 0 ? hp : undefined}
                                       onOpenRun={(project, buildId) => setRunDetail({ project, buildId })}
                                       onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
                                       onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
@@ -714,7 +718,6 @@ export function Dashboard() {
                                       onRename={renameItem}
                                       onToggleLabel={toggleItemLabel}
                                       onSetTagFilter={setItemTagFilter}
-                                      shelfHealth={i === 0 ? hp : undefined}
                                       onDragCard={(x) => { cardDrag.current = x; poolDrag.current = null; seqDrag.current = null; }}
                                       onReorder={(target) => { if (cardDrag.current) { reorderItem(cardDrag.current, target); cardDrag.current = null; } }}
                                     />

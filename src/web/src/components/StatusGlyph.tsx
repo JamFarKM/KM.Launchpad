@@ -59,9 +59,9 @@ export function LogsIcon() {
 }
 
 /**
- * Shelf-level health, rendered in the footer of the shelf's first card. It used to sit in the
- * shelf header, where on a one-card shelf it left the title almost no room. Suppressed when
- * everything passes — an all-clear shelf stays quiet.
+ * Shelf-level health, rendered in the shelf header. It summarises the whole shelf, so it lives on
+ * the shelf, not on a card — in a card's footer it read as that one pipeline's own status.
+ * Suppressed when everything passes — an all-clear shelf stays quiet.
  */
 export function ShelfHealthPill({ health }: { health: { failing: number; running: number } }) {
   if (health.failing > 0) {

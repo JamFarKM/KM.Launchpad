@@ -5,7 +5,7 @@ import { branchShort, duration, runLabel, runTone, timeAgo, timeAgoShort } from 
 import { groupConsecutive } from "../lib/truncate";
 import { notify } from "../lib/notify";
 import { describeTagFilter, isTagFilterEmpty, runsQuery, runTagsSuffix, tagFilterOf, type TagFilter } from "../lib/tagFilter";
-import { CloseIcon, PlayIcon, ShelfHealthPill, StatusGlyph } from "./StatusGlyph";
+import { CloseIcon, PlayIcon, StatusGlyph } from "./StatusGlyph";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { TagFilterDialog } from "./TagFilterDialog";
 import { Truncated } from "./Truncated";
@@ -18,14 +18,12 @@ interface Props {
   onRename: (item: ViewItem, name: string) => void;
   onToggleLabel: (item: ViewItem, show: boolean) => void;
   onSetTagFilter: (item: ViewItem, filter: TagFilter) => void;
-  /** Shelf-level health, shown in the footer of the shelf's first card only. */
-  shelfHealth?: { failing: number; running: number };
   onDragCard: (item: ViewItem) => void;
   onReorder: (target: ViewItem) => void;
 }
 
 export function PipelineCard({
-  item, onRun, onOpenRun, onRemove, onRename, onToggleLabel, onSetTagFilter, shelfHealth, onDragCard, onReorder,
+  item, onRun, onOpenRun, onRemove, onRename, onToggleLabel, onSetTagFilter, onDragCard, onReorder,
 }: Props) {
   const [menu, setMenu] = useState(false);
   const menuBtn = useRef<HTMLButtonElement>(null);
@@ -172,7 +170,6 @@ export function PipelineCard({
             LOGS
           </button>
         )}
-        {shelfHealth && <ShelfHealthPill health={shelfHealth} />}
         <div className="card-menu-wrap">
           <button ref={menuBtn} className="card-menu-btn" title="Card options" onClick={() => setMenu((m) => !m)}>⋯</button>
           {menu && (
